@@ -3,6 +3,7 @@ enable_testing()
 add_executable(
   tests
   samplers.cc
+  solvers.cc
 )
 
 target_include_directories(tests PRIVATE ../src)
