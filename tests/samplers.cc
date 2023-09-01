@@ -89,3 +89,31 @@ TEST(SamplerTest, Gibbs) {
   EXPECT_NEAR(sample_mean.norm(), 0, accuracy);
   EXPECT_NEAR((sample_cov - get_test_covariance_mat()).norm(), 0, accuracy);
 }
+
+
+TEST(SamplerTest, GibbsSSOR) {
+  std::random_device rd;
+  std::mt19937_64 engine{rd()};
+
+  const auto prec = get_test_precision_mat();
+  GibbsSampler sampler(prec, engine, 1.6);
+
+  constexpr size_t n_burnin = 1000;
+  constexpr size_t n_samples = 1000000;
+  std::vector<Vector> samples(n_burnin + n_samples);
+
+  Vector initial(Vector::Zero());
+  samples[0] = sampler.sample(initial);
+  for (size_t i = 1; i < n_samples; ++i)
+    samples[i] = sampler.sample(samples[i - 1]);
+
+  // Discard burn-in samples
+  samples.erase(samples.begin(), samples.begin() + n_burnin);
+
+  auto sample_mean = compute_mean(samples);
+  auto sample_cov = compute_cov(samples);
+
+  constexpr double accuracy = 0.009;
+  EXPECT_NEAR(sample_mean.norm(), 0, accuracy);
+  EXPECT_NEAR((sample_cov - get_test_covariance_mat()).norm(), 0, accuracy);
+}
