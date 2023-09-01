@@ -2,7 +2,7 @@ enable_testing()
 
 add_executable(
   tests
-  cholesky.cc
+  samplers.cc
 )
 
 target_include_directories(tests PRIVATE ../src)
