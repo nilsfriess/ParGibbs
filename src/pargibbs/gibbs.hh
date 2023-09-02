@@ -25,7 +25,7 @@ public:
 
       Vector c;
       for (auto i = 0; i < size; ++i)
-        c[i] = std::sqrt(precisionMatrix(i, i)) * norm_dist(engine);
+        c[i] = std::sqrt(precisionMatrix.coeff(i, i)) * norm_dist(engine);
 
       const auto rhs = minus_N * (-1. * initial) + c;
       return M.solve(rhs);
