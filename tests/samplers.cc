@@ -1,8 +1,8 @@
-#include "pargibbs/forward_substitution.hh"
-#include <cmath>
 #include <gtest/gtest.h>
 
 #include <Eigen/Eigen>
+
+#include <cmath>
 #include <random>
 
 #include <pargibbs/cholesky.hh>
