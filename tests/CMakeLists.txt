@@ -6,7 +6,7 @@ add_executable(
   solvers.cc
 )
 
-target_include_directories(tests PRIVATE ../src)
+target_include_directories(tests PRIVATE ../include)
 
 # find_package(Eigen3 3.3 REQUIRED NO_MODULE)
 target_link_libraries(

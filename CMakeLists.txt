@@ -16,11 +16,9 @@ find_package(MPI REQUIRED)
 message(STATUS "Run: ${MPIEXEC} ${MPIEXEC_NUMPROC_FLAG} ${MPIEXEC_MAX_NUMPROCS} ${MPIEXEC_PREFLAGS} EXECUTABLE ${MPIEXEC_POSTFLAGS} ARGS")
 
 add_library(pargibbs INTERFACE)
-target_include_directories(pargibbs INTERFACE src)
+target_include_directories(pargibbs INTERFACE include)
 target_compile_options(pargibbs INTERFACE -Wall -Wextra -Wpedantic -Wnon-virtual-dtor)
 target_link_libraries(pargibbs INTERFACE Eigen3::Eigen MPI::MPI_CXX)
 
-add_executable(main main.cc)
-target_link_libraries(main PRIVATE pargibbs Eigen3::Eigen MPI::MPI_CXX)
-
 add_subdirectory(tests)
+add_subdirectory(src)

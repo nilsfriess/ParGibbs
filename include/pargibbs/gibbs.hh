@@ -12,7 +12,11 @@ public:
   // clang-format off
   GibbsSampler(const Matrix &precisionMatrix, Engine &engine, double omega = 1)
     : precisionMatrix(precisionMatrix), omega(omega), engine(engine)
-  {}
+  {
+    if (omega != 1) {
+      PARGIBBS_DEBUG << "Sampling with omega != 1 (SSOR) is currently not implemented very efficiently\n";
+    }
+  }
   // clang-format on
 
   template <class Vector> Vector sample(const Vector &initial) {
