@@ -91,17 +91,22 @@ public:
     rand.resize(red_points.size() + black_points.size());
 
     Vector next(initial);
+    Vector mean(next);
+    mean *= 1. / n_samples;
+
     for (std::size_t sample = 0; sample < n_samples; ++sample) {
       std::generate(rand.begin(), rand.end(), [&]() { return dist(engine); });
 
-      sample_at_points(next, red_points, rsqrt_diag, inv_diag, rand);
+      sample_at_points(next, red_points, rand);
       send_recv_points(next, own_red_points, ext_red_points);
 
-      sample_at_points(next, black_points, rsqrt_diag, inv_diag, rand);
+      sample_at_points(next, black_points, rand);
       send_recv_points(next, own_black_points, ext_black_points);
+
+      mean += 1. / n_samples * next;
     }
 
-    return next;
+    return mean;
   }
 
 private:
@@ -118,9 +123,7 @@ private:
 
   double omega; // SOR parameter
 
-  void sample_at_points(auto &sample, const auto &points,
-                        const auto &rsqrt_diag, const auto &inv_diag,
-                        const auto &rand) {
+  void sample_at_points(auto &sample, const auto &points, const auto &rand) {
     using It = typename LinearOperator::MatrixType::InnerIterator;
 
     std::for_each(points.begin(), points.end(), [&](const auto &point) {

@@ -23,28 +23,31 @@ auto compute_mean(It begin, It end, const Vector &zero) {
 int main(int argc, char *argv[]) {
   mpi_helper helper(&argc, &argv);
 
-  std::minstd_rand engine(std::random_device{}());
+  std::mt19937 engine(std::random_device{}());
 
-  Lattice<2, LatticeOrdering::RedBlack> lattice(301);
+  Lattice<2, LatticeOrdering::Rowwise> lattice(11);
 
   GMRFOperator precOperator(lattice);
   GibbsSampler sampler(precOperator, engine, 1.9852);
 
-  const std::size_t n_burnin = 10;
-  const std::size_t n_samples = n_burnin + 1000;
+  const std::size_t n_samples = 100000;
 
   using Vector = Eigen::VectorXd;
   auto zero = Vector(lattice.get_total_points());
   zero.setZero();
 
-  const auto start = std::chrono::steady_clock::now();
   auto res = sampler.sample(zero, n_samples);
+
+  const auto start = std::chrono::steady_clock::now();
+  res = sampler.sample(res, n_samples);
   const auto end = std::chrono::steady_clock::now();
 
   if (mpi_helper::is_debug_rank()) {
     const auto time =
         std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
-    PARGIBBS_DEBUG << "Time: " << time << std::endl;
+    std::cout << "Time: " << time << std::endl;
+
+    std::cout << "||mean|| = " << res.norm() << "\n";
   }
 
   // std::vector<Vector> samples;
