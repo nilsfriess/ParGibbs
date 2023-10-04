@@ -1,6 +1,6 @@
 #pragma once
 
-#include "pargibbs/pargibbs.hh"
+#include "../mpi_helper.hh"
 
 #include <algorithm>
 #include <cassert>
