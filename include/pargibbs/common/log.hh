@@ -37,3 +37,10 @@ private:
 
 #define PARGIBBS_DEBUG PARGIBBS_DEBUG_STREAM(PARGIBBS_DEBUG_LEVEL_INFO)
 
+#define PARGIBBS_DEBUG_STREAM_NP(level)                                        \
+  if (level > ::pargibbs::logger_stream::get().get_debug_level())              \
+    ;                                                                          \
+  else                                                                         \
+    ::pargibbs::logger_stream::get().get_stream()
+
+#define PARGIBBS_DEBUG_NP PARGIBBS_DEBUG_STREAM_NP(PARGIBBS_DEBUG_LEVEL_INFO)
