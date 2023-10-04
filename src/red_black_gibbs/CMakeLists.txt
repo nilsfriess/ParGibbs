@@ -1,0 +1,5 @@
+add_executable(rb_gibbs main.cc)
+target_include_directories(rb_gibbs PRIVATE ../../include)
+target_include_directories(rb_gibbs SYSTEM PRIVATE ../../external/)
+target_compile_options(rb_gibbs PRIVATE -Wall -Wextra -Wpedantic -Wnon-virtual-dtor)
+target_link_libraries(rb_gibbs pargibbs Eigen3::Eigen)
