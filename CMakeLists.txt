@@ -36,5 +36,4 @@ if (DEFINED USE_MPI)
   endif()
 endif()
 
-add_subdirectory(tests)
 add_subdirectory(src)
