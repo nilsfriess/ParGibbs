@@ -11,6 +11,8 @@
 #include <type_traits>
 #include <unordered_map>
 
+#include <Eigen/Sparse>
+
 namespace pargibbs {
 template <class LinearOperator, class Engine = std::mt19937_64>
 class GibbsSampler {
@@ -18,7 +20,19 @@ public:
   GibbsSampler(const LinearOperator &linear_operator, Engine &engine,
                double omega = 1.)
       : linear_operator(linear_operator), prec(linear_operator.get_matrix()),
-        engine(engine), omega(omega) {}
+        engine(engine), omega(omega) {
+    // TODO: We extract the whole diagonal, even though only a small part is
+    // acutally required by the current MPI rank
+    auto m_inv_diag = prec.diagonal().array().cwiseInverse();
+    inv_diag.resize(m_inv_diag.rows(), m_inv_diag.cols());
+    inv_diag = std::move(m_inv_diag);
+
+    auto m_rsqrt_diag = inv_diag.sqrt();
+    rsqrt_diag.resize(m_rsqrt_diag.rows(), m_rsqrt_diag.cols());
+    rsqrt_diag = std::move(m_rsqrt_diag);
+    // rand = diag.array().rsqrt().matrix().asDiagonal() * rand;
+    // rand *= std::sqrt(omega * (2 - omega));
+  }
 
   /* If MPI is used the sampler works as follows:
 
@@ -32,7 +46,7 @@ public:
      computed values to the neighbors who need them and receives the values it
      needs. As soon as it has received the values, it starts updating the black
      points and then again sends/receives the updates to compute the red points
-     in the next iteration.
+     in the next iteration and so forth.
    */
   template <class Vector>
   Vector sample(const Vector &initial, [[maybe_unused]] std::size_t n_samples) {
@@ -76,11 +90,6 @@ public:
     Vector rand;
     rand.resize(red_points.size() + black_points.size());
 
-    const auto inv_diag = prec.diagonal().array().cwiseInverse();
-    const auto rsqrt_diag = inv_diag.sqrt();
-    // rand = diag.array().rsqrt().matrix().asDiagonal() * rand;
-    // rand *= std::sqrt(omega * (2 - omega));
-
     Vector next(initial);
     for (std::size_t sample = 0; sample < n_samples; ++sample) {
       std::generate(rand.begin(), rand.end(), [&]() { return dist(engine); });
@@ -98,6 +107,11 @@ public:
 private:
   const LinearOperator &linear_operator;
   const typename LinearOperator::MatrixType &prec;
+  Eigen::Array<double, Eigen::Dynamic, Eigen::Dynamic>
+      inv_diag; // = prec.diagonal().array().cwiseInverse();
+  Eigen::Array<double, Eigen::Dynamic, Eigen::Dynamic>
+      rsqrt_diag; // = inv_diag.sqrt();
+
   Engine &engine;
 
   std::normal_distribution<double> dist;
@@ -109,7 +123,7 @@ private:
                         const auto &rand) {
     using It = typename LinearOperator::MatrixType::InnerIterator;
 
-    for (const auto &point : points) {
+    std::for_each(points.begin(), points.end(), [&](const auto &point) {
       const auto row = point.actual_index;
 
       double sum = 0.;
@@ -122,9 +136,10 @@ private:
 
       // const auto rand_num = rand[rand_cnt++];
       // next[row] =
-      //     (1 - omega) * next[row] + rand_num - omega * inv_diag[row] * sum;
-      sample[row] = rand[row] * rsqrt_diag[row] - inv_diag[row] * sum;
-    }
+      //     (1 - omega) * next[row] + rand_num - omega * inv_diag[row] *
+      // sum;
+      sample[row] = rand[row] * rsqrt_diag(row, 0) - inv_diag(row, 0) * sum;
+    });
   }
 
   void send_recv_points(auto &sample, const auto &target_points,
