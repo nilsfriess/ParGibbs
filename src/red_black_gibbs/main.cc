@@ -13,24 +13,17 @@
 
 using namespace pargibbs;
 
-template <class It, class Vector>
-auto compute_mean(It begin, It end, const Vector &zero) {
-  return std::transform_reduce(
-      begin, end, zero, std::plus<Vector>(),
-      [&](const auto &x) { return (1. / std::distance(begin, end)) * x; });
-}
-
 int main(int argc, char *argv[]) {
   mpi_helper helper(&argc, &argv);
 
   std::mt19937 engine(std::random_device{}());
 
-  Lattice<2, LatticeOrdering::Rowwise> lattice(11);
+  Lattice<2, LatticeOrdering::RedBlack> lattice(11);
 
   GMRFOperator precOperator(lattice);
-  GibbsSampler sampler(precOperator, engine, 1.9852);
+  GibbsSampler sampler(precOperator, engine, true, 1.6);
 
-  const std::size_t n_samples = 100000;
+  const std::size_t n_samples = 1000000;
 
   using Vector = Eigen::VectorXd;
   auto zero = Vector(lattice.get_total_points());
@@ -47,7 +40,15 @@ int main(int argc, char *argv[]) {
         std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
     std::cout << "Time: " << time << std::endl;
 
-    std::cout << "||mean|| = " << res.norm() << "\n";
+    auto [mean, cov] = sampler.get_mean_cov();
+    std::cout << "||mean|| = " << mean.norm() << "\n";
+
+    // Compute cov to estimate error
+    Eigen::MatrixXd dense_prec(precOperator.get_matrix());
+    auto exact_cov = dense_prec.inverse();
+
+    std::cout << "Relative cov error = "
+              << 1. / exact_cov.norm() * (exact_cov - cov).norm() << "\n";
   }
 
   // std::vector<Vector> samples;

@@ -11,16 +11,16 @@
 #include <type_traits>
 #include <unordered_map>
 
-#include <Eigen/Sparse>
+#include <Eigen/Eigen>
 
 namespace pargibbs {
 template <class LinearOperator, class Engine = std::mt19937_64>
 class GibbsSampler {
 public:
   GibbsSampler(const LinearOperator &linear_operator, Engine &engine,
-               double omega = 1.)
+               bool est_mean_cov = false, double omega = 1.)
       : linear_operator(linear_operator), prec(linear_operator.get_matrix()),
-        engine(engine), omega(omega) {
+        engine(engine), omega(omega), est_mean_cov(est_mean_cov) {
     // TODO: We extract the whole diagonal, even though only a small part is
     // acutally required by the current MPI rank
     auto m_inv_diag = prec.diagonal().array().cwiseInverse();
@@ -32,6 +32,11 @@ public:
     rsqrt_diag = std::move(m_rsqrt_diag);
     // rand = diag.array().rsqrt().matrix().asDiagonal() * rand;
     // rand *= std::sqrt(omega * (2 - omega));
+
+    if (est_mean_cov) {
+      mean.resize(prec.rows());
+      cov.resize(prec.rows(), prec.cols());
+    }
   }
 
   /* If MPI is used the sampler works as follows:
@@ -103,10 +108,15 @@ public:
       sample_at_points(next, black_points, rand);
       send_recv_points(next, own_black_points, ext_black_points);
 
-      mean += 1. / n_samples * next;
+      if (est_mean_cov)
+        update_mean_cov(next, sample);
     }
 
-    return mean;
+    return next;
+  }
+
+  std::pair<Eigen::VectorXd, Eigen::MatrixXd> get_mean_cov() const {
+    return {mean, cov};
   }
 
 private:
@@ -122,6 +132,12 @@ private:
   std::normal_distribution<double> dist;
 
   double omega; // SOR parameter
+
+  Eigen::VectorXd mean;
+  Eigen::MatrixXd cov;
+  Eigen::VectorXd temp; // used during first computation of mean and cov
+  bool est_mean_cov; // true if mean and covariance matrix should be estimated
+                     // during sampling
 
   void sample_at_points(auto &sample, const auto &points, const auto &rand) {
     using It = typename LinearOperator::MatrixType::InnerIterator;
@@ -141,7 +157,10 @@ private:
       // next[row] =
       //     (1 - omega) * next[row] + rand_num - omega * inv_diag[row] *
       // sum;
-      sample[row] = rand[row] * rsqrt_diag(row, 0) - inv_diag(row, 0) * sum;
+      sample[row] =
+          (1 - omega) * sample[row] +
+          rand[row] * std::sqrt(omega * (2 - omega)) * rsqrt_diag(row, 0) -
+          omega * inv_diag(row, 0) * sum;
     });
   }
 
@@ -170,6 +189,25 @@ private:
 
       for (std::size_t i = 0; i < indices.size(); ++i)
         sample[indices[i]] = values[i];
+    }
+  }
+
+  void update_mean_cov(const auto &sample, std::size_t n) {
+    if (n == 0) {
+      // We only have one sample yet, store and wait for the next one
+      temp = sample;
+    } else if (n == 1) {
+      mean = 0.5 * (temp + sample);
+      cov = (sample - mean) * (sample - mean).transpose();
+    } else {
+      std::size_t t = n + 1;
+
+      mean += 1 / (1. + t) * (sample - mean);
+      // cov = (1. / n) * ((n - 1) * cov + (1. * n) / (n - 1) * (sample - mean)
+      // *
+      //                                       (sample - mean).transpose());
+      cov = t / (1. + t) * cov + t / ((1. + t) * (1. + t)) * (sample - mean) *
+                                     (sample - mean).transpose();
     }
   }
 };
