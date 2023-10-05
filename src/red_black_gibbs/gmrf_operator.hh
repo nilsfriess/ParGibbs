@@ -20,12 +20,16 @@ public:
     constexpr int nnz = 460;
     std::vector<Triplet> triplets(nnz);
 
+    const double noise_var = 1e-4;
+
     const auto add_triplet_for_point =
         [&](const pargibbs::LatticePoint<Lattice::Dim> &lattice_point) {
           const auto row = lattice_point.actual_index;
-          triplets.emplace_back(row, row, 2);
 
-          for (const auto neighbour : lattice.get_neighbours(lattice_point)) {
+          const auto neighbours = lattice.get_neighbours(lattice_point);
+          triplets.emplace_back(row, row, neighbours.size() + noise_var);
+
+          for (const auto neighbour : neighbours) {
             const auto col = neighbour.actual_index;
             triplets.emplace_back(row, col, -1);
           }
