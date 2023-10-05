@@ -21,34 +21,29 @@ int main(int argc, char *argv[]) {
   Lattice<2, LatticeOrdering::RedBlack> lattice(11);
 
   GMRFOperator precOperator(lattice);
-  GibbsSampler sampler(precOperator, engine, true, 1.6);
+  GibbsSampler sampler(precOperator, engine, true, 1.98);
 
-  const std::size_t n_samples = 1000000;
+  const std::size_t n_samples = 10;
+  const std::size_t n_iterations = 100;
 
   using Vector = Eigen::VectorXd;
   auto zero = Vector(lattice.get_total_points());
   zero.setZero();
 
-  auto res = sampler.sample(zero, n_samples);
+  auto res = zero;
 
-  const auto start = std::chrono::steady_clock::now();
-  res = sampler.sample(res, n_samples);
-  const auto end = std::chrono::steady_clock::now();
+  // Compute cov to estimate error
+  Eigen::MatrixXd dense_prec(precOperator.get_matrix());
+  auto exact_cov = dense_prec.inverse();
 
-  if (mpi_helper::is_debug_rank()) {
-    const auto time =
-        std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
-    std::cout << "Time: " << time << std::endl;
+  for (std::size_t it = 0; it < n_iterations; ++it) {
+    res = sampler.sample(res, n_samples);
 
-    auto [mean, cov] = sampler.get_mean_cov();
-    std::cout << "||mean|| = " << mean.norm() << "\n";
+    if (mpi_helper::is_debug_rank()) {
+      auto [mean, cov] = sampler.get_mean_cov();
 
-    // Compute cov to estimate error
-    Eigen::MatrixXd dense_prec(precOperator.get_matrix());
-    auto exact_cov = dense_prec.inverse();
-
-    std::cout << "Relative cov error = "
-              << 1. / exact_cov.norm() * (exact_cov - cov).norm() << "\n";
+      std::cout << 1. / exact_cov.norm() * (exact_cov - cov).norm() << "\n";
+    }
   }
 
   // std::vector<Vector> samples;

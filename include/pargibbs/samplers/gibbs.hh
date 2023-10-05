@@ -96,8 +96,6 @@ public:
     rand.resize(red_points.size() + black_points.size());
 
     Vector next(initial);
-    Vector mean(next);
-    mean *= 1. / n_samples;
 
     for (std::size_t sample = 0; sample < n_samples; ++sample) {
       std::generate(rand.begin(), rand.end(), [&]() { return dist(engine); });
@@ -109,7 +107,7 @@ public:
       send_recv_points(next, own_black_points, ext_black_points);
 
       if (est_mean_cov)
-        update_mean_cov(next, sample);
+        update_mean_cov(next);
     }
 
     return next;
@@ -136,6 +134,7 @@ private:
   Eigen::VectorXd mean;
   Eigen::MatrixXd cov;
   Eigen::VectorXd temp; // used during first computation of mean and cov
+  std::size_t n_sample = 1;
   bool est_mean_cov; // true if mean and covariance matrix should be estimated
                      // during sampling
 
@@ -192,23 +191,20 @@ private:
     }
   }
 
-  void update_mean_cov(const auto &sample, std::size_t n) {
-    if (n == 0) {
+  void update_mean_cov(const auto &sample) {
+    if (n_sample == 1) {
       // We only have one sample yet, store and wait for the next one
       temp = sample;
-    } else if (n == 1) {
+    } else if (n_sample == 2) {
       mean = 0.5 * (temp + sample);
       cov = (sample - mean) * (sample - mean).transpose();
     } else {
-      std::size_t t = n + 1;
-
-      mean += 1 / (1. + t) * (sample - mean);
-      // cov = (1. / n) * ((n - 1) * cov + (1. * n) / (n - 1) * (sample - mean)
-      // *
-      //                                       (sample - mean).transpose());
-      cov = t / (1. + t) * cov + t / ((1. + t) * (1. + t)) * (sample - mean) *
+      mean += 1 / (1. + n_sample) * (sample - mean);
+      cov = n_sample / (1. + n_sample) * cov + n_sample / ((1. + n_sample) * (1. + n_sample)) * (sample - mean) *
                                      (sample - mean).transpose();
     }
+
+    n_sample++;
   }
 };
 }; // namespace pargibbs
