@@ -18,33 +18,44 @@ int main(int argc, char *argv[]) {
 
   std::mt19937 engine(std::random_device{}());
 
-  Lattice<2, LatticeOrdering::RedBlack> lattice(11);
+  Lattice<2, LatticeOrdering::RedBlack> lattice(31);
 
   GMRFOperator precOperator(lattice);
   GibbsSampler sampler(precOperator, engine, true, 1.98);
 
-  const std::size_t n_samples = 10;
-  const std::size_t n_iterations = 100;
+  const std::size_t n_samples = 10000;
 
   using Vector = Eigen::VectorXd;
   auto zero = Vector(lattice.get_total_points());
   zero.setZero();
 
+  const std::size_t n_burnin = 1000;
+  sampler.sample(zero, n_burnin);
+  sampler.reset_mean();
+
   auto res = zero;
+  res = sampler.sample(res, n_samples);
 
-  // Compute cov to estimate error
-  Eigen::MatrixXd dense_prec(precOperator.get_matrix());
-  auto exact_cov = dense_prec.inverse();
-
-  for (std::size_t it = 0; it < n_iterations; ++it) {
-    res = sampler.sample(res, n_samples);
-
-    if (mpi_helper::is_debug_rank()) {
-      auto [mean, cov] = sampler.get_mean_cov();
-
-      std::cout << 1. / exact_cov.norm() * (exact_cov - cov).norm() << "\n";
-    }
+  double local_norm = 0;
+  const auto s_mean = sampler.get_mean();
+  for (const auto &point : lattice.get_all_my_points()) {
+    const auto coeff = s_mean.coeff(point.actual_index);
+    local_norm += coeff * coeff;
   }
+
+  double norm;
+  MPI_Reduce(&local_norm, &norm, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+
+  if (mpi_helper::is_debug_rank())
+    std::cout << "Norm = " << norm << "\n";
+
+  // const auto [size, rank] = mpi_helper::get_size_rank();
+  // for (auto index : indices)
+  //   std::cout << rank << ": " << mean[index] << "\n";
+
+  // Int MPI_Reduce(const void *sendbuf, void *recvbuf, int count, MPI_Datatype
+  // datatype,
+  //                MPI_Op op, int root, MPI_Comm comm)
 
   // std::vector<Vector> samples;
   // samples.reserve(n_samples);
