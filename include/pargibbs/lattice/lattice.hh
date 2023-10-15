@@ -135,6 +135,19 @@ public:
       point.coordinate = coord;
       points.at(idx) = point;
     }
+
+    // Store the points that the current rank is responsible for
+    const auto [size, rank] = mpi_helper::get_size_rank();
+
+    for (const auto &point : points)
+      if (point.mpi_owner == rank) {
+        if (point.coordinate.type == CoordinateType::Black)
+          my_black_points.push_back(point);
+        else
+          my_red_points.push_back(point);
+
+        my_points.push_back(point);
+      }
   }
 
   std::size_t get_total_points() const { return points.size(); }
@@ -146,21 +159,10 @@ public:
   // vector is empty.
   using LatticePoints = std::vector<LatticePoint<dim>>;
   std::pair<LatticePoints, LatticePoints> get_my_points() const {
-    const auto [size, rank] = mpi_helper::get_size_rank();
-
-    LatticePoints red;
-    LatticePoints black;
-
-    for (const auto &point : points)
-      if (point.mpi_owner == rank) {
-        if (point.coordinate.type == CoordinateType::Black)
-          black.push_back(point);
-        else
-          red.push_back(point);
-      }
-
-    return {red, black};
+    return {my_red_points, my_black_points};
   }
+
+  const LatticePoints& get_all_my_points() const { return my_points; }
 
   const Coordinate<dim> &get_coord(std::size_t index) const {
     return points.at(index);
@@ -208,6 +210,10 @@ private:
   double meshwidth;
 
   std::vector<LatticePoint<dim>> points;
+
+  std::vector<LatticePoint<dim>> my_red_points;
+  std::vector<LatticePoint<dim>> my_black_points;
+  std::vector<LatticePoint<dim>> my_points;
 };
 
 } // namespace pargibbs
