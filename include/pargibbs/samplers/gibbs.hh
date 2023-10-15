@@ -18,24 +18,24 @@ template <class LinearOperator, class Engine = std::mt19937_64>
 class GibbsSampler {
 public:
   GibbsSampler(const LinearOperator &linear_operator, Engine &engine,
-               bool est_mean_cov = false, double omega = 1.)
+               bool est_mean = false, double omega = 1.)
       : linear_operator(linear_operator), prec(linear_operator.get_matrix()),
-        engine(engine), omega(omega), est_mean_cov(est_mean_cov) {
-    // TODO: We extract the whole diagonal, even though only a small part is
-    // acutally required by the current MPI rank
-    auto m_inv_diag = prec.diagonal().array().cwiseInverse();
-    inv_diag.resize(m_inv_diag.rows(), m_inv_diag.cols());
-    inv_diag = std::move(m_inv_diag);
+        engine(engine), omega(omega), est_mean(est_mean) {
 
-    auto m_rsqrt_diag = inv_diag.sqrt();
-    rsqrt_diag.resize(m_rsqrt_diag.rows(), m_rsqrt_diag.cols());
-    rsqrt_diag = std::move(m_rsqrt_diag);
-    // rand = diag.array().rsqrt().matrix().asDiagonal() * rand;
-    // rand *= std::sqrt(omega * (2 - omega));
+    const auto &lattice = linear_operator.get_lattice();
+    inv_diag.resize(prec.rows());
+    rsqrt_diag.resize(prec.rows());
 
-    if (est_mean_cov) {
+    for (const auto &point : lattice.get_all_my_points()) {
+      inv_diag.coeffRef(point.actual_index) =
+          1. / prec.coeff(point.actual_index, point.actual_index);
+
+      rsqrt_diag.coeffRef(point.actual_index) =
+          std::sqrt(inv_diag.coeff(point.actual_index));
+    }
+
+    if (est_mean) {
       mean.resize(prec.rows());
-      cov.resize(prec.rows(), prec.cols());
     }
   }
 
@@ -93,11 +93,12 @@ public:
         }
 
     Vector rand;
-    rand.resize(red_points.size() + black_points.size());
+    rand.resize(initial.size());
 
     Vector next(initial);
 
     for (std::size_t sample = 0; sample < n_samples; ++sample) {
+      // FIXME: We generate more random samples than needed
       std::generate(rand.begin(), rand.end(), [&]() { return dist(engine); });
 
       sample_at_points(next, red_points, rand);
@@ -106,24 +107,25 @@ public:
       sample_at_points(next, black_points, rand);
       send_recv_points(next, own_black_points, ext_black_points);
 
-      if (est_mean_cov)
-        update_mean_cov(next);
+      if (est_mean)
+        update_mean(next);
     }
 
     return next;
   }
 
-  std::pair<Eigen::VectorXd, Eigen::MatrixXd> get_mean_cov() const {
-    return {mean, cov};
+  Eigen::VectorXd get_mean() const { return mean; }
+
+  void reset_mean() {
+    n_sample = 0;
+    mean.setZero();
   }
 
 private:
   const LinearOperator &linear_operator;
   const typename LinearOperator::MatrixType &prec;
-  Eigen::Array<double, Eigen::Dynamic, Eigen::Dynamic>
-      inv_diag; // = prec.diagonal().array().cwiseInverse();
-  Eigen::Array<double, Eigen::Dynamic, Eigen::Dynamic>
-      rsqrt_diag; // = inv_diag.sqrt();
+  Eigen::SparseVector<double> inv_diag;
+  Eigen::SparseVector<double> rsqrt_diag;
 
   Engine &engine;
 
@@ -131,12 +133,10 @@ private:
 
   double omega; // SOR parameter
 
-  Eigen::VectorXd mean;
-  Eigen::MatrixXd cov;
-  Eigen::VectorXd temp; // used during first computation of mean and cov
+  Eigen::SparseVector<double> mean;
   std::size_t n_sample = 1;
-  bool est_mean_cov; // true if mean and covariance matrix should be estimated
-                     // during sampling
+  bool est_mean; // true if mean and covariance matrix should be estimated
+                 // during sampling
 
   void sample_at_points(auto &sample, const auto &points, const auto &rand) {
     using It = typename LinearOperator::MatrixType::InnerIterator;
@@ -152,14 +152,10 @@ private:
           sum += it.value() * sample[it.col()];
       }
 
-      // const auto rand_num = rand[rand_cnt++];
-      // next[row] =
-      //     (1 - omega) * next[row] + rand_num - omega * inv_diag[row] *
-      // sum;
       sample[row] =
           (1 - omega) * sample[row] +
-          rand[row] * std::sqrt(omega * (2 - omega)) * rsqrt_diag(row, 0) -
-          omega * inv_diag(row, 0) * sum;
+          rand[row] * std::sqrt(omega * (2 - omega)) * rsqrt_diag.coeff(row) -
+          omega * inv_diag.coeff(row) * sum;
     });
   }
 
@@ -178,7 +174,6 @@ private:
     }
 
     MPI_Waitall(reqs.size(), reqs.data(), MPI_STATUSES_IGNORE);
-    reqs.clear();
 
     for (const auto &[source, indices] : source_points) {
       std::vector<double> values(indices.size());
@@ -191,17 +186,16 @@ private:
     }
   }
 
-  void update_mean_cov(const auto &sample) {
+  void update_mean(const auto &sample) {
+    Eigen::SparseVector<double> sparse_sample(
+        linear_operator.get_lattice().get_total_points());
+    for (const auto &point : linear_operator.get_lattice().get_all_my_points())
+      sparse_sample.coeffRef(point.actual_index) = sample[point.actual_index];
+
     if (n_sample == 1) {
-      // We only have one sample yet, store and wait for the next one
-      temp = sample;
-    } else if (n_sample == 2) {
-      mean = 0.5 * (temp + sample);
-      cov = (sample - mean) * (sample - mean).transpose();
+      mean = sparse_sample;
     } else {
-      mean += 1 / (1. + n_sample) * (sample - mean);
-      cov = n_sample / (1. + n_sample) * cov + n_sample / ((1. + n_sample) * (1. + n_sample)) * (sample - mean) *
-                                     (sample - mean).transpose();
+      mean += 1 / (1. + n_sample) * (sparse_sample - mean);
     }
 
     n_sample++;
