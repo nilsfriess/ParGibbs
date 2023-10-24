@@ -4,7 +4,7 @@
 #include <stdexcept>
 #include <utility>
 
-#ifdef USE_MPI
+#if USE_MPI
 #include <mpi.h>
 #else
 #include "FakeMPI/mpi.h"
