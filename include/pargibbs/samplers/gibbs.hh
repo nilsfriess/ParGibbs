@@ -26,12 +26,12 @@ public:
     inv_diag.resize(prec.rows());
     rsqrt_diag.resize(prec.rows());
 
-    for (const auto &point : lattice.get_all_my_points()) {
-      inv_diag.coeffRef(point.actual_index) =
-          1. / prec.coeff(point.actual_index, point.actual_index);
+    for (std::size_t v = 0; v < lattice.get_n_total_vertices(); ++v) {
+      if (lattice.mpiowner[v] != mpi_helper::get_rank())
+        continue;
 
-      rsqrt_diag.coeffRef(point.actual_index) =
-          std::sqrt(inv_diag.coeff(point.actual_index));
+      inv_diag.coeffRef(v) = 1. / prec.coeff(v, v);
+      rsqrt_diag.coeffRef(v) = 1. / std::sqrt(prec.coeff(v, v));
     }
 
     if (est_mean) {
@@ -54,64 +54,106 @@ public:
      in the next iteration and so forth.
    */
   template <class Vector>
-  Vector sample(const Vector &initial, [[maybe_unused]] std::size_t n_samples) {
+  Vector sample(const Vector &initial, std::size_t n_samples) {
     const auto &lattice = linear_operator.get_lattice();
-
-    const auto red_points = lattice.get_my_points().first;
-    const auto black_points = lattice.get_my_points().second;
-
-    // Next, setup a list of indices that we need to send to MPI neighbours and
-    // also a list of indices that we expect from our neighbours. This way, we
-    // only need to communicate the values that were computed, not the indices.
-    // In total, we manage four maps that all map MPI ranks to indices:
-    //   - `own_red_points`: Indices of our red points that another MPI process
-    //     needs.
-    //   - `own_black_points`: Indices of our black points that another MPI
-    //     process needs.
-    //   - `ext_red_points`: Indices of red points that we expect to receive
-    //     from another MPI rank.
-    //   - `ext_black_points`: Indices of black points that we expect to receive
-    //     from another MPI rank.
-    std::unordered_map<int, std::vector<std::size_t>> own_red_points,
-        own_black_points, ext_red_points, ext_black_points;
-
-    const auto [size, rank] = mpi_helper::get_size_rank();
-
-    for (const auto &point : red_points)
-      for (const auto &neighbour : lattice.get_neighbours(point))
-        if (neighbour.mpi_owner != rank) {
-          own_red_points[neighbour.mpi_owner].push_back(point.actual_index);
-          ext_black_points[neighbour.mpi_owner].push_back(
-              neighbour.actual_index);
-        }
-
-    for (const auto &point : black_points)
-      for (const auto &neighbour : lattice.get_neighbours(point))
-        if (neighbour.mpi_owner != rank) {
-          own_black_points[neighbour.mpi_owner].push_back(point.actual_index);
-          ext_red_points[neighbour.mpi_owner].push_back(neighbour.actual_index);
-        }
 
     Vector rand;
     rand.resize(initial.size());
 
     Vector next(initial);
 
-    for (std::size_t sample = 0; sample < n_samples; ++sample) {
-      // FIXME: We generate more random samples than needed
+    using It = typename LinearOperator::MatrixType::InnerIterator;
+    for (std::size_t n = 0; n < n_samples; ++n) {
       std::generate(rand.begin(), rand.end(), [&]() { return dist(engine); });
 
-      sample_at_points(next, red_points, rand);
-      send_recv_points(next, own_red_points, ext_red_points);
+      for (std::size_t v = 0; v < lattice.get_n_total_vertices(); ++v) {
+        if (lattice.mpiowner[v] != mpi_helper::get_rank())
+          continue;
 
-      sample_at_points(next, black_points, rand);
-      send_recv_points(next, own_black_points, ext_black_points);
+        double sum = 0.;
+        for (It it(prec, v); it; ++it) {
+          assert((int)row == it.row());
+
+          if (it.col() != it.row())
+            sum += it.value() * next[it.col()];
+        }
+
+        next[v] =
+            (1 - omega) * next[v] +
+            rand[v] * std::sqrt(omega * (2 - omega)) * rsqrt_diag.coeff(v) -
+            omega * inv_diag.coeff(v) * sum;
+      }
 
       if (est_mean)
         update_mean(next);
     }
 
     return next;
+
+    // const auto red_points = lattice.get_my_points().first;
+    // const auto black_points = lattice.get_my_points().second;
+
+    // std::cout << red_points.size() << " ";
+    // std::cout << black_points.size() << "\n";
+
+    // // Next, setup a list of indices that we need to send to MPI neighbours
+    // and
+    // // also a list of indices that we expect from our neighbours. This way,
+    // we
+    // // only need to communicate the values that were computed, not the
+    // indices.
+    // // In total, we manage four maps that all map MPI ranks to indices:
+    // //   - `own_red_points`: Indices of our red points that another MPI
+    // process
+    // //     needs.
+    // //   - `own_black_points`: Indices of our black points that another MPI
+    // //     process needs.
+    // //   - `ext_red_points`: Indices of red points that we expect to receive
+    // //     from another MPI rank.
+    // //   - `ext_black_points`: Indices of black points that we expect to
+    // receive
+    // //     from another MPI rank.
+    // std::unordered_map<int, std::vector<std::size_t>> own_red_points,
+    //     own_black_points, ext_red_points, ext_black_points;
+
+    // const auto [size, rank] = mpi_helper::get_size_rank();
+
+    // for (const auto &point : red_points)
+    //   for (const auto &neighbour : lattice.get_neighbours(point))
+    //     if (neighbour.mpi_owner != rank) {
+    //       own_red_points[neighbour.mpi_owner].push_back(point.actual_index);
+    //       ext_black_points[neighbour.mpi_owner].push_back(
+    //           neighbour.actual_index);
+    //     }
+
+    // for (const auto &point : black_points)
+    //   for (const auto &neighbour : lattice.get_neighbours(point))
+    //     if (neighbour.mpi_owner != rank) {
+    //       own_black_points[neighbour.mpi_owner].push_back(point.actual_index);
+    //       ext_red_points[neighbour.mpi_owner].push_back(neighbour.actual_index);
+    //     }
+
+    // Vector rand;
+    // rand.resize(initial.size());
+
+    // Vector next(initial);
+
+    // for (std::size_t sample = 0; sample < n_samples; ++sample) {
+    //   // FIXME: We generate more random samples than needed
+    //   std::generate(rand.begin(), rand.end(), [&]() { return dist(engine);
+    //   });
+
+    //   sample_at_points(next, red_points, rand);
+    //   send_recv_points(next, own_red_points, ext_red_points);
+
+    //   sample_at_points(next, black_points, rand);
+    //   send_recv_points(next, own_black_points, ext_black_points);
+
+    //   if (est_mean)
+    //     update_mean(next);
+    // }
+
+    // return next;
   }
 
   Eigen::VectorXd get_mean() const { return mean; }
@@ -135,8 +177,7 @@ private:
 
   Eigen::SparseVector<double> mean;
   std::size_t n_sample = 1;
-  bool est_mean; // true if mean and covariance matrix should be estimated
-                 // during sampling
+  bool est_mean; // true if mean should be estimated during sampling
 
   void sample_at_points(auto &sample, const auto &points, const auto &rand) {
     using It = typename LinearOperator::MatrixType::InnerIterator;
@@ -187,18 +228,23 @@ private:
   }
 
   void update_mean(const auto &sample) {
-    Eigen::SparseVector<double> sparse_sample(
-        linear_operator.get_lattice().get_total_points());
-    for (const auto &point : linear_operator.get_lattice().get_all_my_points())
-      sparse_sample.coeffRef(point.actual_index) = sample[point.actual_index];
+    const auto &lattice = linear_operator.get_lattice();
 
-    if (n_sample == 1) {
-      mean = sparse_sample;
-    } else {
-      mean += 1 / (1. + n_sample) * (sparse_sample - mean);
+    Eigen::SparseVector<double> sparse_sample(lattice.get_n_total_vertices());
+    for (std::size_t v = 0; v < lattice.get_n_total_vertices(); ++v) {
+      if (lattice.mpiowner[v] != mpi_helper::get_rank())
+        continue;
+
+      sparse_sample.coeffRef(v) = sample[v];
+
+      if (n_sample == 1) {
+        mean = sparse_sample;
+      } else {
+        mean += 1 / (1. + n_sample) * (sparse_sample - mean);
+      }
+
+      n_sample++;
     }
-
-    n_sample++;
   }
 };
-}; // namespace pargibbs
+} // namespace pargibbs

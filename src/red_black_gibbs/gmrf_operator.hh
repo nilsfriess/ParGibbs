@@ -15,37 +15,31 @@ template <class Lattice> class GMRFOperator {
 
 public:
   using MatrixType = SparseMatrix;
-  
+
   GMRFOperator(const Lattice &lattice) : lattice(lattice) {
     constexpr int nnz = 460;
     std::vector<Triplet> triplets(nnz);
 
     const double noise_var = 1e-4;
 
-    const auto add_triplet_for_point =
-        [&](const pargibbs::LatticePoint<Lattice::Dim> &lattice_point) {
-          const auto row = lattice_point.actual_index;
+    const auto rank = pargibbs::mpi_helper::get_rank();
+    for (std::size_t v = 0; v < lattice.get_n_total_vertices(); ++v) {
+      if (lattice.mpiowner[v] != rank)
+        continue;
 
-          const auto neighbours = lattice.get_neighbours(lattice_point);
-          triplets.emplace_back(row, row, neighbours.size() + noise_var);
+      int n_neighbours = 0;
+      for (int n = 1; n < 5; ++n) {
+        if (lattice.vertices[5 * v + n] != -1) {
+          n_neighbours++;
+          triplets.emplace_back(v, lattice.vertices[5 * v + n], -1);
+        }
+      }
 
-          for (const auto neighbour : neighbours) {
-            const auto col = neighbour.actual_index;
-            triplets.emplace_back(row, col, -1);
-          }
-        };
+      triplets.emplace_back(v, v, n_neighbours + noise_var);
+    }
 
-    const auto red_points = lattice.get_my_points().first;
-    const auto black_points = lattice.get_my_points().second;
-
-    // Handle red points (or all points in case of sequential execution)
-    std::for_each(red_points.begin(), red_points.end(), add_triplet_for_point);
-
-    // Handle black points (or no points in case of sequential execution)
-    std::for_each(black_points.begin(), black_points.end(),
-                  add_triplet_for_point);
-
-    prec = SparseMatrix(lattice.get_total_points(), lattice.get_total_points());
+    auto mat_size = lattice.get_n_total_vertices();
+    prec = SparseMatrix(mat_size, mat_size);
     prec.setFromTriplets(triplets.begin(), triplets.end());
   }
 

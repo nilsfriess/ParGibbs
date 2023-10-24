@@ -16,9 +16,11 @@ using namespace pargibbs;
 int main(int argc, char *argv[]) {
   mpi_helper helper(&argc, &argv);
 
+  // TODO: Use a proper parallel rng
+  // std::mt19937 engine(12345 + mpi_helper::get_rank());
   std::mt19937 engine(std::random_device{}());
 
-  Lattice<2, LatticeOrdering::RedBlack> lattice(31);
+  Lattice<2, LatticeOrdering::RedBlack, ParallelLayout::WORB> lattice(17);
 
   GMRFOperator precOperator(lattice);
   GibbsSampler sampler(precOperator, engine, true, 1.98);
@@ -26,7 +28,7 @@ int main(int argc, char *argv[]) {
   const std::size_t n_samples = 10000;
 
   using Vector = Eigen::VectorXd;
-  auto zero = Vector(lattice.get_total_points());
+  auto zero = Vector(lattice.get_n_total_vertices());
   zero.setZero();
 
   const std::size_t n_burnin = 1000;
@@ -34,20 +36,30 @@ int main(int argc, char *argv[]) {
   sampler.reset_mean();
 
   auto res = zero;
+  const auto start = std::chrono::high_resolution_clock::now();
   res = sampler.sample(res, n_samples);
+  const auto end = std::chrono::high_resolution_clock::now();
+  const auto elapsed = end - start;
 
   double local_norm = 0;
   const auto s_mean = sampler.get_mean();
-  for (const auto &point : lattice.get_all_my_points()) {
-    const auto coeff = s_mean.coeff(point.actual_index);
-    local_norm += coeff * coeff;
+  for (std::size_t v = 0; v < lattice.get_n_total_vertices(); ++v) {
+    if (lattice.mpiowner[v] != mpi_helper::get_rank())
+      continue;
+    const auto coeff = s_mean.coeff(v);
+    local_norm += std::abs(coeff);
   }
 
-  double norm;
-  MPI_Reduce(&local_norm, &norm, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+  double norm = local_norm;
+  MPI_Reduce(&local_norm, &norm, 1, MPI_DOUBLE, MPI_SUM,
+             mpi_helper::debug_rank(), MPI_COMM_WORLD);
 
-  if (mpi_helper::is_debug_rank())
+  if (mpi_helper::is_debug_rank()) {
     std::cout << "Norm = " << norm << "\n";
+    std::cout << "Time: "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(elapsed)
+              << "\n";
+  }
 
   // const auto [size, rank] = mpi_helper::get_size_rank();
   // for (auto index : indices)

@@ -1,9 +1,11 @@
 #pragma once
 
+#include "coordinate.hh"
+#include "helpers.hh"
 #include "pargibbs/common/log.hh"
-#include "pargibbs/lattice/coordinate.hh"
-#include "pargibbs/lattice/helpers.hh"
 #include "pargibbs/mpi_helper.hh"
+#include "partition.hh"
+#include "types.hh"
 
 #include <algorithm>
 #include <array>
@@ -20,29 +22,9 @@
 #include <vector>
 
 namespace pargibbs {
-
-template <std::size_t dim> struct LatticePoint {
-  Coordinate<dim> coordinate;
-  int mpi_owner;
-  std::size_t linear_index;
-  std::size_t actual_index;
-};
-
-enum class LatticeOrdering { Rowwise, RedBlack };
-
-// For a red-black ordered lattice, there are different ways (in dim >= 2) to
-// decompose the lattice and distribute the points to the MPI processes.
-// Currently, only `BlockRow` layout is supported which means that each MPI
-// process is assigned a block of `rows` of the 2D lattice (for 3D it is not
-// implemented yet).
-enum class ParallelLayout { BlockRow, /* Checkerboard */ };
-
-// Represents a square discrete lattice of the cube [0,1]^dim.
-// The lattice points are stored in a std::vector.
-
 // TODO: Extend to more colours.
 template <std::size_t dim, LatticeOrdering ordering = LatticeOrdering::Rowwise,
-          ParallelLayout layout = ParallelLayout::BlockRow>
+          ParallelLayout layout = ParallelLayout::None>
 class Lattice {
   static_assert(dim >= 1 && dim <= 3, "Dimension must be between 1 and 3");
 
@@ -51,169 +33,119 @@ public:
   static constexpr LatticeOrdering Ordering = ordering;
   static constexpr ParallelLayout Layout = layout;
 
-  Lattice(std::size_t points_per_dim)
-      : n_points_per_dim(points_per_dim), meshwidth(1. / (points_per_dim - 1)),
-        points(std::pow(points_per_dim, dim)) {
-    n_red_points = (get_total_points() + 1) / 2;
-
-    if (ordering == LatticeOrdering::RedBlack and (points_per_dim % 2 == 0)) {
-      n_points_per_dim++;
-      points.resize(points.size() + n_points_per_dim);
+  Lattice(std::size_t vertices_per_dim)
+      : n_vertices_per_dim(vertices_per_dim),
+        meshwidth(1. / (n_vertices_per_dim - 1)) {
+    if (ordering == LatticeOrdering::RedBlack and
+        (n_vertices_per_dim % 2 == 0)) {
+      n_vertices_per_dim++;
 
       PARGIBBS_DEBUG
           << "The number of points per lattice dimension must be "
              "odd when using red/black ordering. Incrementing and using "
-          << n_points_per_dim << " instead.\n";
+          << n_vertices_per_dim << " instead.\n";
     }
 
-    if (mpi_helper::get_rank() == 0) {
+    if (mpi_helper::is_debug_rank()) {
       PARGIBBS_DEBUG << "Initialising " << dim << "D lattice with "
-                     << n_points_per_dim
-                     << " points per dim (total: " << get_total_points()
-                     << " points).\n";
+                     << n_vertices_per_dim
+                     << " vertices per dim (total: " << get_n_total_vertices()
+                     << " vertices).\n";
     }
 
-    // Computes the MPI rank that is responsible for the lattice point with
-    // index idx
-    const auto rank_for_index = [&](auto idx) {
-      const auto [size, rank] = mpi_helper::get_size_rank();
-      const auto n_rows = get_points_per_dim() / size;
+    // TODO: This assumes 2D
+    constexpr int n_neighbours = 4;
+    vertices.resize((n_neighbours + 1) * std::pow(n_vertices_per_dim, dim));
 
-      if (n_rows == 0)
-        throw std::runtime_error(
-            "Not enough lattice points to distribute among processes");
+    int tot_vert = static_cast<int>(get_n_total_vertices());
+    // TODO: This assumes 2D
+    for (int i = 0; i < tot_vert; ++i) {
+      int start = (n_neighbours + 1) * i;
+      vertices.at(start) = i;
 
-      for (int r = 0; r < size; ++r) {
-        std::size_t first = 0;
-        std::size_t last = 0;
-        if constexpr (dim == 1) {
-          first = r * n_rows;
-          last = first + n_rows;
-        } else if (dim == 2) {
-          first = r * n_rows * get_points_per_dim();
-          last = first + n_rows * get_points_per_dim() - 1;
-        } else {
-          static_assert(dim != 3, "Not implemented");
+      // Check if north neighbour exists
+      if (i + n_vertices_per_dim < get_n_total_vertices())
+        vertices.at(start + 1) = i + n_vertices_per_dim;
+      else
+        vertices.at(start + 1) = -1;
+
+      // Check if east neighbour exists
+      if (i % n_vertices_per_dim != n_vertices_per_dim - 1)
+        vertices.at(start + 2) = i + 1;
+      else
+        vertices.at(start + 2) = -1;
+
+      // Check if south neighbour exists
+      if (i - static_cast<int>(n_vertices_per_dim) >= 0)
+        vertices.at(start + 3) = i - static_cast<int>(n_vertices_per_dim);
+      else
+        vertices.at(start + 3) = -1;
+
+      // Check if west neighbour exists
+      if (i % n_vertices_per_dim != 0)
+        vertices.at(start + 4) = i - 1;
+      else
+        vertices.at(start + 4) = -1;
+    }
+
+    mpiowner.resize(get_n_total_vertices());
+    std::fill(mpiowner.begin(), mpiowner.end(), -1);
+    if constexpr (layout == ParallelLayout::None) {
+      std::fill(mpiowner.begin(), mpiowner.end(), 0);
+    } else {
+      auto size = mpi_helper::get_size();
+      std::array<std::size_t, dim> dimensions;
+      for (auto &entry : dimensions)
+        entry = n_vertices_per_dim;
+      auto partitions = detail::make_partition<layout>(dimensions, size);
+      assert(partitions.size() == static_cast<std::size_t>(size));
+
+      for (std::size_t i = 0; i < partitions.size(); ++i) {
+        const auto &partition = partitions[i];
+
+        std::size_t tot_points = 1;
+        for (auto e : partition.size)
+          tot_points *= e;
+
+        for (std::size_t idx = 0; idx < tot_points; ++idx) {
+          // Convert linear index within partition to global coordinate
+          auto local_coord = linear_to_xyz(idx, partition.size);
+          for (std::size_t d = 0; d < dim; ++d)
+            local_coord[d] += partition.start[d];
+
+          // And convert this to a global linear index
+          auto global_idx = xyz_to_linear(local_coord, n_vertices_per_dim);
+
+          mpiowner.at(global_idx) = i;
         }
-        assert(last < get_total_points());
-
-        if (r == size - 1)
-          last = get_total_points() - 1;
-
-        if (idx >= first && idx <= last)
-          return r;
       }
-
-      assert(false && "Unreachable");
-      return -1;
-    };
-
-    // TODO: Only construct the lattice points that the current MPI rank
-    // actually needs
-    for (std::size_t idx = 0; idx < get_total_points(); ++idx) {
-      LatticePoint<dim> point;
-
-      auto coord = linear_to_coord<dim>(idx, n_points_per_dim);
-      scale_coord(coord, meshwidth);
-
-      if constexpr (ordering == LatticeOrdering::RedBlack) {
-        if (idx % 2 == 0) {
-          coord.type = CoordinateType::Red;
-          point.actual_index = idx / 2;
-        } else {
-          coord.type = CoordinateType::Black;
-          point.actual_index = n_red_points + (idx - 1) / 2;
-        }
-      } else {
-        point.actual_index = idx;
-        coord.type = CoordinateType::None;
-      }
-
-      point.mpi_owner = rank_for_index(idx);
-
-      point.linear_index = idx;
-      point.coordinate = coord;
-      points.at(idx) = point;
     }
-
-    // Store the points that the current rank is responsible for
-    const auto [size, rank] = mpi_helper::get_size_rank();
-
-    for (const auto &point : points)
-      if (point.mpi_owner == rank) {
-        if (point.coordinate.type == CoordinateType::Black)
-          my_black_points.push_back(point);
-        else
-          my_red_points.push_back(point);
-
-        my_points.push_back(point);
-      }
   }
 
-  std::size_t get_total_points() const { return points.size(); }
-  std::size_t get_points_per_dim() const { return n_points_per_dim; }
-
-  // Get indices of the lattice points that the current MPI rank is responsible
-  // for. The pair that is returned contains a vector of the red points and a
-  // vector of the black points. In case of sequential execution, the second
-  // vector is empty.
-  using LatticePoints = std::vector<LatticePoint<dim>>;
-  std::pair<LatticePoints, LatticePoints> get_my_points() const {
-    return {my_red_points, my_black_points};
+  std::size_t get_vertices_per_dim() const { return n_vertices_per_dim; }
+  std::size_t get_n_total_vertices() const {
+    return std::pow(n_vertices_per_dim, dim);
   }
 
-  const LatticePoints& get_all_my_points() const { return my_points; }
+  // Stores indices of vertices and direct neighbours in the following format:
+  // index ||     i     |    i+1    |    i+2   |    i+3    |   i+4    |
+  // value || vertex id | north nb. | east nb. | south nb. | west nb. |
+  // The total size of this vector is thus 5 * n_vertices.
+  std::vector<int> vertices;
 
-  const Coordinate<dim> &get_coord(std::size_t index) const {
-    return points.at(index);
-  }
+  // Maps indices to mpi ranks
+  std::vector<int> mpiowner;
 
-  auto begin() { return points.begin(); }
-  auto end() { return points.end(); }
-
-  auto begin() const { return points.begin(); }
-  auto end() const { return points.end(); }
-
-  std::vector<LatticePoint<dim>>
-  get_neighbours(const LatticePoint<dim> &point) const {
-    std::vector<LatticePoint<dim>> neighbours;
-    neighbours.reserve(4);
-
-    // If not at left border (= if we have a left neighbor)
-    if (point.linear_index % n_points_per_dim != 0)
-      neighbours.push_back(points.at(point.linear_index - 1));
-
-    // If not at right border (= if we have a right neighbor)
-    if (point.linear_index % n_points_per_dim != n_points_per_dim - 1)
-      neighbours.push_back(points.at(point.linear_index + 1));
-
-    if constexpr (dim > 1) {
-      // If not at bottom border (= if we have a bottom neighbor)
-      if (point.linear_index / n_points_per_dim != 0)
-        neighbours.push_back(points.at(point.linear_index - n_points_per_dim));
-
-      if (point.linear_index / n_points_per_dim != n_points_per_dim - 1)
-        neighbours.push_back(points.at(point.linear_index + n_points_per_dim));
-    }
-
-    if constexpr (dim > 2) {
-      static_assert(dim != 3, "Not implemented yet");
-    }
-
-    return neighbours;
-  }
-
-private:
-  std::size_t n_points_per_dim;
-  std::size_t n_red_points;
+  std::size_t n_vertices_per_dim;
 
   double meshwidth;
 
-  std::vector<LatticePoint<dim>> points;
+  // std::size_t n_red_points;
+  // std::vector<LatticePoint<dim>> points;
 
-  std::vector<LatticePoint<dim>> my_red_points;
-  std::vector<LatticePoint<dim>> my_black_points;
-  std::vector<LatticePoint<dim>> my_points;
+  // std::vector<LatticePoint<dim>> my_red_points;
+  // std::vector<LatticePoint<dim>> my_black_points;
+  // std::vector<LatticePoint<dim>> my_points;
 };
 
 } // namespace pargibbs
