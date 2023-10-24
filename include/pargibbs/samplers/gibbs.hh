@@ -26,10 +26,7 @@ public:
     inv_diag.resize(prec.rows());
     rsqrt_diag.resize(prec.rows());
 
-    for (std::size_t v = 0; v < lattice.get_n_total_vertices(); ++v) {
-      if (lattice.mpiowner[v] != mpi_helper::get_rank())
-        continue;
-
+    for (auto v : lattice.own_vertices) {
       inv_diag.coeffRef(v) = 1. / prec.coeff(v, v);
       rsqrt_diag.coeffRef(v) = 1. / std::sqrt(prec.coeff(v, v));
     }
@@ -66,10 +63,7 @@ public:
     for (std::size_t n = 0; n < n_samples; ++n) {
       std::generate(rand.begin(), rand.end(), [&]() { return dist(engine); });
 
-      for (std::size_t v = 0; v < lattice.get_n_total_vertices(); ++v) {
-        if (lattice.mpiowner[v] != mpi_helper::get_rank())
-          continue;
-
+      for (auto v : lattice.own_vertices) {
         double sum = 0.;
         for (It it(prec, v); it; ++it) {
           assert((int)row == it.row());
@@ -231,10 +225,8 @@ private:
     const auto &lattice = linear_operator.get_lattice();
 
     Eigen::SparseVector<double> sparse_sample(lattice.get_n_total_vertices());
-    for (std::size_t v = 0; v < lattice.get_n_total_vertices(); ++v) {
-      if (lattice.mpiowner[v] != mpi_helper::get_rank())
-        continue;
 
+    for (auto v : lattice.own_vertices) {
       sparse_sample.coeffRef(v) = sample[v];
 
       if (n_sample == 1) {

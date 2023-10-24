@@ -100,8 +100,8 @@ public:
       auto partitions = detail::make_partition<layout>(dimensions, size);
       assert(partitions.size() == static_cast<std::size_t>(size));
 
-      for (std::size_t i = 0; i < partitions.size(); ++i) {
-        const auto &partition = partitions[i];
+      for (std::size_t p_idx = 0; p_idx < partitions.size(); ++p_idx) {
+        const auto &partition = partitions[p_idx];
 
         std::size_t tot_points = 1;
         for (auto e : partition.size)
@@ -116,7 +116,24 @@ public:
           // And convert this to a global linear index
           auto global_idx = xyz_to_linear(local_coord, n_vertices_per_dim);
 
-          mpiowner.at(global_idx) = i;
+          mpiowner.at(global_idx) = p_idx;
+        }
+      }
+
+      for (std::size_t v = 0; v < get_n_total_vertices(); ++v) {
+        if (mpiowner[v] == mpi_helper::get_rank()) {
+          own_vertices.push_back(v);
+
+          for (std::size_t n = 1; n < 5; ++n) {
+              if ((vertices[5 * v + n] != -1) &&
+                  (mpiowner[vertices[5 * v + n]] != mpi_helper::get_rank())) {
+                // At least one of the neighbouring vertices of the current
+                // vertex is not owned by the current MPI rank, i.e., it is at
+                // the border of a partition
+                border_vertices.push_back(v);
+                break;
+              }
+            }
         }
       }
     }
@@ -132,6 +149,12 @@ public:
   // value || vertex id | north nb. | east nb. | south nb. | west nb. |
   // The total size of this vector is thus 5 * n_vertices.
   std::vector<int> vertices;
+
+  // Indices of vertices that the current MPI rank owns
+  std::vector<int> own_vertices;
+  // Indices of vertices that the current MPI rank owns and that have to be
+  // communicated to some other MPI rank
+  std::vector<int> border_vertices;
 
   // Maps indices to mpi ranks
   std::vector<int> mpiowner;
