@@ -139,13 +139,6 @@ public:
   std::size_t n_vertices_per_dim;
 
   double meshwidth;
-
-  // std::size_t n_red_points;
-  // std::vector<LatticePoint<dim>> points;
-
-  // std::vector<LatticePoint<dim>> my_red_points;
-  // std::vector<LatticePoint<dim>> my_black_points;
-  // std::vector<LatticePoint<dim>> my_points;
 };
 
 } // namespace pargibbs
