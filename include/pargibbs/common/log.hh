@@ -22,7 +22,10 @@ public:
   int get_debug_level() const { return debug_level; }
 
 private:
-  logger_stream() : debug_level{PARGIBBS_DEBUG_LEVEL}, stream{std::cout} {}
+  logger_stream() : debug_level{PARGIBBS_DEBUG_LEVEL}, stream{std::cout} {
+    if (const char *dbg_level = std::getenv("PARGIBBS_DEBUG_LEVEL"))
+      debug_level = std::atoi(dbg_level);
+  }
 
   int debug_level;
   std::ostream &stream;
