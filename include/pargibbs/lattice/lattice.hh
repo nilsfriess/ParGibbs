@@ -57,8 +57,11 @@ public:
     constexpr int n_neighbours = 4;
     vertices.resize((n_neighbours + 1) * std::pow(n_vertices_per_dim, dim));
 
+    /// Loop over all vertices and store the vertex index and the indices of the
+    /// vertex's neighbours (or -1 in case there is no neighbour in the
+    /// corresponding direction)
+    // TODO: This currently only works for 2D
     int tot_vert = static_cast<int>(get_n_total_vertices());
-    // TODO: This assumes 2D
     for (int i = 0; i < tot_vert; ++i) {
       int start = (n_neighbours + 1) * i;
       vertices.at(start) = i;
@@ -88,6 +91,8 @@ public:
         vertices.at(start + 4) = -1;
     }
 
+    /// Next we partition the domain and store for each vertex the rank of the
+    /// MPI process that is responsible for that vertex.
     mpiowner.resize(get_n_total_vertices());
     std::fill(mpiowner.begin(), mpiowner.end(), -1);
     if constexpr (layout == ParallelLayout::None) {
@@ -120,20 +125,27 @@ public:
         }
       }
 
+      /// As a helper array, we also separately store the vertices that the
+      /// current MPI rank is responsible for as well as the subset of those
+      /// that have neighbouring vertices that are owned by a different MPI rank
+      /// (this can be used when checking which vertices have to be communicated
+      /// to other MPI ranks).
+      // TODO: Maybe we should store separately in which direction the
+      // neighbours lies
       for (std::size_t v = 0; v < get_n_total_vertices(); ++v) {
         if (mpiowner[v] == mpi_helper::get_rank()) {
           own_vertices.push_back(v);
 
           for (std::size_t n = 1; n < 5; ++n) {
-              if ((vertices[5 * v + n] != -1) &&
-                  (mpiowner[vertices[5 * v + n]] != mpi_helper::get_rank())) {
-                // At least one of the neighbouring vertices of the current
-                // vertex is not owned by the current MPI rank, i.e., it is at
-                // the border of a partition
-                border_vertices.push_back(v);
-                break;
-              }
+            if ((vertices[5 * v + n] != -1) &&
+                (mpiowner[vertices[5 * v + n]] != mpi_helper::get_rank())) {
+              // At least one of the neighbouring vertices of the current
+              // vertex is not owned by the current MPI rank, i.e., it is at
+              // the border of a partition
+              border_vertices.push_back(v);
+              break;
             }
+          }
         }
       }
     }
