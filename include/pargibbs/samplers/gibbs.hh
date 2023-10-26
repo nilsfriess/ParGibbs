@@ -66,8 +66,6 @@ public:
       for (auto v : lattice.own_vertices) {
         double sum = 0.;
         for (It it(prec, v); it; ++it) {
-          assert((int)row == it.row());
-
           if (it.col() != it.row())
             sum += it.value() * next[it.col()];
         }
