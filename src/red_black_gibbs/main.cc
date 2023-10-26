@@ -11,14 +11,20 @@
 #include <numeric>
 #include <random>
 
+#include <pcg_random.hpp>
+
 using namespace pargibbs;
 
 int main(int argc, char *argv[]) {
   mpi_helper helper(&argc, &argv);
 
-  // TODO: Use a proper parallel rng
-  // std::mt19937 engine(12345 + mpi_helper::get_rank());
-  std::mt19937 engine(std::random_device{}());
+  pcg64 engine(0, 1 << mpi_helper::get_rank());
+  if (argc > 1)
+    engine.seed(std::atoi(argv[1]));
+  else {
+    pcg_extras::seed_seq_from<std::random_device> seed_source;
+    engine.seed(seed_source);
+  }
 
   Lattice<2, LatticeOrdering::RedBlack, ParallelLayout::WORB> lattice(17);
 
@@ -47,12 +53,13 @@ int main(int argc, char *argv[]) {
     if (lattice.mpiowner[v] != mpi_helper::get_rank())
       continue;
     const auto coeff = s_mean.coeff(v);
-    local_norm += std::abs(coeff);
+    local_norm += coeff * coeff;
   }
 
   double norm = local_norm;
   MPI_Reduce(&local_norm, &norm, 1, MPI_DOUBLE, MPI_SUM,
              mpi_helper::debug_rank(), MPI_COMM_WORLD);
+  norm = std::sqrt(norm);
 
   if (mpi_helper::is_debug_rank()) {
     std::cout << "Norm = " << norm << "\n";
