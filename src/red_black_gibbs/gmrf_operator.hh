@@ -18,24 +18,19 @@ public:
 
   GMRFOperator(const Lattice &lattice) : lattice(lattice) {
     constexpr int nnz = 460;
-    std::vector<Triplet> triplets(nnz);
+    std::vector<Triplet> triplets;
+    triplets.reserve(nnz);
 
     const double noise_var = 1e-4;
 
-    const auto rank = pargibbs::mpi_helper::get_rank();
-    for (std::size_t v = 0; v < lattice.get_n_total_vertices(); ++v) {
-      if (lattice.mpiowner[v] != rank)
-        continue;
-
-      int n_neighbours = 0;
-      for (int n = 1; n < 5; ++n) {
-        if (lattice.vertices[5 * v + n] != -1) {
-          n_neighbours++;
-          triplets.emplace_back(v, lattice.vertices[5 * v + n], -1);
-        }
-      }
-
+    for (auto v : lattice.own_vertices) {
+      int n_neighbours = lattice.adj_idx[v + 1] - lattice.adj_idx[v];
       triplets.emplace_back(v, v, n_neighbours + noise_var);
+
+      for (int n = lattice.adj_idx[v]; n < lattice.adj_idx[v + 1]; ++n) {
+        auto nb_idx = lattice.adj_vert[n];
+        triplets.emplace_back(v, nb_idx, -1);
+      }
     }
 
     auto mat_size = lattice.get_n_total_vertices();
