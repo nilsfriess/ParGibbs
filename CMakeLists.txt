@@ -1,16 +1,12 @@
-cmake_minimum_required(VERSION 3.14)
+cmake_minimum_required(VERSION 3.24)
 project(ParGibbs)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-include(FetchContent)
-FetchContent_Declare(
-  googletest
-  URL https://github.com/google/googletest/archive/03597a01ee50ed33e9dfd640b249b4be3799d395.zip
-  DOWNLOAD_EXTRACT_TIMESTAMP TRUE
-)
-FetchContent_MakeAvailable(googletest)
+set(CMAKE_COLOR_DIAGNOSTICS ON)
+
+set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake/")
 
 find_package(Eigen3 3.3 REQUIRED NO_MODULE)
 
@@ -18,7 +14,7 @@ if (NOT DEFINED USE_MPI)
   set(USE_MPI TRUE)
 endif()
 
-IF (${USE_MPI})
+if (${USE_MPI})
   find_package(MPI REQUIRED)
   set(MPI_TARGET MPI::MPI_CXX)
 else()
@@ -36,6 +32,14 @@ if (${USE_MPI})
 else()
   target_compile_definitions(pargibbs INTERFACE USE_MPI=false)
   target_include_directories(pargibbs INTERFACE SYSTEM external)
+endif()
+
+if (${USE_METIS})
+   target_compile_definitions(pargibbs INTERFACE USE_METIS=true)
+
+   target_include_directories(pargibbs INTERFACE SYSTEM "${METIS_ROOT}/include/")
+   target_link_directories(pargibbs INTERFACE "${METIS_ROOT}/lib")
+   target_link_libraries(pargibbs INTERFACE metis GKlib)
 endif()
 
 add_subdirectory(src)

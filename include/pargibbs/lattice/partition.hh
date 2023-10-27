@@ -201,8 +201,24 @@ template <
     std::enable_if_t<Lattice::Layout == ParallelLayout::Metis, bool> = true>
 inline std::vector<typename Lattice::IndexT>
 make_partition(const Lattice &lattice, std::size_t n_partitions) {
-  constexpr auto dim = Lattice::Dim;
-  static_assert(dim != dim, "Not implemented yet");
+  static_assert(std::is_same_v<typename Lattice::IndexT, idx_t>,
+                "METIS requires to use `idx_t` type as IndexType in Lattice.");
+  std::vector<idx_t> mpiowner(lattice.get_n_total_vertices());
+
+  idx_t nvtxs = lattice.get_n_total_vertices();
+  idx_t ncon = 1;
+  idx_t nparts = n_partitions;
+
+  idx_t objval = 0;
+
+  // Const-casting is fine here, METIS does not change these pointers
+  auto *xadj = const_cast<idx_t *>(lattice.adj_idx.data());
+  auto *adjncy = const_cast<idx_t *>(lattice.adj_vert.data());
+
+  METIS_PartGraphRecursive(&nvtxs, &ncon, xadj, adjncy, NULL, NULL, NULL,
+                           &nparts, NULL, NULL, NULL, &objval, mpiowner.data());
+
+  return mpiowner;
 }
 #endif
 
