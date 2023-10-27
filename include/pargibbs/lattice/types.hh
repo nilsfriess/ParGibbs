@@ -21,5 +21,13 @@ enum class LatticeOrdering { Rowwise, RedBlack };
 //   of the 2D lattice (for 3D it is not implemented yet).
 // - `WORB` uses weighted orthogonal recursive bisection to distribute the
 //    points such that communcation is (approximately) minimised.
-  enum class ParallelLayout { None, BlockRow, WORB };
+// - `Metis` uses the Metis libray to partiton the domain.
+enum class ParallelLayout {
+  None,
+  BlockRow,
+  WORB,
+#if USE_METIS
+  Metis
+#endif
+};
 }; // namespace pargibbs

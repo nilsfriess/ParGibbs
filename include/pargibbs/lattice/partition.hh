@@ -11,6 +11,10 @@
 #include "pargibbs/common/log.hh"
 #include "types.hh"
 
+#if USE_METIS
+#include <metis.h>
+#endif
+
 namespace pargibbs::detail {
 template <std::size_t dim> using nd_id = std::array<std::size_t, dim>;
 
@@ -19,6 +23,37 @@ template <std::size_t dim> struct partition {
   nd_id<dim> size;
   std::size_t weight; // only used within `worb`, can be ignored outside
 };
+
+template <class Lattice, std::size_t dim>
+inline std::vector<typename Lattice::IndexT>
+partition_to_mpimap(const std::vector<partition<dim>> &partitions,
+                    const Lattice &lattice) {
+  std::vector<typename Lattice::IndexT> mpiowner(
+      lattice.get_n_total_vertices());
+
+  for (std::size_t p_idx = 0; p_idx < partitions.size(); ++p_idx) {
+    const auto &partition = partitions[p_idx];
+
+    std::size_t tot_points = 1;
+    for (auto e : partition.size)
+      tot_points *= e;
+
+    for (std::size_t idx = 0; idx < tot_points; ++idx) {
+      // Convert linear index within partition to global coordinate
+      auto local_coord = linear_to_xyz(idx, partition.size);
+      for (std::size_t d = 0; d < dim; ++d)
+        local_coord[d] += partition.start[d];
+
+      // And convert this to a global linear index
+      auto global_idx =
+          xyz_to_linear(local_coord, lattice.get_vertices_per_dim());
+
+      mpiowner.at(global_idx) = p_idx;
+    }
+  }
+
+  return mpiowner;
+}
 
 // Performs weighted orthogonal recursive bisection to partition a rectangular
 // grid in dimension `dim` with `dimensions[d]` nodes along dimension `d` into
@@ -29,12 +64,18 @@ template <std::size_t dim> struct partition {
 // Returns the list of partitions where each partition holds its `start`
 // coordinate and its `size`.
 // TODO: Currently only supports 2D grids.
-template <ParallelLayout layout, std::size_t dim,
-          std::enable_if_t<layout == ParallelLayout::WORB, bool> = true>
-inline std::vector<partition<dim>>
-make_partition(const std::array<std::size_t, dim> &dimensions,
-               std::size_t n_partitions) {
+template <
+    class Lattice,
+    std::enable_if_t<Lattice::Layout == ParallelLayout::WORB, bool> = true>
+inline std::vector<typename Lattice::IndexT>
+make_partition(const Lattice &lattice, std::size_t n_partitions) {
+  constexpr auto dim = Lattice::Dim;
+
   static_assert(dim == 2, "Only dim == 2 supported currently");
+
+  std::array<std::size_t, dim> dimensions;
+  for (auto &entry : dimensions)
+    entry = lattice.get_vertices_per_dim();
 
   std::vector<partition<dim>> final_partitions;
   final_partitions.reserve(n_partitions);
@@ -47,7 +88,7 @@ make_partition(const std::array<std::size_t, dim> &dimensions,
 
   if (n_partitions == 1) {
     final_partitions.push_back(std::move(initial_partition));
-    return final_partitions;
+    return partition_to_mpimap(final_partitions, lattice);
   }
 
   unfinished_partitions.push(std::move(initial_partition));
@@ -99,7 +140,7 @@ make_partition(const std::array<std::size_t, dim> &dimensions,
       unfinished_partitions.push(std::move(right));
   }
 
-  return final_partitions;
+  return partition_to_mpimap(final_partitions, lattice);
 }
 
 // Partitions a rectangular grid in dimension `dim` with `dimensions[d]` nodes
@@ -110,11 +151,17 @@ make_partition(const std::array<std::size_t, dim> &dimensions,
 //
 // Returns the list of partitions where each partition holds its `start`
 // coordinate and its `size`.
-template <ParallelLayout layout, std::size_t dim,
-          std::enable_if_t<layout == ParallelLayout::BlockRow, bool> = true>
-inline std::vector<partition<dim>>
-make_partition(const std::array<std::size_t, dim> &dimensions,
-               std::size_t n_partitions) {
+
+template <
+    class Lattice,
+    std::enable_if_t<Lattice::Layout == ParallelLayout::BlockRow, bool> = true>
+inline std::vector<typename Lattice::IndexT>
+make_partition(const Lattice &lattice, std::size_t n_partitions) {
+  constexpr auto dim = Lattice::Dim;
+  std::array<std::size_t, dim> dimensions;
+  for (auto &entry : dimensions)
+    entry = lattice.get_vertices_per_dim();
+
   std::vector<partition<dim>> partitions;
   partitions.reserve(n_partitions);
 
@@ -145,7 +192,18 @@ make_partition(const std::array<std::size_t, dim> &dimensions,
     partitions.push_back(std::move(part));
   }
 
-  return partitions;
+  return partition_to_mpimap(partitions);
 }
+
+#if USE_METIS
+template <
+    class Lattice,
+    std::enable_if_t<Lattice::Layout == ParallelLayout::Metis, bool> = true>
+inline std::vector<typename Lattice::IndexT>
+make_partition(const Lattice &lattice, std::size_t n_partitions) {
+  constexpr auto dim = Lattice::Dim;
+  static_assert(dim != dim, "Not implemented yet");
+}
+#endif
 
 }; // namespace pargibbs::detail

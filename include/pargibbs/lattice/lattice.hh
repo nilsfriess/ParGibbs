@@ -23,7 +23,8 @@
 
 namespace pargibbs {
 // TODO: Extend to more colours.
-template <std::size_t dim, LatticeOrdering ordering = LatticeOrdering::Rowwise,
+template <std::size_t dim, typename IndexType,
+          LatticeOrdering ordering = LatticeOrdering::Rowwise,
           ParallelLayout layout = ParallelLayout::None>
 class Lattice {
   static_assert(dim >= 1 && dim <= 3, "Dimension must be between 1 and 3");
@@ -32,8 +33,9 @@ public:
   static constexpr std::size_t Dim = dim;
   static constexpr LatticeOrdering Ordering = ordering;
   static constexpr ParallelLayout Layout = layout;
+  using IndexT = IndexType;
 
-  Lattice(std::size_t vertices_per_dim)
+  Lattice(IndexType vertices_per_dim)
       : n_vertices_per_dim(vertices_per_dim),
         meshwidth(1. / (n_vertices_per_dim - 1)) {
     if (ordering == LatticeOrdering::RedBlack and
@@ -53,125 +55,128 @@ public:
                      << " vertices).\n";
     }
 
-    // TODO: This assumes 2D
-    constexpr int n_neighbours = 4;
-    vertices.resize((n_neighbours + 1) * std::pow(n_vertices_per_dim, dim));
-
-    /// Loop over all vertices and store the vertex index and the indices of the
-    /// vertex's neighbours (or -1 in case there is no neighbour in the
-    /// corresponding direction)
-    // TODO: This currently only works for 2D
-    int tot_vert = static_cast<int>(get_n_total_vertices());
-    for (int i = 0; i < tot_vert; ++i) {
-      int start = (n_neighbours + 1) * i;
-      vertices.at(start) = i;
-
-      // Check if north neighbour exists
-      if (i + n_vertices_per_dim < get_n_total_vertices())
-        vertices.at(start + 1) = i + n_vertices_per_dim;
-      else
-        vertices.at(start + 1) = -1;
-
-      // Check if east neighbour exists
-      if (i % n_vertices_per_dim != n_vertices_per_dim - 1)
-        vertices.at(start + 2) = i + 1;
-      else
-        vertices.at(start + 2) = -1;
-
-      // Check if south neighbour exists
-      if (i - static_cast<int>(n_vertices_per_dim) >= 0)
-        vertices.at(start + 3) = i - static_cast<int>(n_vertices_per_dim);
-      else
-        vertices.at(start + 3) = -1;
+    IndexType curr_idx = 0;
+    for (IndexType i = 0; i < get_n_total_vertices(); ++i) {
+      adj_idx.push_back(curr_idx);
 
       // Check if west neighbour exists
-      if (i % n_vertices_per_dim != 0)
-        vertices.at(start + 4) = i - 1;
-      else
-        vertices.at(start + 4) = -1;
+      if (i % n_vertices_per_dim != 0) {
+        adj_vert.push_back(i - 1);
+        curr_idx++;
+      }
+
+      // Check if east neighbour exists
+      if (i % n_vertices_per_dim != n_vertices_per_dim - 1) {
+        adj_vert.push_back(i + 1);
+        curr_idx++;
+      }
+
+      if constexpr (dim > 1) {
+        // Check if north neighbour exists
+        if (i + n_vertices_per_dim < get_n_total_vertices()) {
+          adj_vert.push_back(i + n_vertices_per_dim);
+          curr_idx++;
+        }
+
+        // Check if south neighbour exists
+        if (i >= n_vertices_per_dim) {
+          adj_vert.push_back(i - n_vertices_per_dim);
+          curr_idx++;
+        }
+      }
     }
+    adj_idx.push_back(adj_vert.size());
 
     /// Next we partition the domain and store for each vertex the rank of the
     /// MPI process that is responsible for that vertex.
-    mpiowner.resize(get_n_total_vertices());
-    std::fill(mpiowner.begin(), mpiowner.end(), -1);
     if constexpr (layout == ParallelLayout::None) {
       std::fill(mpiowner.begin(), mpiowner.end(), 0);
     } else {
       auto size = mpi_helper::get_size();
-      std::array<std::size_t, dim> dimensions;
-      for (auto &entry : dimensions)
-        entry = n_vertices_per_dim;
-      auto partitions = detail::make_partition<layout>(dimensions, size);
-      assert(partitions.size() == static_cast<std::size_t>(size));
+      mpiowner = detail::make_partition(*this, size);
 
-      for (std::size_t p_idx = 0; p_idx < partitions.size(); ++p_idx) {
-        const auto &partition = partitions[p_idx];
-
-        std::size_t tot_points = 1;
-        for (auto e : partition.size)
-          tot_points *= e;
-
-        for (std::size_t idx = 0; idx < tot_points; ++idx) {
-          // Convert linear index within partition to global coordinate
-          auto local_coord = linear_to_xyz(idx, partition.size);
-          for (std::size_t d = 0; d < dim; ++d)
-            local_coord[d] += partition.start[d];
-
-          // And convert this to a global linear index
-          auto global_idx = xyz_to_linear(local_coord, n_vertices_per_dim);
-
-          mpiowner.at(global_idx) = p_idx;
-        }
-      }
-
-      /// As a helper array, we also separately store the vertices that the
-      /// current MPI rank is responsible for as well as the subset of those
-      /// that have neighbouring vertices that are owned by a different MPI rank
-      /// (this can be used when checking which vertices have to be communicated
-      /// to other MPI ranks).
-      // TODO: Maybe we should store separately in which direction the
-      // neighbours lies
-      for (std::size_t v = 0; v < get_n_total_vertices(); ++v) {
-        if (mpiowner[v] == mpi_helper::get_rank()) {
-          own_vertices.push_back(v);
-
-          for (std::size_t n = 1; n < 5; ++n) {
-            if ((vertices[5 * v + n] != -1) &&
-                (mpiowner[vertices[5 * v + n]] != mpi_helper::get_rank())) {
-              // At least one of the neighbouring vertices of the current
-              // vertex is not owned by the current MPI rank, i.e., it is at
-              // the border of a partition
-              border_vertices.push_back(v);
-              break;
-            }
+      if (mpi_helper::is_debug_rank() && get_vertices_per_dim() < 10) {
+        PARGIBBS_DEBUG << "Partitioned domain:\n";
+        for (std::size_t i = 0; i < mpiowner.size(); ++i) {
+          PARGIBBS_DEBUG_NP << mpiowner[i] << " ";
+          if (i % get_vertices_per_dim() == get_vertices_per_dim() - 1) {
+            PARGIBBS_DEBUG_NP << "\n";
           }
         }
       }
+
+      // if (mpi_helper::is_debug_rank()) {
+      //   std::cout << "Partition: ";
+      //   for (auto &&entry : partitions[mpi_helper::debug_rank()].start) {
+      //     std::cout << entry << " ";
+      //   }
+      //   std::cout << "(size ";
+      //   for (auto &&entry : partitions[mpi_helper::debug_rank()].size) {
+      //     std::cout << entry << " ";
+      //   }
+      //   std::cout << ")\n";
+      // }
+
+      // /// As a helper array, we also separately store the vertices that the
+      // /// current MPI rank is responsible for as well as the subset of those
+      // /// that have neighbouring vertices that are owned by a different MPI
+      // rank
+      // /// (this can be used when checking which vertices have to be
+      // communicated
+      // /// to other MPI ranks).
+      // // TODO: Maybe we should store separately in which direction the
+      // // neighbours lies
+      // for (std::size_t v = 0; v < get_n_total_vertices(); ++v) {
+      //   if (mpiowner[v] == mpi_helper::get_rank()) {
+      //     own_vertices.push_back(v);
+
+      //     for (std::size_t n = 1; n < 5; ++n) {
+      //       if ((vertices[5 * v + n] != -1) &&
+      //           (mpiowner[vertices[5 * v + n]] != mpi_helper::get_rank())) {
+      //         // At least one of the neighbouring vertices of the current
+      //         // vertex is not owned by the current MPI rank, i.e., it is at
+      //         // the border of a partition
+      //         border_vertices.push_back(v);
+      //         break;
+      //       }
+      //     }
+      //   }
     }
   }
 
-  std::size_t get_vertices_per_dim() const { return n_vertices_per_dim; }
-  std::size_t get_n_total_vertices() const {
+  IndexType get_vertices_per_dim() const { return n_vertices_per_dim; }
+  IndexType get_n_total_vertices() const {
     return std::pow(n_vertices_per_dim, dim);
   }
 
-  // Stores indices of vertices and direct neighbours in the following format:
-  // index ||     i     |    i+1    |    i+2   |    i+3    |   i+4    |
-  // value || vertex id | north nb. | east nb. | south nb. | west nb. |
-  // The total size of this vector is thus 5 * n_vertices.
-  std::vector<int> vertices;
+  // clang-format off
+  /* Stores indices of vertices in a CSR style format.
+     Consider the following 2d grid:
+
+     6 -- 7 -- 8
+     |    |    |
+     3 -- 4 -- 5
+     |    |    |
+     0 -- 1 -- 2
+
+     Then the two arrays `idx_adj` and `vert_adj` look as follows:
+     idx_adj  = [ 0,    2,       5,    7,      10,         14,      17,   19,      22,   24] 
+     vert_adj = [ 1, 3, 0, 2, 4, 1, 5, 4, 6, 0, 3, 5, 7, 1, 4, 8, 2, 7, 3, 6, 8, 4, 7, 5 ]
+  */
+  // clang-format on
+  std::vector<IndexType> adj_idx;
+  std::vector<IndexType> adj_vert;
 
   // Indices of vertices that the current MPI rank owns
-  std::vector<int> own_vertices;
+  std::vector<IndexType> own_vertices;
   // Indices of vertices that the current MPI rank owns and that have to be
   // communicated to some other MPI rank
-  std::vector<int> border_vertices;
+  std::vector<IndexType> border_vertices;
 
   // Maps indices to mpi ranks
   std::vector<int> mpiowner;
 
-  std::size_t n_vertices_per_dim;
+  IndexType n_vertices_per_dim;
 
   double meshwidth;
 };
