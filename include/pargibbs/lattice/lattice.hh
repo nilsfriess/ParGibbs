@@ -55,6 +55,7 @@ public:
                      << " vertices).\n";
     }
 
+    /// Construct array of vertices in CSR style.
     IndexType curr_idx = 0;
     for (IndexType i = 0; i < get_n_total_vertices(); ++i) {
       adj_idx.push_back(curr_idx);
@@ -105,42 +106,25 @@ public:
         }
       }
 
-      // if (mpi_helper::is_debug_rank()) {
-      //   std::cout << "Partition: ";
-      //   for (auto &&entry : partitions[mpi_helper::debug_rank()].start) {
-      //     std::cout << entry << " ";
-      //   }
-      //   std::cout << "(size ";
-      //   for (auto &&entry : partitions[mpi_helper::debug_rank()].size) {
-      //     std::cout << entry << " ";
-      //   }
-      //   std::cout << ")\n";
-      // }
+      /// As a helper array, we also separately store the vertices that the
+      /// current MPI rank is responsible for as well as the subset of those
+      /// that have neighbouring vertices that are owned by a different MPI
+      /// rank (this can be used when checking which vertices have to be
+      /// communicated to other MPI ranks).
+      for (std::size_t i = 0; i < adj_idx.size() - 1; ++i) {
+        if (mpiowner[i] != mpi_helper::get_rank())
+          own_vertices.push_back((IndexType)i);
 
-      // /// As a helper array, we also separately store the vertices that the
-      // /// current MPI rank is responsible for as well as the subset of those
-      // /// that have neighbouring vertices that are owned by a different MPI
-      // rank
-      // /// (this can be used when checking which vertices have to be
-      // communicated
-      // /// to other MPI ranks).
-      // // TODO: Maybe we should store separately in which direction the
-      // // neighbours lies
-      // for (std::size_t v = 0; v < get_n_total_vertices(); ++v) {
-      //   if (mpiowner[v] == mpi_helper::get_rank()) {
-      //     own_vertices.push_back(v);
-
-      //     for (std::size_t n = 1; n < 5; ++n) {
-      //       if ((vertices[5 * v + n] != -1) &&
-      //           (mpiowner[vertices[5 * v + n]] != mpi_helper::get_rank())) {
-      //         // At least one of the neighbouring vertices of the current
-      //         // vertex is not owned by the current MPI rank, i.e., it is at
-      //         // the border of a partition
-      //         border_vertices.push_back(v);
-      //         break;
-      //       }
-      //     }
-      //   }
+        for (std::size_t j = adj_idx[i]; j < adj_idx[i + 1]; ++j) {
+          if (mpiowner[j] != mpi_helper::get_rank()) {
+            // At least one of the neighbouring vertices of the current
+            // vertex is not owned by the current MPI rank, i.e., it is at
+            // the border of a partition
+            border_vertices.push_back((IndexType)j);
+            break;
+          }
+        }
+      }
     }
   }
 
@@ -159,7 +143,7 @@ public:
      |    |    |
      0 -- 1 -- 2
 
-     Then the two arrays `idx_adj` and `vert_adj` look as follows:
+     Then the two arrays `adj_idx` and `adj_vert` look as follows:
      idx_adj  = [ 0,    2,       5,    7,      10,         14,      17,   19,      22,   24] 
      vert_adj = [ 1, 3, 0, 2, 4, 1, 5, 4, 6, 0, 3, 5, 7, 1, 4, 8, 2, 7, 3, 6, 8, 4, 7, 5 ]
   */
