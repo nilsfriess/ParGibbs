@@ -15,6 +15,14 @@
 
 using namespace pargibbs;
 
+int main2() {
+  Eigen::SparseVector<double> vec(10);
+
+  vec.coeffRef(0) = 1;
+
+  std::cout << vec << "\n";
+}
+
 int main(int argc, char *argv[]) {
   mpi_helper helper(&argc, &argv);
 
@@ -26,37 +34,46 @@ int main(int argc, char *argv[]) {
     engine.seed(seed_source);
   }
 
-  Lattice<2, LatticeOrdering::RedBlack, ParallelLayout::WORB> lattice(17);
+  Lattice<2, int, LatticeOrdering::RedBlack, ParallelLayout::METIS> lattice(11);
+
+  // if (mpi_helper::is_debug_rank()) {
+  //   std::cout << "Own: ";
+  //   for (auto entry : lattice.own_vertices)
+  //     std::cout << entry << " ";
+  //   std::cout << "\n";
+  // }
 
   GMRFOperator precOperator(lattice);
   GibbsSampler sampler(precOperator, engine, true, 1.98);
 
+  // if (mpi_helper::is_debug_rank())
+  //   std::cout << precOperator.get_matrix() << "\n";
+
+  using Vector = Eigen::SparseVector<double>;
+  auto res = Vector(lattice.get_n_total_vertices());
+
+  for(auto v : lattice.own_vertices) {
+    res.insert(v) = 0;
+    for (int n = lattice.adj_idx[v]; n < lattice.adj_idx[v+1]; ++n) {
+      auto nb_idx = lattice.adj_vert[n];
+      res.insert(nb_idx) = 0;
+    }
+  }
+
+  const std::size_t n_burnin = 10000;
   const std::size_t n_samples = 10000;
-
-  using Vector = Eigen::VectorXd;
-  auto zero = Vector(lattice.get_n_total_vertices());
-  zero.setZero();
-
-  const std::size_t n_burnin = 1000;
-  sampler.sample(zero, n_burnin);
+    
+  res = sampler.sample(res, n_burnin);
   sampler.reset_mean();
 
-  auto res = zero;
   const auto start = std::chrono::high_resolution_clock::now();
   res = sampler.sample(res, n_samples);
   const auto end = std::chrono::high_resolution_clock::now();
   const auto elapsed = end - start;
 
-  double local_norm = 0;
-  const auto s_mean = sampler.get_mean();
-  for (std::size_t v = 0; v < lattice.get_n_total_vertices(); ++v) {
-    if (lattice.mpiowner[v] != mpi_helper::get_rank())
-      continue;
-    const auto coeff = s_mean.coeff(v);
-    local_norm += coeff * coeff;
-  }
+  double local_norm = sampler.get_mean().squaredNorm();
 
-  double norm = local_norm;
+  double norm = 0;
   MPI_Reduce(&local_norm, &norm, 1, MPI_DOUBLE, MPI_SUM,
              mpi_helper::debug_rank(), MPI_COMM_WORLD);
   norm = std::sqrt(norm);

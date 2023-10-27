@@ -192,13 +192,13 @@ make_partition(const Lattice &lattice, std::size_t n_partitions) {
     partitions.push_back(std::move(part));
   }
 
-  return partition_to_mpimap(partitions);
+  return partition_to_mpimap(partitions, lattice);
 }
 
 #if USE_METIS
 template <
     class Lattice,
-    std::enable_if_t<Lattice::Layout == ParallelLayout::Metis, bool> = true>
+    std::enable_if_t<Lattice::Layout == ParallelLayout::METIS, bool> = true>
 inline std::vector<typename Lattice::IndexT>
 make_partition(const Lattice &lattice, std::size_t n_partitions) {
   static_assert(std::is_same_v<typename Lattice::IndexT, idx_t>,

@@ -27,7 +27,7 @@ enum class ParallelLayout {
   BlockRow,
   WORB,
 #if USE_METIS
-  Metis
+  METIS
 #endif
 };
 }; // namespace pargibbs
