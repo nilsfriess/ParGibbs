@@ -7,6 +7,7 @@
 #include <cmath>
 #include <iostream>
 #include <limits>
+#include <mpi.h>
 #include <random>
 #include <type_traits>
 #include <unordered_map>
@@ -31,25 +32,12 @@ public:
       rsqrt_diag.coeffRef(v) = 1. / std::sqrt(prec.coeff(v, v));
     }
 
-    if (est_mean) {
+    if (est_mean)
       mean.resize(prec.rows());
-    }
+
+    setup_mpi_maps();
   }
 
-  /* If MPI is used the sampler works as follows:
-
-     1. Each MPI process computes its associated red and black lattice points.
-     These points correspond to rows in the matrix that can be processed in
-     parallel. The process then uses those matrix rows and the entries in the
-     column; it does not care if the other rows in the matrix are there or not,
-     it just accesses its associated rows.
-
-     2. If the process has processed all red lattice points, it communicates the
-     computed values to the neighbors who need them and receives the values it
-     needs. As soon as it has received the values, it starts updating the black
-     points and then again sends/receives the updates to compute the red points
-     in the next iteration and so forth.
-   */
   template <class Vector>
   Vector sample(const Vector &initial, std::size_t n_samples) {
     const auto &lattice = linear_operator.get_lattice();
@@ -59,11 +47,18 @@ public:
 
     Vector next(initial);
 
+    std::vector<double> mpi_buf(lattice.border_vertices.size(), 0.);
+
     using It = typename LinearOperator::MatrixType::InnerIterator;
     for (std::size_t n = 0; n < n_samples; ++n) {
       std::generate(rand.begin(), rand.end(), [&]() { return dist(engine); });
 
       for (auto v : lattice.own_vertices) {
+
+        // If v is odd, then this is a "black" vertex
+        if (v % 2 != 0)
+          continue;
+
         double sum = 0.;
         for (It it(prec, v); it; ++it) {
           if (it.col() != it.row())
@@ -75,6 +70,97 @@ public:
             rand[v] * std::sqrt(omega * (2 - omega)) * rsqrt_diag.coeff(v) -
             omega * inv_diag.coeff(v) * sum;
       }
+
+      // Send all values
+      // TODO: Maybe we should just send the red values here?
+      for (auto &&[target, vs] : mpi_send) {
+        for (std::size_t i = 0; i < vs.size(); ++i)
+          mpi_buf[i] = next[vs[i]];
+
+        MPI_Send(mpi_buf.data(), vs.size(), MPI_DOUBLE, target, 0,
+                 MPI_COMM_WORLD);
+      }
+
+      for (auto &&[source, vs] : mpi_recv) {
+        MPI_Recv(mpi_buf.data(), vs.size(), MPI_DOUBLE, source, 0,
+                 MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+
+        for (std::size_t i = 0; i < vs.size(); ++i)
+          if (vs[i] % 2 == 0)
+            next[vs[i]] = mpi_buf[i];
+      }
+
+      for (auto v : lattice.own_vertices) {
+
+        // If v is odd, then this is a "black" vertex
+        if (v % 2 == 0)
+          continue;
+
+        double sum = 0.;
+        for (It it(prec, v); it; ++it) {
+          if (it.col() != it.row())
+            sum += it.value() * next[it.col()];
+        }
+
+        next[v] =
+            (1 - omega) * next[v] +
+            rand[v] * std::sqrt(omega * (2 - omega)) * rsqrt_diag.coeff(v) -
+            omega * inv_diag.coeff(v) * sum;
+      }
+
+      // Send all values
+      // TODO: Maybe we should just send the red values here?
+      for (auto &&[target, vs] : mpi_send) {
+        for (std::size_t i = 0; i < vs.size(); ++i)
+          mpi_buf[i] = next[vs[i]];
+
+        MPI_Send(mpi_buf.data(), vs.size(), MPI_DOUBLE, target, 0,
+                 MPI_COMM_WORLD);
+      }
+
+      for (auto &&[source, vs] : mpi_recv) {
+        MPI_Recv(mpi_buf.data(), vs.size(), MPI_DOUBLE, source, 0,
+                 MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+
+        for (std::size_t i = 0; i < vs.size(); ++i)
+          if (vs[i] % 2 != 0)
+            next[vs[i]] = mpi_buf[i];
+      }
+
+      // These two maps contain the indices as well as the values that we need
+      // to send to another MPI process (the key is the rank of the target MPI
+      // process).
+      // // Red points are now updated, now send and receive
+      // for (auto v : lattice.border_vertices) {
+      //   // Here we only communicate red points
+      //   if (v % 2 != 0)
+      //     continue;
+
+      //   for (int i = 1; i < 5; ++i) {
+      //     const auto nb_index = lattice.vertices[5 * v + i];
+
+      //     // If we have a neighbour that is owned by another MPI rank, store
+      //     the
+      //     // current index and the corresponding value
+      //     if ((nb_index != -1) and
+      //         (lattice.mpiowner[nb_index] != mpi_helper::get_rank())) {
+      //       mpi_messages_indices[lattice.mpiowner[nb_index]].push_back(v);
+      //       mpi_messages_values[lattice.mpiowner[nb_index]].push_back(next[v]);
+      //     }
+      //   }
+      // }
+
+      // if (mpi_helper::is_debug_rank()) {
+      //   if (mpi_messages_indices.size() > 0) {
+      //     std::cout << "Rank " << mpi_helper::get_rank() << " has to
+      //     send:\n"; for (auto &&entry : mpi_messages_indices) {
+      //       std::cout << "To " << entry.first << ": ";
+      //       for (auto &&idx : entry.second)
+      //         std::cout << idx << " ";
+      //       std::cout << "\n";
+      //     }
+      //   }
+      // }
 
       if (est_mean)
         update_mean(next);
@@ -156,21 +242,6 @@ public:
   }
 
 private:
-  const LinearOperator &linear_operator;
-  const typename LinearOperator::MatrixType &prec;
-  Eigen::SparseVector<double> inv_diag;
-  Eigen::SparseVector<double> rsqrt_diag;
-
-  Engine &engine;
-
-  std::normal_distribution<double> dist;
-
-  double omega; // SOR parameter
-
-  Eigen::SparseVector<double> mean;
-  std::size_t n_sample = 1;
-  bool est_mean; // true if mean should be estimated during sampling
-
   void sample_at_points(auto &sample, const auto &points, const auto &rand) {
     using It = typename LinearOperator::MatrixType::InnerIterator;
 
@@ -236,5 +307,45 @@ private:
       n_sample++;
     }
   }
+
+  void setup_mpi_maps() {
+    const auto &lattice = linear_operator.get_lattice();
+    for (auto v : lattice.border_vertices) {
+      for (int i = 1; i < 5; ++i) {
+        const auto nb_index = lattice.vertices[5 * v + i];
+
+        // If we have a neighbour that is owned by another MPI process, then
+        // - we need to send the value at `v` to this process at some point, and
+        // - we will receive values at `nb_index` from this process at some
+        //   point.
+        if ((nb_index != -1) and
+            (lattice.mpiowner[nb_index] != mpi_helper::get_rank())) {
+          mpi_send[lattice.mpiowner[nb_index]].push_back(v);
+          mpi_recv[lattice.mpiowner[nb_index]].push_back(nb_index);
+        }
+      }
+    }
+  }
+
+  const LinearOperator &linear_operator;
+  const typename LinearOperator::MatrixType &prec;
+  Eigen::SparseVector<double> inv_diag;
+  Eigen::SparseVector<double> rsqrt_diag;
+
+  Engine &engine;
+
+  std::normal_distribution<double> dist;
+
+  double omega; // SOR parameter
+
+  Eigen::SparseVector<double> mean;
+  std::size_t n_sample = 1;
+  bool est_mean; // true if mean should be estimated during sampling
+
+  // TODO: Maybe replace these by optimised small maps
+  // mpi rank -> vertex indices we need to send
+  std::unordered_map<int, std::vector<int>> mpi_send;
+  // mpi rank -> vertex indices we will receive
+  std::unordered_map<int, std::vector<int>> mpi_recv;
 };
 } // namespace pargibbs
