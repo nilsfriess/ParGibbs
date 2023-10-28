@@ -15,14 +15,6 @@
 
 using namespace pargibbs;
 
-int main2() {
-  Eigen::SparseVector<double> vec(10);
-
-  vec.coeffRef(0) = 1;
-
-  std::cout << vec << "\n";
-}
-
 int main(int argc, char *argv[]) {
   mpi_helper helper(&argc, &argv);
 
@@ -34,35 +26,21 @@ int main(int argc, char *argv[]) {
     engine.seed(seed_source);
   }
 
-  Lattice<2, int, LatticeOrdering::RedBlack, ParallelLayout::METIS> lattice(11);
-
-  // if (mpi_helper::is_debug_rank()) {
-  //   std::cout << "Own: ";
-  //   for (auto entry : lattice.own_vertices)
-  //     std::cout << entry << " ";
-  //   std::cout << "\n";
-  // }
+  Lattice<2, int, LatticeOrdering::RedBlack, ParallelLayout::METIS> lattice(
+      21);
 
   GMRFOperator precOperator(lattice);
-  GibbsSampler sampler(precOperator, engine, true, 1.98);
-
-  // if (mpi_helper::is_debug_rank())
-  //   std::cout << precOperator.get_matrix() << "\n";
+  GibbsSampler sampler(precOperator, engine, true, 1.68);
 
   using Vector = Eigen::SparseVector<double>;
   auto res = Vector(lattice.get_n_total_vertices());
 
-  for(auto v : lattice.own_vertices) {
+  for (auto v : lattice.adj_vert)
     res.insert(v) = 0;
-    for (int n = lattice.adj_idx[v]; n < lattice.adj_idx[v+1]; ++n) {
-      auto nb_idx = lattice.adj_vert[n];
-      res.insert(nb_idx) = 0;
-    }
-  }
 
   const std::size_t n_burnin = 10000;
-  const std::size_t n_samples = 10000;
-    
+  const std::size_t n_samples = 50000;
+
   res = sampler.sample(res, n_burnin);
   sampler.reset_mean();
 
@@ -84,41 +62,4 @@ int main(int argc, char *argv[]) {
               << std::chrono::duration_cast<std::chrono::milliseconds>(elapsed)
               << "\n";
   }
-
-  // const auto [size, rank] = mpi_helper::get_size_rank();
-  // for (auto index : indices)
-  //   std::cout << rank << ": " << mean[index] << "\n";
-
-  // Int MPI_Reduce(const void *sendbuf, void *recvbuf, int count, MPI_Datatype
-  // datatype,
-  //                MPI_Op op, int root, MPI_Comm comm)
-
-  // std::vector<Vector> samples;
-  // samples.reserve(n_samples);
-  // samples.push_back(sampler.sample(zero, 1));
-
-  // for (std::size_t i = 1; i < n_samples; ++i) {
-  //   samples.push_back(sampler.sample(samples.at(i - 1), 1));
-  // }
-
-  // std::cout
-  //     << "Mean = "
-  //     << compute_mean(samples.begin() + n_burnin, samples.end(), zero).norm()
-  //     << "\n";
-  // // std::cout << "||A|| = "
-  // //           << Eigen::MatrixXd(precOperator.get_matrix()).operatorNorm()
-  // //           << "\n";
-
-  // CholeskySampler sampler2(precOperator.get_matrix(), engine);
-  // sampler2.sample(zero);
-
-  // samples[0] = zero;
-  // for (std::size_t i = 1; i < n_samples; ++i) {
-  //   samples[i] = sampler2.sample(zero);
-  // }
-
-  // std::cout
-  //     << "Mean = "
-  //     << compute_mean(samples.begin() + n_burnin, samples.end(), zero).norm()
-  //     << "\n";
 }
