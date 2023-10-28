@@ -40,7 +40,7 @@ int main(int argc, char *argv[]) {
 #endif
 
   GMRFOperator precOperator(lattice);
-  GibbsSampler sampler(precOperator, engine, true, 1.68);
+  GibbsSampler sampler(precOperator, engine, true, 1.9);
 
   using Vector = Eigen::SparseVector<double>;
   auto res = Vector(lattice.get_n_total_vertices());
