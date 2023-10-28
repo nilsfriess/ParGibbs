@@ -114,12 +114,12 @@ public:
       /// rank (this can be used when checking which vertices have to be
       /// communicated to other MPI ranks).
       for (std::size_t i = 0; i < (std::size_t)get_n_total_vertices(); ++i) {
-        if (mpiowner.at(i) == mpi_helper::get_rank()) {
+        if (mpiowner.at(i) == (IndexType)mpi_helper::get_rank()) {
           own_vertices.push_back((IndexType)i);
 
           for (IndexType j = adj_idx.at(i); j < adj_idx.at(i + 1); ++j) {
             auto nb = adj_vert.at(j); // Get index of neighbouring vertex
-            if (mpiowner.at(nb) != mpi_helper::get_rank()) {
+            if (mpiowner.at(nb) != (IndexType)mpi_helper::get_rank()) {
               // At least one of the neighbouring vertices of the current
               // vertex is not owned by the current MPI rank, i.e., it is at
               // the border of a partition

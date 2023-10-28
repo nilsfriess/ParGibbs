@@ -27,7 +27,8 @@ public:
       int n_neighbours = lattice.adj_idx[v + 1] - lattice.adj_idx[v];
       triplets.emplace_back(v, v, n_neighbours + noise_var);
 
-      for (int n = lattice.adj_idx[v]; n < lattice.adj_idx[v + 1]; ++n) {
+      for (typename Lattice::IndexT n = lattice.adj_idx[v];
+           n < lattice.adj_idx[v + 1]; ++n) {
         auto nb_idx = lattice.adj_vert[n];
         triplets.emplace_back(v, nb_idx, -1);
       }

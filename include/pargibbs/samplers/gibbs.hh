@@ -191,14 +191,17 @@ private:
 
   void setup_mpi_maps() {
     const auto &lattice = linear_operator.get_lattice();
+    using IndexT = typename std::decay_t<decltype(lattice)>::IndexT;
+
     for (auto v : lattice.border_vertices) {
-      for (int n = lattice.adj_idx.at(v); n < lattice.adj_idx.at(v + 1); ++n) {
+      for (IndexT n = lattice.adj_idx.at(v); n < lattice.adj_idx.at(v + 1);
+           ++n) {
         auto nb_idx = lattice.adj_vert.at(n);
         // If we have a neighbour that is owned by another MPI process, then
         // - we need to send the value at `v` to this process at some point, and
         // - we will receive values at `nb_idx` from this process at some
         //   point.
-        if (lattice.mpiowner[nb_idx] != mpi_helper::get_rank()) {
+        if (lattice.mpiowner[nb_idx] != (IndexT)mpi_helper::get_rank()) {
           mpi_send[lattice.mpiowner.at(nb_idx)].push_back(v);
           mpi_recv[lattice.mpiowner.at(nb_idx)].push_back(nb_idx);
         }
