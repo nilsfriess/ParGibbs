@@ -1,9 +1,9 @@
 #pragma once
 
-#include <pargibbs/pargibbs.hh>
-
-#include <Eigen/SparseCore>
 #include <vector>
+
+#include <Eigen/Core>
+#include <Eigen/SparseCore>
 
 // This operator is represented by a matrix that comes from Example 6.1 from
 // [Fox, Parker: Accelerated Gibbs sampling of normal distributions using matrix
@@ -17,7 +17,8 @@ public:
   using MatrixType = SparseMatrix;
 
   GMRFOperator(const Lattice &lattice) : lattice(lattice) {
-    constexpr int nnz = 460;
+    const int entries_per_row = 5;
+    const int nnz = lattice.own_vertices.size() * entries_per_row;
     std::vector<Triplet> triplets;
     triplets.reserve(nnz);
 

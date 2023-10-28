@@ -1,24 +1,29 @@
-#include "gmrf_operator.hh"
+#include <Eigen/Core>
+#include <Eigen/SparseCore>
 
-#include <pargibbs/pargibbs.hh>
-
-#include <Eigen/Eigen>
-
-#include <algorithm>
 #include <chrono>
+#include <cmath>
+#include <cstdlib>
 #include <iostream>
-#include <iterator>
-#include <numeric>
 #include <random>
+#include <vector>
 
 #include <pcg_random.hpp>
+
+#include "gmrf_operator.hh"
+
+#include "pargibbs/common/log.hh"
+#include "pargibbs/lattice/lattice.hh"
+#include "pargibbs/lattice/types.hh"
+#include "pargibbs/mpi_helper.hh"
+#include "pargibbs/samplers/gibbs.hh"
 
 using namespace pargibbs;
 
 int main(int argc, char *argv[]) {
   mpi_helper helper(&argc, &argv);
 
-  pcg64 engine(0, 1 << mpi_helper::get_rank());
+  pcg64 engine(0, mpi_helper::get_rank());
   if (argc > 1)
     engine.seed(std::atoi(argv[1]));
   else {
@@ -27,7 +32,8 @@ int main(int argc, char *argv[]) {
   }
 
 #ifdef USE_METIS
-  Lattice<2, int, LatticeOrdering::RedBlack, ParallelLayout::METIS> lattice(21);
+  Lattice<2, int, LatticeOrdering::RedBlack, ParallelLayout::METIS> lattice(
+      101);
 #else
   Lattice<2, std::size_t, LatticeOrdering::RedBlack, ParallelLayout::WORB>
       lattice(21);
@@ -42,8 +48,8 @@ int main(int argc, char *argv[]) {
   for (auto v : lattice.adj_vert)
     res.insert(v) = 0;
 
-  const std::size_t n_burnin = 10000;
-  const std::size_t n_samples = 50000;
+  const std::size_t n_burnin = 1000;
+  const std::size_t n_samples = 5000;
 
   res = sampler.sample(res, n_burnin);
   sampler.reset_mean();

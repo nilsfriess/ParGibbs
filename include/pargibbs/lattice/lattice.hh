@@ -1,25 +1,13 @@
 #pragma once
 
-#include "coordinate.hh"
-#include "helpers.hh"
+#include <cassert>
+#include <cstddef>
+#include <vector>
+
 #include "pargibbs/common/log.hh"
 #include "pargibbs/mpi_helper.hh"
 #include "partition.hh"
 #include "types.hh"
-
-#include <algorithm>
-#include <array>
-#include <cassert>
-#include <cmath>
-#include <cstddef>
-#include <iterator>
-#include <numeric>
-#include <optional>
-#include <stdexcept>
-#include <type_traits>
-#include <unordered_map>
-#include <utility>
-#include <vector>
 
 namespace pargibbs {
 // TODO: Extend to more colours.

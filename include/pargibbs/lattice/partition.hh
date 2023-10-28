@@ -1,19 +1,22 @@
 #pragma once
 
-#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstddef>
-#include <exception>
+#include <iterator>
+#include <ostream>
 #include <stack>
+#include <stdexcept>
+#include <type_traits>
 #include <vector>
-
-#include "pargibbs/common/log.hh"
-#include "types.hh"
 
 #if USE_METIS
 #include <metis.h>
 #endif
+
+#include "pargibbs/common/log.hh"
+#include "pargibbs/lattice/helpers.hh"
+#include "types.hh"
 
 namespace pargibbs::detail {
 template <std::size_t dim> using nd_id = std::array<std::size_t, dim>;

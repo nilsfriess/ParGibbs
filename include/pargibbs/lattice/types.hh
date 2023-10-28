@@ -1,7 +1,5 @@
 #pragma once
 
-#include "coordinate.hh"
-
 #include <cstddef>
 
 namespace pargibbs {

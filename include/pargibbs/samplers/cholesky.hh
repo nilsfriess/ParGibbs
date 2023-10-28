@@ -1,11 +1,11 @@
 #pragma once
 
-#include "pargibbs/common/log.hh"
-
-#include <cstdlib>
 #include <random>
 
+#include <Eigen/Core>
 #include <Eigen/SparseCholesky>
+
+#include "pargibbs/common/log.hh"
 
 namespace pargibbs {
 template <class Matrix, class Engine = std::mt19937_64> class CholeskySampler {
@@ -14,7 +14,7 @@ public:
       : prec(precision_matrix), engine(engine) {
     solver.compute(prec);
     if (solver.info() != Eigen::Success) {
-      std::cout << "Decomposition failed.\n";
+      PARGIBBS_DEBUG << "Decomposition failed.\n";
       return;
     }
   }

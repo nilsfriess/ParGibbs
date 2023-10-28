@@ -1,19 +1,21 @@
 #pragma once
 
-#include "../mpi_helper.hh"
-#include "pargibbs/common/log.hh"
-
 #include <algorithm>
-#include <cassert>
 #include <cmath>
-#include <iostream>
-#include <limits>
+#include <cstddef>
 #include <random>
-#include <set>
 #include <type_traits>
 #include <unordered_map>
+#include <vector>
 
-#include <Eigen/Eigen>
+#include <Eigen/Core>
+#include <Eigen/Sparse>
+
+#ifdef PG_DEBUG_MODE
+#include "pargibbs/common/log.hh"
+#endif
+
+#include "../mpi_helper.hh"
 
 namespace pargibbs {
 template <class LinearOperator, class Engine = std::mt19937_64>
@@ -133,17 +135,20 @@ private:
   void send_recv(Vector &curr_sample, const Predicate &IncludeIndex) {
     auto &lattice = linear_operator.get_lattice();
     static std::vector<double> mpi_buf(lattice.border_vertices.size());
+    std::vector<MPI_Request> reqs;
+    reqs.reserve(4);
 
     for (auto &&[target, vs] : mpi_send) {
       for (std::size_t i = 0; i < vs.size(); ++i)
         mpi_buf[i] = curr_sample.coeff(vs[i]);
 
-      MPI_Send(mpi_buf.data(), vs.size(), MPI_DOUBLE, target, 0,
-               MPI_COMM_WORLD);
+      reqs.push_back(MPI_REQUEST_NULL);
+      MPI_Isend(mpi_buf.data(), vs.size(), MPI_DOUBLE, target, 0,
+                MPI_COMM_WORLD, &reqs.back());
     }
+    MPI_Waitall(reqs.size(), reqs.data(), MPI_STATUSES_IGNORE);
 
     for (auto &&[source, vs] : mpi_recv) {
-      std::vector<double> mpi_buf(vs.size());
       MPI_Recv(mpi_buf.data(), vs.size(), MPI_DOUBLE, source, 0, MPI_COMM_WORLD,
                MPI_STATUS_IGNORE);
 

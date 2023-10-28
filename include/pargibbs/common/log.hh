@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdlib>
 #include <iostream>
 
 #define PARGIBBS_DEBUG_LEVEL_NONE 0

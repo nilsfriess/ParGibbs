@@ -1,8 +1,7 @@
 #pragma once
 
+#include <array>
 #include <cstddef>
-
-#include "coordinate.hh"
 
 namespace pargibbs {
 template <std::size_t dim>
@@ -42,32 +41,5 @@ linear_to_xyz(std::size_t idx, std::array<std::size_t, dim> n_points_per_dim) {
   }
 
   return coord;
-}
-
-// template <std::size_t dim>
-// inline Coordinate<dim> linear_to_xyz(std::size_t idx,
-//                                        std::size_t n_points_per_dim) {
-//   std::array<std::size_t, dim> per_dim;
-//   for (auto &entry : per_dim)
-//     entry = n_points_per_dim;
-//   return linear_to_coord(idx, per_dim);
-// }
-
-template <std::size_t dim>
-void scale_coord(Coordinate<dim> &coord, double scaling) {
-  for (std::size_t i = 0; i < dim; ++i)
-    coord[i] *= scaling;
-}
-
-template <std::size_t dim> void switch_color(Coordinate<dim> &coordinate) {
-  if (coordinate.type == CoordinateType::None)
-    return;
-
-  if (coordinate.type == CoordinateType::Red)
-    coordinate.type = CoordinateType::Black;
-  else if (coordinate.type == CoordinateType::Black)
-    coordinate.type = CoordinateType::Red;
-  else
-    __builtin_unreachable();
 }
 } // namespace pargibbs
