@@ -198,17 +198,25 @@ private:
         // - we will receive values at `nb_idx` from this process at some
         //   point.
         if (lattice.mpiowner[nb_idx] != mpi_helper::get_rank()) {
-          if (!mpi_send_set[lattice.mpiowner.at(nb_idx)].contains(v)) {
-            mpi_send[lattice.mpiowner.at(nb_idx)].push_back(v);
-            mpi_send_set[lattice.mpiowner.at(nb_idx)].insert(v);
-          }
-
-          if (!mpi_recv_set[lattice.mpiowner.at(nb_idx)].contains(nb_idx)) {
-            mpi_recv[lattice.mpiowner.at(nb_idx)].push_back(nb_idx);
-            mpi_recv_set[lattice.mpiowner.at(nb_idx)].insert(nb_idx);
-          }
+          mpi_send[lattice.mpiowner.at(nb_idx)].push_back(v);
+          mpi_recv[lattice.mpiowner.at(nb_idx)].push_back(nb_idx);
         }
       }
+    }
+
+    // After we are done setting up the maps, we sort the list of indices
+    // because it is not guaranteed that the list of indices that rank x has to
+    // send to rank y is ordered the same as the list of indices that rank y
+    // expects to receive from rank x. We also remove duplicates here, since we
+    // don't need to send the same value twice.
+    for (auto &[rank, indices] : mpi_send) {
+      std::sort(indices.begin(), indices.end());
+      indices.erase(std::unique(indices.begin(), indices.end()), indices.end());
+    }
+
+    for (auto &[rank, indices] : mpi_recv) {
+      std::sort(indices.begin(), indices.end());
+      indices.erase(std::unique(indices.begin(), indices.end()), indices.end());
     }
   }
 
@@ -229,9 +237,7 @@ private:
 
   // mpi rank -> vertex indices we need to send
   std::unordered_map<int, std::vector<int>> mpi_send;
-  std::unordered_map<int, std::set<int>> mpi_send_set;
   // mpi rank -> vertex indices we will receive
   std::unordered_map<int, std::vector<int>> mpi_recv;
-  std::unordered_map<int, std::set<int>> mpi_recv_set;
 };
 } // namespace pargibbs
