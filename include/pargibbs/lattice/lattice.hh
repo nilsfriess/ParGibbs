@@ -99,7 +99,8 @@ public:
 
       if (mpi_helper::is_debug_rank() && get_vertices_per_dim() < 10) {
         PARGIBBS_DEBUG << "Partitioned domain:\n";
-        for (std::size_t i = 0; i < mpiowner.size(); ++i) {
+        for (typename Lattice::IndexT i = 0;
+             i < (Lattice::IndexT)mpiowner.size(); ++i) {
           PARGIBBS_DEBUG_NP << mpiowner[i] << " ";
           if (i % get_vertices_per_dim() == get_vertices_per_dim() - 1) {
             PARGIBBS_DEBUG_NP << "\n";
