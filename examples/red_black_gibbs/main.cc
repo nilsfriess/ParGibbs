@@ -71,7 +71,8 @@ int main(int argc, char *argv[]) {
                mpi_helper::debug_rank(), MPI_COMM_WORLD);
     norm = std::sqrt(norm);
 
-    std::cout << norm << "\n";
+    if (mpi_helper::is_debug_rank())
+      std::cout << norm << "\n";
   }
 
   // const auto start = std::chrono::high_resolution_clock::now();
