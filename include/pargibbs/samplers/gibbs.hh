@@ -65,98 +65,24 @@ public:
 
   template <class Vector>
   Vector sample(const Vector &initial, std::size_t n_samples) {
-    const auto &lattice = linear_operator.get_lattice();
-
     Eigen::VectorXd rand;
     rand.resize(initial.size());
 
     Vector next(initial);
 
-    // std::vector<double> mpi_buf; //(lattice.border_vertices.size(), 0.);
-    // mpi_buf.resize(1000);
+    auto is_red_vertex = [](auto v) { return v % 2 == 0; };
+    auto is_black_vertex = [](auto v) { return v % 2 != 0; };
 
-    using It = typename LinearOperator::MatrixType::InnerIterator;
     for (std::size_t n = 0; n < n_samples; ++n) {
       std::generate(rand.begin(), rand.end(), [&]() { return dist(engine); });
 
-      for (auto v : lattice.own_vertices) {
+      // Update sample at "red" vertices
+      sample_at_points(next, rand, is_red_vertex);
+      send_recv(next, is_red_vertex);
 
-        // If v is odd, then this is a "black" vertex
-        if (v % 2 != 0)
-          continue;
-
-        double sum = 0.;
-        for (It it(prec, v); it; ++it) {
-          assert(it.row() == v);
-          if (it.col() != it.row())
-            sum += it.value() * next.coeff(it.col());
-        }
-
-        next.coeffRef(v) =
-            (1 - omega) * next.coeff(v) +
-            rand[v] * std::sqrt(omega * (2 - omega)) * rsqrt_diag.coeff(v) -
-            omega * inv_diag.coeff(v) * sum;
-      }
-
-      // Send all values
-      // TODO: Maybe we should just send the red values here?
-      for (auto &&[target, vs] : mpi_send) {
-        std::vector<double> mpi_buf(vs.size());
-        for (std::size_t i = 0; i < vs.size(); ++i)
-          mpi_buf[i] = next.coeff(vs[i]);
-
-        MPI_Send(mpi_buf.data(), vs.size(), MPI_DOUBLE, target, 0,
-                 MPI_COMM_WORLD);
-      }
-
-      for (auto &&[source, vs] : mpi_recv) {
-        std::vector<double> mpi_buf(vs.size());
-        MPI_Recv(mpi_buf.data(), vs.size(), MPI_DOUBLE, source, 0,
-                 MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-
-        for (std::size_t i = 0; i < vs.size(); ++i)
-          if (vs[i] % 2 == 0)
-            next.coeffRef(vs[i]) = mpi_buf[i];
-      }
-
-      for (auto v : lattice.own_vertices) {
-
-        // If v is even, then this is a "red" vertex
-        if (v % 2 == 0)
-          continue;
-
-        double sum = 0.;
-        for (It it(prec, v); it; ++it) {
-          if (it.col() != it.row())
-            sum += it.value() * next.coeff(it.col());
-        }
-
-        next.coeffRef(v) =
-            (1 - omega) * next.coeff(v) +
-            rand[v] * std::sqrt(omega * (2 - omega)) * rsqrt_diag.coeff(v) -
-            omega * inv_diag.coeff(v) * sum;
-      }
-
-      // Send all values
-      // TODO: Maybe we should just send the black values here?
-      for (auto &&[target, vs] : mpi_send) {
-        std::vector<double> mpi_buf(vs.size());
-        for (std::size_t i = 0; i < vs.size(); ++i)
-          mpi_buf[i] = next.coeff(vs[i]);
-
-        MPI_Send(mpi_buf.data(), vs.size(), MPI_DOUBLE, target, 0,
-                 MPI_COMM_WORLD);
-      }
-
-      for (auto &&[source, vs] : mpi_recv) {
-        std::vector<double> mpi_buf(vs.size());
-        MPI_Recv(mpi_buf.data(), vs.size(), MPI_DOUBLE, source, 0,
-                 MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-
-        for (std::size_t i = 0; i < vs.size(); ++i)
-          if (vs[i] % 2 != 0)
-            next.coeffRef(vs[i]) = mpi_buf[i];
-      }
+      // Update sample at "black" vertices
+      sample_at_points(next, rand, is_black_vertex);
+      send_recv(next, is_black_vertex);
 
       if (est_mean)
         update_mean(next);
@@ -180,6 +106,53 @@ public:
   }
 
 private:
+  template <class Vector, class RandVector, class Predicate>
+  void sample_at_points(Vector &curr_sample, const RandVector &rand,
+                        const Predicate &IncludeIndex) {
+    const auto &lattice = linear_operator.get_lattice();
+    using It = typename LinearOperator::MatrixType::InnerIterator;
+
+    for (auto v : lattice.own_vertices) {
+      if (not IncludeIndex(v))
+        continue;
+
+      double sum = 0.;
+      for (It it(prec, v); it; ++it) {
+        if (it.col() != it.row())
+          sum += it.value() * curr_sample.coeff(it.col());
+      }
+
+      curr_sample.coeffRef(v) =
+          (1 - omega) * curr_sample.coeff(v) +
+          rand[v] * std::sqrt(omega * (2 - omega)) * rsqrt_diag.coeff(v) -
+          omega * inv_diag.coeff(v) * sum;
+    }
+  }
+
+  template <class Vector, class Predicate>
+  void send_recv(Vector &curr_sample, const Predicate &IncludeIndex) {
+    auto &lattice = linear_operator.get_lattice();
+    static std::vector<double> mpi_buf(lattice.border_vertices.size());
+
+    for (auto &&[target, vs] : mpi_send) {
+      for (std::size_t i = 0; i < vs.size(); ++i)
+        mpi_buf[i] = curr_sample.coeff(vs[i]);
+
+      MPI_Send(mpi_buf.data(), vs.size(), MPI_DOUBLE, target, 0,
+               MPI_COMM_WORLD);
+    }
+
+    for (auto &&[source, vs] : mpi_recv) {
+      std::vector<double> mpi_buf(vs.size());
+      MPI_Recv(mpi_buf.data(), vs.size(), MPI_DOUBLE, source, 0, MPI_COMM_WORLD,
+               MPI_STATUS_IGNORE);
+
+      for (std::size_t i = 0; i < vs.size(); ++i)
+        if (IncludeIndex(vs[i]))
+          curr_sample.coeffRef(vs[i]) = mpi_buf[i];
+    }
+  }
+
   void update_mean(const auto &sample) {
     if (n_sample == 1) {
       mean = sample;
