@@ -32,15 +32,15 @@ int main(int argc, char *argv[]) {
   }
 
 #ifdef USE_METIS
-  Lattice<2, int, LatticeOrdering::RedBlack, ParallelLayout::METIS> lattice(
-      101);
+  Lattice2D lattice(11, ParallelLayout::METIS);
 #else
-  Lattice<2, std::size_t, LatticeOrdering::RedBlack, ParallelLayout::WORB>
-      lattice(21);
+  Lattice2D lattice(11, ParallelLayout::WORB);
 #endif
 
-  GMRFOperator precOperator(lattice);
-  GibbsSampler sampler(precOperator, engine, true, 1.9);
+  GMRFOperator prec_op(lattice);
+  auto *prec_matrix = &(prec_op.matrix);
+
+  GibbsSampler sampler(&lattice, prec_matrix, &engine, true, 1.98);
 
   using Vector = Eigen::SparseVector<double>;
   auto res = Vector(lattice.get_n_total_vertices());
@@ -49,7 +49,7 @@ int main(int argc, char *argv[]) {
     res.insert(v) = 0;
 
   const std::size_t n_burnin = 1000;
-  const std::size_t n_samples = 5000;
+  const std::size_t n_samples = 10000;
 
   res = sampler.sample(res, n_burnin);
   sampler.reset_mean();

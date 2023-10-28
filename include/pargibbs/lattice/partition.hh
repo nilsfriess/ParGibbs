@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstddef>
@@ -67,11 +68,9 @@ partition_to_mpimap(const std::vector<partition<dim>> &partitions,
 // Returns the list of partitions where each partition holds its `start`
 // coordinate and its `size`.
 // TODO: Currently only supports 2D grids.
-template <
-    class Lattice,
-    std::enable_if_t<Lattice::Layout == ParallelLayout::WORB, bool> = true>
-inline std::vector<typename Lattice::IndexT>
-make_partition(const Lattice &lattice, std::size_t n_partitions) {
+template <class Lattice>
+inline std::vector<typename Lattice::IndexT> worb(const Lattice &lattice,
+                                                  std::size_t n_partitions) {
   constexpr auto dim = Lattice::Dim;
 
   static_assert(dim == 2, "Only dim == 2 supported currently");
@@ -154,12 +153,9 @@ make_partition(const Lattice &lattice, std::size_t n_partitions) {
 //
 // Returns the list of partitions where each partition holds its `start`
 // coordinate and its `size`.
-
-template <
-    class Lattice,
-    std::enable_if_t<Lattice::Layout == ParallelLayout::BlockRow, bool> = true>
+template <class Lattice>
 inline std::vector<typename Lattice::IndexT>
-make_partition(const Lattice &lattice, std::size_t n_partitions) {
+block_row(const Lattice &lattice, std::size_t n_partitions) {
   constexpr auto dim = Lattice::Dim;
   std::array<std::size_t, dim> dimensions;
   for (auto &entry : dimensions)
@@ -199,11 +195,9 @@ make_partition(const Lattice &lattice, std::size_t n_partitions) {
 }
 
 #if USE_METIS
-template <
-    class Lattice,
-    std::enable_if_t<Lattice::Layout == ParallelLayout::METIS, bool> = true>
-inline std::vector<typename Lattice::IndexT>
-make_partition(const Lattice &lattice, std::size_t n_partitions) {
+template <class Lattice>
+inline std::vector<typename Lattice::IndexT> metis(const Lattice &lattice,
+                                                   std::size_t n_partitions) {
   static_assert(std::is_same_v<typename Lattice::IndexT, idx_t>,
                 "METIS requires to use `idx_t` type as IndexType in Lattice.");
   std::vector<idx_t> mpiowner(lattice.get_n_total_vertices());
@@ -224,5 +218,31 @@ make_partition(const Lattice &lattice, std::size_t n_partitions) {
   return mpiowner;
 }
 #endif
+
+template <class Lattice>
+inline std::vector<typename Lattice::IndexT>
+make_partition(const Lattice &lattice, std::size_t n_partitions) {
+  switch (lattice.layout) {
+  case ParallelLayout::None: {
+    std::vector<typename Lattice::IndexT> mpiowner(
+        lattice.get_n_total_vertices());
+    std::fill(mpiowner.begin(), mpiowner.end(), 0);
+    return mpiowner;
+  }
+  case ParallelLayout::BlockRow:
+    return block_row(lattice, n_partitions);
+
+  case ParallelLayout::WORB:
+    return worb(lattice, n_partitions);
+
+#ifdef USE_METIS
+  case ParallelLayout::METIS:
+    return metis(lattice, n_partitions);
+#endif
+
+  default:
+    __builtin_unreachable();
+  }
+}
 
 }; // namespace pargibbs::detail

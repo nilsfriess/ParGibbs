@@ -11,22 +11,17 @@
 
 namespace pargibbs {
 // TODO: Extend to more colours.
-template <std::size_t dim, typename IndexType,
-          LatticeOrdering ordering = LatticeOrdering::Rowwise,
-          ParallelLayout layout = ParallelLayout::None>
-struct Lattice {
+template <std::size_t dim, typename IndexType> struct Lattice {
   static_assert(dim >= 1 && dim <= 3, "Dimension must be between 1 and 3");
 
   static constexpr std::size_t Dim = dim;
-  static constexpr LatticeOrdering Ordering = ordering;
-  static constexpr ParallelLayout Layout = layout;
   using IndexT = IndexType;
 
-  Lattice(IndexType vertices_per_dim)
+  Lattice(IndexType vertices_per_dim,
+          ParallelLayout layout = ParallelLayout::None)
       : n_vertices_per_dim(vertices_per_dim),
-        meshwidth(1. / (n_vertices_per_dim - 1)) {
-    if (ordering == LatticeOrdering::RedBlack and
-        (n_vertices_per_dim % 2 == 0)) {
+        meshwidth(1. / (n_vertices_per_dim - 1)), layout{layout} {
+    if (n_vertices_per_dim % 2 == 0) {
       n_vertices_per_dim++;
 
       PARGIBBS_DEBUG
@@ -77,7 +72,7 @@ struct Lattice {
 
     /// Next we partition the domain and store for each vertex the rank of the
     /// MPI process that is responsible for that vertex.
-    if constexpr (layout == ParallelLayout::None) {
+    if (layout == ParallelLayout::None) {
       std::fill(mpiowner.begin(), mpiowner.end(), 0);
     } else {
       auto size = mpi_helper::get_size();
@@ -154,6 +149,12 @@ struct Lattice {
   IndexType n_vertices_per_dim;
 
   double meshwidth;
+
+  ParallelLayout layout;
 };
+
+using Lattice1D = Lattice<1, int>;
+using Lattice2D = Lattice<2, int>;
+using Lattice3D = Lattice<3, int>;
 
 } // namespace pargibbs

@@ -18,25 +18,23 @@
 #include "../mpi_helper.hh"
 
 namespace pargibbs {
-template <class LinearOperator, class Engine = std::mt19937_64>
-class GibbsSampler {
+template <class Lattice, class Matrix, class Engine> class GibbsSampler {
 public:
-  GibbsSampler(const LinearOperator &linear_operator, Engine &engine,
+  GibbsSampler(Lattice *lattice, Matrix *prec, Engine *engine,
                bool est_mean = false, double omega = 1.)
-      : linear_operator(linear_operator), prec(linear_operator.get_matrix()),
-        engine(engine), omega(omega), est_mean(est_mean) {
+      : lattice(lattice), prec(prec), engine(engine), omega(omega),
+        est_mean(est_mean) {
 
-    const auto &lattice = linear_operator.get_lattice();
-    inv_diag.resize(prec.rows());
-    rsqrt_diag.resize(prec.rows());
+    inv_diag.resize(prec->rows());
+    rsqrt_diag.resize(prec->rows());
 
-    for (auto v : lattice.own_vertices) {
-      inv_diag.coeffRef(v) = 1. / prec.coeff(v, v);
-      rsqrt_diag.coeffRef(v) = 1. / std::sqrt(prec.coeff(v, v));
+    for (auto v : lattice->own_vertices) {
+      inv_diag.coeffRef(v) = 1. / prec->coeff(v, v);
+      rsqrt_diag.coeffRef(v) = 1. / std::sqrt(prec->coeff(v, v));
     }
 
     if (est_mean)
-      mean.resize(prec.rows());
+      mean.resize(prec->rows());
 
     setup_mpi_maps();
 
@@ -65,18 +63,18 @@ public:
 #endif
   }
 
-  template <class Vector>
-  Vector sample(const Vector &initial, std::size_t n_samples) {
+  Eigen::SparseVector<double> sample(const Eigen::SparseVector<double> &initial,
+                                     std::size_t n_samples) {
     Eigen::VectorXd rand;
     rand.resize(initial.size());
 
-    Vector next(initial);
+    Eigen::SparseVector<double> next(initial);
 
     auto is_red_vertex = [](auto v) { return v % 2 == 0; };
     auto is_black_vertex = [](auto v) { return v % 2 != 0; };
 
     for (std::size_t n = 0; n < n_samples; ++n) {
-      std::generate(rand.begin(), rand.end(), [&]() { return dist(engine); });
+      std::generate(rand.begin(), rand.end(), [&]() { return dist(*engine); });
 
       // Update sample at "red" vertices
       sample_at_points(next, rand, is_red_vertex);
@@ -94,9 +92,8 @@ public:
   }
 
   Eigen::SparseVector<double> get_mean() const {
-    const auto &lattice = linear_operator.get_lattice();
-    Eigen::SparseVector<double> local_mean(lattice.get_n_total_vertices());
-    for (auto v : lattice.own_vertices)
+    Eigen::SparseVector<double> local_mean(lattice->get_n_total_vertices());
+    for (auto v : lattice->own_vertices)
       local_mean.insert(v) = mean.coeff(v);
 
     return local_mean;
@@ -108,20 +105,26 @@ public:
   }
 
 private:
-  template <class Vector, class RandVector, class Predicate>
-  void sample_at_points(Vector &curr_sample, const RandVector &rand,
+  template <class Predicate>
+  void sample_at_points(Eigen::SparseVector<double> &curr_sample,
+                        const Eigen::VectorXd &rand,
                         const Predicate &IncludeIndex) {
-    const auto &lattice = linear_operator.get_lattice();
-    using It = typename LinearOperator::MatrixType::InnerIterator;
+    using It = typename Matrix::InnerIterator;
 
-    for (auto v : lattice.own_vertices) {
+    for (auto v : lattice->own_vertices) {
       if (not IncludeIndex(v))
         continue;
 
       double sum = 0.;
-      for (It it(prec, v); it; ++it) {
-        if (it.col() != it.row())
-          sum += it.value() * curr_sample.coeff(it.col());
+      for (It it(*prec, v); it; ++it) {
+        if (it.col() != it.row()) {
+          // If the matrix is in row-major order, `it` iterates over the columns
+          // of the row `v` and vice-versa for column-major order
+          if constexpr (prec->IsRowMajor)
+            sum += it.value() * curr_sample.coeff(it.col());
+          else
+            sum += it.value() * curr_sample.coeff(it.row());
+        }
       }
 
       curr_sample.coeffRef(v) =
@@ -131,10 +134,10 @@ private:
     }
   }
 
-  template <class Vector, class Predicate>
-  void send_recv(Vector &curr_sample, const Predicate &IncludeIndex) {
-    auto &lattice = linear_operator.get_lattice();
-    static std::vector<double> mpi_buf(lattice.border_vertices.size());
+  template <class Predicate>
+  void send_recv(Eigen::SparseVector<double> &curr_sample,
+                 const Predicate &IncludeIndex) {
+    static std::vector<double> mpi_buf(lattice->border_vertices.size());
     std::vector<MPI_Request> reqs;
     reqs.reserve(4);
 
@@ -168,20 +171,19 @@ private:
   }
 
   void setup_mpi_maps() {
-    const auto &lattice = linear_operator.get_lattice();
-    using IndexT = typename std::decay_t<decltype(lattice)>::IndexT;
+    using IndexT = typename Lattice::IndexT;
 
-    for (auto v : lattice.border_vertices) {
-      for (IndexT n = lattice.adj_idx.at(v); n < lattice.adj_idx.at(v + 1);
+    for (auto v : lattice->border_vertices) {
+      for (IndexT n = lattice->adj_idx.at(v); n < lattice->adj_idx.at(v + 1);
            ++n) {
-        auto nb_idx = lattice.adj_vert.at(n);
+        auto nb_idx = lattice->adj_vert.at(n);
         // If we have a neighbour that is owned by another MPI process, then
         // - we need to send the value at `v` to this process at some point, and
         // - we will receive values at `nb_idx` from this process at some
         //   point.
-        if (lattice.mpiowner[nb_idx] != (IndexT)mpi_helper::get_rank()) {
-          mpi_send[lattice.mpiowner.at(nb_idx)].push_back(v);
-          mpi_recv[lattice.mpiowner.at(nb_idx)].push_back(nb_idx);
+        if (lattice->mpiowner[nb_idx] != (IndexT)mpi_helper::get_rank()) {
+          mpi_send[lattice->mpiowner.at(nb_idx)].push_back(v);
+          mpi_recv[lattice->mpiowner.at(nb_idx)].push_back(nb_idx);
         }
       }
     }
@@ -202,12 +204,12 @@ private:
     }
   }
 
-  const LinearOperator &linear_operator;
-  const typename LinearOperator::MatrixType &prec;
+  const Lattice *lattice;
+  const Matrix *prec;
+  Engine *engine;
+
   Eigen::SparseVector<double> inv_diag;
   Eigen::SparseVector<double> rsqrt_diag;
-
-  Engine &engine;
 
   std::normal_distribution<double> dist;
 

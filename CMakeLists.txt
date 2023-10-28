@@ -24,24 +24,5 @@ else()
   set(MPI_TARGET MPI_C)
 endif()
 
-add_library(pargibbs INTERFACE)
-target_include_directories(pargibbs INTERFACE include)
-target_compile_options(pargibbs INTERFACE -Wall -Wextra -Wpedantic -Wnon-virtual-dtor)
-target_link_libraries(pargibbs INTERFACE Eigen3::Eigen ${MPI_TARGET})
-
-if (${USE_MPI})
-  target_compile_definitions(pargibbs INTERFACE USE_MPI=true)
-else()
-  target_compile_definitions(pargibbs INTERFACE USE_MPI=false)
-  target_include_directories(pargibbs SYSTEM INTERFACE external)
-endif()
-
-if (${USE_METIS})
-   target_compile_definitions(pargibbs INTERFACE USE_METIS=true)
-
-   target_include_directories(pargibbs SYSTEM INTERFACE "${METIS_ROOT}/include/")
-   target_link_directories(pargibbs INTERFACE "${METIS_ROOT}/lib")
-   target_link_libraries(pargibbs INTERFACE metis GKlib)
-endif()
-
 add_subdirectory(src)
+add_subdirectory(examples)
