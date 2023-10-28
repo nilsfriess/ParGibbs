@@ -26,8 +26,12 @@ int main(int argc, char *argv[]) {
     engine.seed(seed_source);
   }
 
-  Lattice<2, int, LatticeOrdering::RedBlack, ParallelLayout::METIS> lattice(
-      21);
+#ifdef USE_METIS
+  Lattice<2, int, LatticeOrdering::RedBlack, ParallelLayout::METIS> lattice(21);
+#else
+  Lattice<2, std::size_t, LatticeOrdering::RedBlack, ParallelLayout::WORB>
+      lattice(21);
+#endif
 
   GMRFOperator precOperator(lattice);
   GibbsSampler sampler(precOperator, engine, true, 1.68);
