@@ -14,10 +14,9 @@ namespace pargibbs {
 template <std::size_t dim, typename IndexType,
           LatticeOrdering ordering = LatticeOrdering::Rowwise,
           ParallelLayout layout = ParallelLayout::None>
-class Lattice {
+struct Lattice {
   static_assert(dim >= 1 && dim <= 3, "Dimension must be between 1 and 3");
 
-public:
   static constexpr std::size_t Dim = dim;
   static constexpr LatticeOrdering Ordering = ordering;
   static constexpr ParallelLayout Layout = layout;
