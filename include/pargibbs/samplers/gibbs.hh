@@ -186,6 +186,7 @@ private:
     } else {
       mean += 1 / (1. + n_sample) * (sample - mean);
     }
+    n_sample++;
   }
 
   void setup_mpi_maps() {
