@@ -1,3 +1,4 @@
+include(FetchContent)
 FetchContent_Declare(
   pcgcpp
   GIT_REPOSITORY https://github.com/imneme/pcg-cpp.git
