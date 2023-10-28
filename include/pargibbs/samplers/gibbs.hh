@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../mpi_helper.hh"
+#include "pargibbs/common/log.hh"
 
 #include <algorithm>
 #include <cassert>
@@ -36,6 +37,30 @@ public:
       mean.resize(prec.rows());
 
     setup_mpi_maps();
+
+#ifdef PG_DEBUG_MODE
+    if (mpi_helper::is_debug_rank()) {
+      if (mpi_send.size() > 0) {
+        PARGIBBS_DEBUG << "Rank " << mpi_helper::get_rank()
+                       << " has to send:\n";
+        for (auto &&[rank, vs] : mpi_send) {
+          PARGIBBS_DEBUG << "To " << rank << ": ";
+          for (auto &&idx : vs)
+            PARGIBBS_DEBUG_NP << idx << " ";
+          PARGIBBS_DEBUG_NP << "\n";
+        }
+      }
+      if (mpi_recv.size() > 0) {
+        PARGIBBS_DEBUG << "Rank " << mpi_helper::get_rank() << " receives:\n";
+        for (auto &&[rank, vs] : mpi_recv) {
+          PARGIBBS_DEBUG << "From " << rank << ": ";
+          for (auto &&idx : vs)
+            PARGIBBS_DEBUG_NP << idx << " ";
+          PARGIBBS_DEBUG_NP << "\n";
+        }
+      }
+    }
+#endif
   }
 
   template <class Vector>
