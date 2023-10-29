@@ -15,10 +15,18 @@
 #include "pargibbs/common/log.hh"
 #endif
 
+#if USE_MPI
+#include <mpi.h>
+#else
+#include "FakeMPI/mpi.h"
+#endif
+
 #include "../mpi_helper.hh"
+#include "pargibbs/lattice/lattice.hh"
 
 namespace pargibbs {
-template <class Lattice, class Matrix, class Engine> class GibbsSampler {
+
+template <class Matrix, class Engine> class GibbsSampler {
 public:
   GibbsSampler(Lattice *lattice, Matrix *prec, Engine *engine,
                bool est_mean = false, double omega = 1.)
@@ -171,7 +179,7 @@ private:
   }
 
   void setup_mpi_maps() {
-    using IndexT = typename Lattice::IndexT;
+    using IndexT = typename Lattice::IndexType;
 
     for (auto v : lattice->border_vertices) {
       for (IndexT n = lattice->adj_idx.at(v); n < lattice->adj_idx.at(v + 1);

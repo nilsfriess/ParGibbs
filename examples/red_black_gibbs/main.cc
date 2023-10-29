@@ -9,6 +9,12 @@
 #include <random>
 #include <vector>
 
+#if USE_MPI
+#include <mpi.h>
+#else
+#include "FakeMPI/mpi.h"
+#endif
+
 #include <pcg_random.hpp>
 
 #include "gmrf_operator.hh"
@@ -39,9 +45,9 @@ int main(int argc, char *argv[]) {
   engine.seed(seed_source);
 
 #ifdef USE_METIS
-  Lattice2D lattice(11, ParallelLayout::METIS);
+  Lattice lattice(2, 11, ParallelLayout::METIS);
 #else
-  Lattice2D lattice(11, ParallelLayout::WORB);
+  Lattice lattice(2, 11, ParallelLayout::WORB);
 #endif
 
   GMRFOperator prec_op(lattice);

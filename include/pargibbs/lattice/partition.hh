@@ -20,19 +20,22 @@
 #include "types.hh"
 
 namespace pargibbs::detail {
-template <std::size_t dim> using nd_id = std::array<std::size_t, dim>;
+struct partition {
+  explicit partition(unsigned int dim) : start(dim), size(dim), weight(0) {
+    if (dim < 1 || dim > 3)
+      throw std::runtime_error("dim must be >= 1 and <= 3");
+  }
 
-template <std::size_t dim> struct partition {
-  nd_id<dim> start;
-  nd_id<dim> size;
+  std::vector<std::size_t> start;
+  std::vector<std::size_t> size;
   std::size_t weight; // only used within `worb`, can be ignored outside
 };
 
-template <class Lattice, std::size_t dim>
-inline std::vector<typename Lattice::IndexT>
-partition_to_mpimap(const std::vector<partition<dim>> &partitions,
+template <class Lattice>
+inline std::vector<typename Lattice::IndexType>
+partition_to_mpimap(const std::vector<partition> &partitions,
                     const Lattice &lattice) {
-  std::vector<typename Lattice::IndexT> mpiowner(
+  std::vector<typename Lattice::IndexType> mpiowner(
       lattice.get_n_total_vertices());
 
   for (std::size_t p_idx = 0; p_idx < partitions.size(); ++p_idx) {
@@ -45,7 +48,7 @@ partition_to_mpimap(const std::vector<partition<dim>> &partitions,
     for (std::size_t idx = 0; idx < tot_points; ++idx) {
       // Convert linear index within partition to global coordinate
       auto local_coord = linear_to_xyz(idx, partition.size);
-      for (std::size_t d = 0; d < dim; ++d)
+      for (std::size_t d = 0; d < lattice.dim; ++d)
         local_coord[d] += partition.start[d];
 
       // And convert this to a global linear index
@@ -69,22 +72,21 @@ partition_to_mpimap(const std::vector<partition<dim>> &partitions,
 // coordinate and its `size`.
 // TODO: Currently only supports 2D grids.
 template <class Lattice>
-inline std::vector<typename Lattice::IndexT> worb(const Lattice &lattice,
-                                                  std::size_t n_partitions) {
-  constexpr auto dim = Lattice::Dim;
+inline std::vector<typename Lattice::IndexType> worb(const Lattice &lattice,
+                                                     std::size_t n_partitions) {
+  const auto dim = lattice.dim;
+  if (dim != 2)
+    throw std::runtime_error("Only dim = 2 supported");
 
-  static_assert(dim == 2, "Only dim == 2 supported currently");
-
-  std::array<std::size_t, dim> dimensions;
+  std::vector<std::size_t> dimensions(dim);
   for (auto &entry : dimensions)
     entry = lattice.get_vertices_per_dim();
 
-  std::vector<partition<dim>> final_partitions;
+  std::vector<partition> final_partitions;
   final_partitions.reserve(n_partitions);
-  std::stack<partition<dim>> unfinished_partitions;
+  std::stack<partition> unfinished_partitions;
 
-  partition<dim> initial_partition;
-  initial_partition.start = nd_id<dim>{0};
+  partition initial_partition(dim);
   initial_partition.size = dimensions;
   initial_partition.weight = n_partitions;
 
@@ -118,13 +120,13 @@ inline std::vector<typename Lattice::IndexT> worb(const Lattice &lattice,
         static_cast<std::size_t>(std::ceil(cur_partition.weight / 2.));
     // auto n_right = total_points * weight_right / cur_partition.weight;
 
-    partition<dim> left;
+    partition left(dim);
     left.size[cut_dim] = n_left / cur_partition.size[other_dim];
     left.size[other_dim] = cur_partition.size[other_dim];
     left.start = cur_partition.start;
     left.weight = weight_left;
 
-    partition<dim> right;
+    partition right(dim);
     right.size[cut_dim] = cur_partition.size[cut_dim] - left.size[cut_dim];
     right.size[other_dim] = cur_partition.size[other_dim];
     right.start = cur_partition.start;
@@ -154,14 +156,14 @@ inline std::vector<typename Lattice::IndexT> worb(const Lattice &lattice,
 // Returns the list of partitions where each partition holds its `start`
 // coordinate and its `size`.
 template <class Lattice>
-inline std::vector<typename Lattice::IndexT>
+inline std::vector<typename Lattice::IndexType>
 block_row(const Lattice &lattice, std::size_t n_partitions) {
-  constexpr auto dim = Lattice::Dim;
-  std::array<std::size_t, dim> dimensions;
+  const auto dim = lattice.dim;
+  std::vector<std::size_t> dimensions(dim);
   for (auto &entry : dimensions)
     entry = lattice.get_vertices_per_dim();
 
-  std::vector<partition<dim>> partitions;
+  std::vector<partition> partitions;
   partitions.reserve(n_partitions);
 
   const std::size_t len = dimensions[dim - 1] / n_partitions;
@@ -174,7 +176,7 @@ block_row(const Lattice &lattice, std::size_t n_partitions) {
   }
 
   for (std::size_t i = 0; i < n_partitions; ++i) {
-    partition<dim> part;
+    partition part(dim);
 
     for (std::size_t d = 0; d < dim - 1; ++d)
       part.start[d] = 0;
@@ -196,9 +198,9 @@ block_row(const Lattice &lattice, std::size_t n_partitions) {
 
 #if USE_METIS
 template <class Lattice>
-inline std::vector<typename Lattice::IndexT> metis(const Lattice &lattice,
-                                                   std::size_t n_partitions) {
-  static_assert(std::is_same_v<typename Lattice::IndexT, idx_t>,
+inline std::vector<typename Lattice::IndexType>
+metis(const Lattice &lattice, std::size_t n_partitions) {
+  static_assert(std::is_same_v<typename Lattice::IndexType, idx_t>,
                 "METIS requires to use `idx_t` type as IndexType in Lattice.");
   std::vector<idx_t> mpiowner(lattice.get_n_total_vertices());
 
@@ -220,11 +222,11 @@ inline std::vector<typename Lattice::IndexT> metis(const Lattice &lattice,
 #endif
 
 template <class Lattice>
-inline std::vector<typename Lattice::IndexT>
+inline std::vector<typename Lattice::IndexType>
 make_partition(const Lattice &lattice, std::size_t n_partitions) {
   switch (lattice.layout) {
   case ParallelLayout::None: {
-    std::vector<typename Lattice::IndexT> mpiowner(
+    std::vector<typename Lattice::IndexType> mpiowner(
         lattice.get_n_total_vertices());
     std::fill(mpiowner.begin(), mpiowner.end(), 0);
     return mpiowner;
