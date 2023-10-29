@@ -1,8 +1,6 @@
 #pragma once
 
-namespace std {
-template <typename, typename> class pair;
-}
+#include <utility>
 
 namespace pargibbs {
 struct mpi_helper {

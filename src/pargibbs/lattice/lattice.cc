@@ -1,8 +1,12 @@
+#include "pargibbs/lattice/lattice.hh"
+
+#include <algorithm>
 #include <cassert>
 #include <cstddef>
+#include <ostream>
+#include <stdexcept>
 
 #include "pargibbs/common/log.hh"
-#include "pargibbs/lattice/lattice.hh"
 #include "pargibbs/lattice/partition.hh"
 #include "pargibbs/lattice/types.hh"
 #include "pargibbs/mpi_helper.hh"
