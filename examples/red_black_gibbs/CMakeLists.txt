@@ -5,17 +5,9 @@ target_compile_options(rb_gibbs PRIVATE -Wall -Wextra -Wpedantic -Wnon-virtual-d
 target_link_libraries(rb_gibbs pargibbs Eigen3::Eigen)
 
 target_precompile_headers(rb_gibbs
-  PUBLIC
-  [["pargibbs/samplers/gibbs.hh"]]
-  [["pargibbs/mpi_helper.hh"]]
-  [["pargibbs/samplers/gibbs.hh"]]
-  [["pargibbs/common/log.hh"]]
-  [["pargibbs/lattice/types.hh"]]
-  [["pargibbs/lattice/helpers.hh"]]
-  [["pargibbs/lattice/partition.hh"]]
-  [["pargibbs/lattice/lattice.hh"]]
   PRIVATE
   <chrono>
   <memory>
+  <pcg_random.hpp>
 )
 

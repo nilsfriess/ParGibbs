@@ -9,7 +9,7 @@ cmake_path(SET pcgcpp_INCLDUE_DIR "${pcgcpp_SOURCE_DIR}/include")
 
 add_library(pargibbs
   pargibbs/lattice/lattice.cc
-  pargibbs/samplers/gibbs.cc)
+  pargibbs/mpi_helper.cc)
 
 target_include_directories(pargibbs PUBLIC ../include)
 target_include_directories(pargibbs SYSTEM PUBLIC ${pcgcpp_INCLDUE_DIR})
