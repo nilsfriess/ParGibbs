@@ -20,7 +20,7 @@ if (${USE_MPI})
   target_compile_definitions(pargibbs PUBLIC USE_MPI=true)
 else()
   target_compile_definitions(pargibbs PUBLIC USE_MPI=false)
-  target_include_directories(pargibbs SYSTEM PUBLIC external)
+  target_include_directories(pargibbs SYSTEM PUBLIC ../external)
 endif()
 
 if (${USE_METIS})
