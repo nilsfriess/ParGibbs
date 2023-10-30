@@ -128,7 +128,7 @@ private:
         if (it.col() != it.row()) {
           // If the matrix is in row-major order, `it` iterates over the columns
           // of the row `v` and vice-versa for column-major order
-          if constexpr (prec->IsRowMajor)
+          if (prec->IsRowMajor)
             sum += it.value() * curr_sample.coeff(it.col());
           else
             sum += it.value() * curr_sample.coeff(it.row());
