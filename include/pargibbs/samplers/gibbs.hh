@@ -71,12 +71,9 @@ public:
 #endif
   }
 
-  Eigen::SparseVector<double> sample(const Eigen::SparseVector<double> &initial,
-                                     std::size_t n_samples) {
+  void sample(Eigen::SparseVector<double> &sample, std::size_t n_samples) {
     Eigen::VectorXd rand;
-    rand.resize(initial.size());
-
-    Eigen::SparseVector<double> next(initial);
+    rand.resize(sample.size());
 
     auto is_red_vertex = [](auto v) { return v % 2 == 0; };
     auto is_black_vertex = [](auto v) { return v % 2 != 0; };
@@ -85,18 +82,16 @@ public:
       std::generate(rand.begin(), rand.end(), [&]() { return dist(*engine); });
 
       // Update sample at "red" vertices
-      sample_at_points(next, rand, is_red_vertex);
-      send_recv(next, is_red_vertex);
+      sample_at_points(sample, rand, is_red_vertex);
+      send_recv(sample, is_red_vertex);
 
       // Update sample at "black" vertices
-      sample_at_points(next, rand, is_black_vertex);
-      send_recv(next, is_black_vertex);
+      sample_at_points(sample, rand, is_black_vertex);
+      send_recv(sample, is_black_vertex);
 
       if (est_mean)
-        update_mean(next);
+        update_mean(sample);
     }
-
-    return next;
   }
 
   Eigen::SparseVector<double> get_mean() const {

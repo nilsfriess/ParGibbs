@@ -64,11 +64,11 @@ int main(int argc, char *argv[]) {
   const std::size_t n_burnin = config["n_burnin"];
   const std::size_t n_samples = config["n_samples"];
 
-  res = sampler.sample(res, n_burnin);
+  sampler.sample(res, n_burnin);
   sampler.reset_mean();
 
   const auto start = std::chrono::high_resolution_clock::now();
-  res = sampler.sample(res, n_samples);
+  sampler.sample(res, n_samples);
   MPI_Barrier(MPI_COMM_WORLD);
   const auto end = std::chrono::high_resolution_clock::now();
   const auto elapsed = end - start;
