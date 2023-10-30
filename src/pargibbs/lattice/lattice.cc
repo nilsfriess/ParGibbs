@@ -20,7 +20,7 @@ Lattice::Lattice(std::size_t dim, IndexType vertices_per_dim,
   if (dim < 1 or dim > 3)
     throw std::runtime_error("Dimension must be between 1 and 3");
 
-  if (n_vertices_per_dim % 2 == 0) {
+  if (dim > 1 && n_vertices_per_dim % 2 == 0) {
     n_vertices_per_dim++;
 
     PARGIBBS_DEBUG
