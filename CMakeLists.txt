@@ -26,3 +26,11 @@ endif()
 
 add_subdirectory(src)
 add_subdirectory(examples)
+
+if (NOT DEFINED ENABLE_TESTS)
+  set(ENABLE_TESTS TRUE)
+endif()
+
+if (${ENABLE_TESTS})
+  add_subdirectory(tests)
+endif()
