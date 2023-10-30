@@ -71,41 +71,37 @@ Lattice::Lattice(std::size_t dim, IndexType vertices_per_dim,
 
   /// Next we partition the domain and store for each vertex the rank of the
   /// MPI process that is responsible for that vertex.
-  if (layout == ParallelLayout::None) {
-    std::fill(mpiowner.begin(), mpiowner.end(), 0);
-  } else {
-    auto size = mpi_helper::get_size();
-    mpiowner = detail::make_partition(*this, size);
-    assert((IndexType)mpiowner.size() == get_n_total_vertices());
+  auto size = mpi_helper::get_size();
+  mpiowner = detail::make_partition(*this, size);
+  assert((IndexType)mpiowner.size() == get_n_total_vertices());
 
-    if (mpi_helper::is_debug_rank() && get_vertices_per_dim() < 10) {
-      PARGIBBS_DEBUG << "Partitioned domain:\n";
-      for (IndexType i = 0; i < (IndexType)mpiowner.size(); ++i) {
-        PARGIBBS_DEBUG_NP << mpiowner[i] << " ";
-        if (i % get_vertices_per_dim() == get_vertices_per_dim() - 1) {
-          PARGIBBS_DEBUG_NP << "\n";
-        }
+  if (mpi_helper::is_debug_rank() && get_vertices_per_dim() < 10) {
+    PARGIBBS_DEBUG << "Partitioned domain:\n";
+    for (IndexType i = 0; i < (IndexType)mpiowner.size(); ++i) {
+      PARGIBBS_DEBUG_NP << mpiowner[i] << " ";
+      if (i % get_vertices_per_dim() == get_vertices_per_dim() - 1) {
+        PARGIBBS_DEBUG_NP << "\n";
       }
     }
+  }
 
-    /// As a helper array, we also separately store the vertices that the
-    /// current MPI rank is responsible for as well as the subset of those
-    /// that have neighbouring vertices that are owned by a different MPI
-    /// rank (this can be used when checking which vertices have to be
-    /// communicated to other MPI ranks).
-    for (std::size_t i = 0; i < (std::size_t)get_n_total_vertices(); ++i) {
-      if (mpiowner.at(i) == (IndexType)mpi_helper::get_rank()) {
-        own_vertices.push_back((IndexType)i);
+  /// As a helper array, we also separately store the vertices that the
+  /// current MPI rank is responsible for as well as the subset of those
+  /// that have neighbouring vertices that are owned by a different MPI
+  /// rank (this can be used when checking which vertices have to be
+  /// communicated to other MPI ranks).
+  for (std::size_t i = 0; i < (std::size_t)get_n_total_vertices(); ++i) {
+    if (mpiowner.at(i) == (IndexType)mpi_helper::get_rank()) {
+      own_vertices.push_back((IndexType)i);
 
-        for (IndexType j = adj_idx.at(i); j < adj_idx.at(i + 1); ++j) {
-          auto nb = adj_vert.at(j); // Get index of neighbouring vertex
-          if (mpiowner.at(nb) != (IndexType)mpi_helper::get_rank()) {
-            // At least one of the neighbouring vertices of the current
-            // vertex is not owned by the current MPI rank, i.e., it is at
-            // the border of a partition
-            border_vertices.push_back((IndexType)i);
-            break;
-          }
+      for (IndexType j = adj_idx.at(i); j < adj_idx.at(i + 1); ++j) {
+        auto nb = adj_vert.at(j); // Get index of neighbouring vertex
+        if (mpiowner.at(nb) != (IndexType)mpi_helper::get_rank()) {
+          // At least one of the neighbouring vertices of the current
+          // vertex is not owned by the current MPI rank, i.e., it is at
+          // the border of a partition
+          border_vertices.push_back((IndexType)i);
+          break;
         }
       }
     }
