@@ -12,13 +12,13 @@
 
 std::pair<Eigen::SparseMatrix<double>, Eigen::MatrixXd>
 get_test_matrices(const pargibbs::Lattice &lattice) {
-  const auto size = lattice.get_n_total_vertices();
+  const auto size = (std::size_t)lattice.get_n_total_vertices();
 
   Eigen::SparseMatrix<double> precision(size, size);
   std::vector<Eigen::Triplet<double>> triplets;
 
-  const double diag = 100;
-  const double off_diag = 0.01;
+  const double diag = 6;
+  const double off_diag = -1;
 
   for (std::size_t i = 0; i < size; ++i) {
     if (i > 0)
@@ -37,28 +37,35 @@ get_test_matrices(const pargibbs::Lattice &lattice) {
   return {precision, covariance};
 }
 
-TEST(SamplersTest, Gibbs_ParallelLayoutNone) {
+TEST(SamplersTest, Gibbs1D) {
   namespace pg = pargibbs;
 
-  std::mt19937 engine;
+  const auto seed = 0xBEEFCAFE;
+  std::mt19937 engine{seed};
 
-  pg::Lattice lattice(2, 5);
+  pg::Lattice lattice(1, 8);
 
   auto [precision, covariance] = get_test_matrices(lattice);
 
-  pg::GibbsSampler sampler(&lattice, &precision, &engine, true, 1.98);
+  pg::GibbsSampler sampler(&lattice, &precision, &engine, 1.68);
+  sampler.enable_estimate_mean();
+  sampler.enable_estimate_covariance();
 
-  const std::size_t n_burnin = 1000;
-  const std::size_t n_samples = 500000;
+  const std::size_t n_burnin = 100;
+  const std::size_t n_samples = 1'000'000;
 
   Eigen::SparseVector<double> sample(lattice.get_n_total_vertices());
 
   sampler.sample(sample, n_burnin);
-  sampler.reset_mean();
+  sampler.reset_statistics();
 
-  for (std::size_t n = 0; n < n_samples; ++n) {
-    sampler.sample(sample, 1);
-  }
+  sampler.sample(sample, n_samples);
 
-  EXPECT_NEAR(sampler.get_mean().norm(), 0, 1e-4);
+  const double tol = 5e-3;
+  // Expect mean to be near zero
+  EXPECT_NEAR(sampler.get_mean().norm(), 0, tol);
+  // Expect relative error for sample covariance matrix to be near zero
+  EXPECT_NEAR(1. / covariance.norm() *
+                  (sampler.get_covariance() - covariance).norm(),
+              0, tol);
 }

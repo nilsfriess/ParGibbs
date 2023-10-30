@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstddef>
 #include <random>
+#include <stdexcept>
 #include <type_traits>
 #include <unordered_map>
 #include <vector>
@@ -29,10 +30,8 @@ namespace pargibbs {
 template <class Matrix, class Engine> class GibbsSampler {
 public:
   GibbsSampler(Lattice *lattice, Matrix *prec, Engine *engine,
-               bool est_mean = false, double omega = 1.)
-      : lattice(lattice), prec(prec), engine(engine), omega(omega),
-        est_mean(est_mean) {
-
+               double omega = 1.)
+      : lattice(lattice), prec(prec), engine(engine), omega(omega) {
     inv_diag.resize(prec->rows());
     rsqrt_diag.resize(prec->rows());
 
@@ -40,9 +39,6 @@ public:
       inv_diag.coeffRef(v) = 1. / prec->coeff(v, v);
       rsqrt_diag.coeffRef(v) = 1. / std::sqrt(prec->coeff(v, v));
     }
-
-    if (est_mean)
-      mean.resize(prec->rows());
 
     setup_mpi_maps();
 
@@ -89,22 +85,47 @@ public:
       sample_at_points(sample, rand, is_black_vertex);
       send_recv(sample, is_black_vertex);
 
-      if (est_mean)
-        update_mean(sample);
+      if (est_mean || est_cov)
+        update_statistics(sample);
     }
+  }
+
+  void enable_estimate_mean() {
+    est_mean = true;
+    mean.resize(lattice->get_n_total_vertices());
+    mean.setZero();
+  }
+
+  void enable_estimate_covariance() {
+    if (mpi_helper::get_size() > 1)
+      throw std::runtime_error("Estimating covariance matrix is currently only "
+                               "supported for sequential applications");
+
+    enable_estimate_mean(); // Estimating cov requires estimating mean
+
+    est_cov = true;
+    cov.resize(lattice->get_n_total_vertices(),
+               lattice->get_n_total_vertices());
+    cov.setZero();
   }
 
   Eigen::SparseVector<double> get_mean() const {
     Eigen::SparseVector<double> local_mean(lattice->get_n_total_vertices());
     for (auto v : lattice->own_vertices)
+      // Remove halo vertices
       local_mean.insert(v) = mean.coeff(v);
 
     return local_mean;
   }
 
-  void reset_mean() {
+  const Eigen::MatrixXd &get_covariance() const { return cov; }
+
+  void reset_statistics() {
     n_sample = 0;
-    mean.setZero();
+    if (est_mean)
+      mean.setZero();
+    if (est_cov)
+      cov.setZero();
   }
 
 private:
@@ -164,12 +185,25 @@ private:
     }
   }
 
-  void update_mean(const auto &sample) {
-    if (n_sample == 1) {
-      mean = sample;
-    } else {
-      mean += 1 / (1. + n_sample) * (sample - mean);
+  void update_statistics(const auto &sample) {
+    // Update mean
+    if (est_mean) {
+      if (n_sample == 1) {
+        mean = sample;
+      } else {
+        mean += 1 / (1. + n_sample) * (sample - mean);
+      }
     }
+
+    // Update covariance matrix
+    if (est_cov) {
+      if (n_sample >= 2) {
+        cov *= n_sample / (1. + n_sample);
+        cov += n_sample / ((1. + n_sample) * (1. + n_sample)) *
+               (sample - mean) * (sample - mean).transpose();
+      }
+    }
+
     n_sample++;
   }
 
@@ -218,9 +252,13 @@ private:
 
   double omega; // SOR parameter
 
+  // Statistics
   Eigen::SparseVector<double> mean;
-  std::size_t n_sample = 1;
+  Eigen::MatrixXd cov;
+
+  std::size_t n_sample = 0;
   bool est_mean; // true if mean should be estimated during sampling
+  bool est_cov; // true if covariance matrix should be estimated during sampling
 
   // mpi rank -> vertex indices we need to send
   std::unordered_map<int, std::vector<int>> mpi_send;

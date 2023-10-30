@@ -53,7 +53,8 @@ int main(int argc, char *argv[]) {
   GMRFOperator prec_op(lattice);
   auto *prec_matrix = &(prec_op.matrix);
 
-  GibbsSampler sampler(&lattice, prec_matrix, &engine, true, config["omega"]);
+  GibbsSampler sampler(&lattice, prec_matrix, &engine, config["omega"]);
+  sampler.enable_estimate_mean();
 
   using Vector = Eigen::SparseVector<double>;
   auto res = Vector(lattice.get_n_total_vertices());
@@ -65,7 +66,7 @@ int main(int argc, char *argv[]) {
   const std::size_t n_samples = config["n_samples"];
 
   sampler.sample(res, n_burnin);
-  sampler.reset_mean();
+  sampler.reset_statistics();
 
   const auto start = std::chrono::high_resolution_clock::now();
   sampler.sample(res, n_samples);
