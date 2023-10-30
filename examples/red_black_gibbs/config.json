@@ -1,4 +1,6 @@
 {
+    "lattice_size": 21,
+
     "omega": 1.98,
 
     "n_burnin":  1000,

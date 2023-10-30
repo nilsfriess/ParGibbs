@@ -45,9 +45,9 @@ int main(int argc, char *argv[]) {
   engine.seed(seed_source);
 
 #ifdef USE_METIS
-  Lattice lattice(2, 11, ParallelLayout::METIS);
+  Lattice lattice(2, config["lattice_size"], ParallelLayout::METIS);
 #else
-  Lattice lattice(2, 11, ParallelLayout::WORB);
+  Lattice lattice(2, config["lattice_size"], ParallelLayout::WORB);
 #endif
 
   GMRFOperator prec_op(lattice);
