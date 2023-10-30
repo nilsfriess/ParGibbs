@@ -67,37 +67,23 @@ int main(int argc, char *argv[]) {
   res = sampler.sample(res, n_burnin);
   sampler.reset_mean();
 
-  for (std::size_t n = 0; n < n_samples; ++n) {
-    res = sampler.sample(res, 1);
+  const auto start = std::chrono::high_resolution_clock::now();
+  res = sampler.sample(res, n_samples);
+  MPI_Barrier(MPI_COMM_WORLD);
+  const auto end = std::chrono::high_resolution_clock::now();
+  const auto elapsed = end - start;
 
-    double local_norm = sampler.get_mean().squaredNorm();
+  double local_norm = sampler.get_mean().squaredNorm();
 
-    double norm = 0;
-    MPI_Reduce(&local_norm, &norm, 1, MPI_DOUBLE, MPI_SUM,
-               mpi_helper::debug_rank(), MPI_COMM_WORLD);
-    norm = std::sqrt(norm);
+  double norm = 0;
+  MPI_Reduce(&local_norm, &norm, 1, MPI_DOUBLE, MPI_SUM,
+             mpi_helper::debug_rank(), MPI_COMM_WORLD);
+  norm = std::sqrt(norm);
 
-    if (mpi_helper::is_debug_rank())
-      std::cout << norm << "\n";
+  if (mpi_helper::is_debug_rank()) {
+    std::cout << "Norm = " << norm << "\n";
+    std::cout << "Time: "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(elapsed)
+              << "\n";
   }
-
-  // const auto start = std::chrono::high_resolution_clock::now();
-  // res = sampler.sample(res, n_samples);
-  // const auto end = std::chrono::high_resolution_clock::now();
-  // const auto elapsed = end - start;
-
-  // double local_norm = sampler.get_mean().squaredNorm();
-
-  // double norm = 0;
-  // MPI_Reduce(&local_norm, &norm, 1, MPI_DOUBLE, MPI_SUM,
-  //            mpi_helper::debug_rank(), MPI_COMM_WORLD);
-  // norm = std::sqrt(norm);
-
-  // if (mpi_helper::is_debug_rank()) {
-  //   std::cout << "Norm = " << norm << "\n";
-  //   std::cout << "Time: "
-  //             <<
-  //             std::chrono::duration_cast<std::chrono::milliseconds>(elapsed)
-  //             << "\n";
-  // }
 }
