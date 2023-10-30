@@ -75,7 +75,8 @@ Lattice::Lattice(std::size_t dim, IndexType vertices_per_dim,
   mpiowner = detail::make_partition(*this, size);
   assert((IndexType)mpiowner.size() == get_n_total_vertices());
 
-  if (mpi_helper::is_debug_rank() && get_vertices_per_dim() < 10) {
+  if (mpi_helper::get_size() > 1 && mpi_helper::is_debug_rank() &&
+      get_vertices_per_dim() < 10) {
     PARGIBBS_DEBUG << "Partitioned domain:\n";
     for (IndexType i = 0; i < (IndexType)mpiowner.size(); ++i) {
       PARGIBBS_DEBUG_NP << mpiowner[i] << " ";
