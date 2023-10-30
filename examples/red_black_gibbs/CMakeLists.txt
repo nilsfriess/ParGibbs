@@ -8,6 +8,4 @@ target_precompile_headers(rb_gibbs
   PRIVATE
   <chrono>
   <memory>
-  <pcg_random.hpp>
 )
-
