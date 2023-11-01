@@ -3,7 +3,7 @@
 #include <vector>
 
 #include <Eigen/Core>
-#include <Eigen/SparseCore>
+#include <Eigen/Sparse>
 
 #include "pargibbs/lattice/lattice.hh"
 
@@ -13,7 +13,7 @@
 
 struct GMRFOperator {
   using Triplet = Eigen::Triplet<double>;
-  using SparseMatrix = Eigen::SparseMatrix<double>;
+  using SparseMatrix = Eigen::SparseMatrix<double, Eigen::RowMajor>;
 
   GMRFOperator(const pargibbs::Lattice &lattice) {
     const int entries_per_row = 5;
