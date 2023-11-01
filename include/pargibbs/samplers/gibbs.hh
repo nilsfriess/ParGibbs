@@ -74,7 +74,8 @@ public:
 #endif
   }
 
-  void sample(Eigen::SparseVector<double> &sample, std::size_t n_samples) {
+  template <class Vector>
+  void sample(Vector &sample, std::size_t n_samples = 1) {
     Eigen::VectorXd rand;
     rand.resize(sample.size());
 
