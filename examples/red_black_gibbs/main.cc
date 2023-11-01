@@ -1,5 +1,4 @@
-#include <Eigen/Core>
-#include <Eigen/SparseCore>
+#include <Eigen/Eigen>
 
 #include <chrono>
 #include <cmath>
@@ -40,51 +39,68 @@ int main(int argc, char *argv[]) {
   std::ifstream f(argv[1]);
   json config = json::parse(f);
 
-  pcg_extras::seed_seq_from<std::random_device> seed_source;
   pcg32 engine(0, mpi_helper::get_rank());
-  engine.seed(seed_source);
+
+  if (argc > 2)
+    engine.seed(std::atoi(argv[2]));
+  else {
+    pcg_extras::seed_seq_from<std::random_device> seed_source;
+    engine.seed(seed_source);
+  }
 
 #ifdef USE_METIS
-  Lattice lattice(2, config["lattice_size"], ParallelLayout::METIS);
+  Lattice lattice(config["dim"], config["lattice_size"], ParallelLayout::METIS);
 #else
-  Lattice lattice(2, config["lattice_size"], ParallelLayout::WORB);
+  Lattice lattice(config["dim"], config["lattice_size"], ParallelLayout::WORB);
 #endif
 
   GMRFOperator prec_op(lattice);
   auto *prec_matrix = &(prec_op.matrix);
 
-  GibbsSampler sampler(&lattice, prec_matrix, &engine, config["omega"]);
-  sampler.enable_estimate_mean();
+  auto dense_prec = Eigen::MatrixXd(prec_op.matrix);
+  auto exact_cov = dense_prec.inverse();
 
-  using Vector = Eigen::SparseVector<double>;
-  auto res = Vector(lattice.get_n_total_vertices());
-
-  for (auto v : lattice.adj_vert)
-    res.insert(v) = 0;
-
-  const std::size_t n_burnin = config["n_burnin"];
+  std::size_t n_chains = 10000;
+  // const std::size_t n_burnin = config["n_burnin"];
   const std::size_t n_samples = config["n_samples"];
 
-  sampler.sample(res, n_burnin);
-  sampler.reset_statistics();
+  using Sampler = GibbsSampler<GMRFOperator::SparseMatrix, pcg32>;
+  using Vector = Eigen::SparseVector<double>;
 
-  const auto start = std::chrono::high_resolution_clock::now();
-  sampler.sample(res, n_samples);
-  MPI_Barrier(MPI_COMM_WORLD);
-  const auto end = std::chrono::high_resolution_clock::now();
-  const auto elapsed = end - start;
+  std::vector<Sampler> samplers;
+  std::vector<Vector> samples;
+  samplers.reserve(10);
+  samples.reserve(10);
 
-  double local_norm = sampler.get_mean().squaredNorm();
+  for (std::size_t i = 0; i < n_chains; ++i)
+    samplers.emplace_back(&lattice, prec_matrix, &engine, config["omega"]);
 
-  double norm = 0;
-  MPI_Reduce(&local_norm, &norm, 1, MPI_DOUBLE, MPI_SUM,
-             mpi_helper::debug_rank(), MPI_COMM_WORLD);
-  norm = std::sqrt(norm);
+  for (std::size_t i = 0; i < n_chains; ++i) {
+    samples.push_back(Vector(lattice.get_n_total_vertices()));
+    samples[i].setZero();
+  }
 
-  if (mpi_helper::is_debug_rank()) {
-    std::cout << "Norm = " << norm << "\n";
-    std::cout << "Time: "
-              << std::chrono::duration_cast<std::chrono::milliseconds>(elapsed)
-              << "\n";
+  Vector mean(lattice.get_n_total_vertices());
+  Eigen::MatrixXd cov(lattice.get_n_total_vertices(),
+                      lattice.get_n_total_vertices());
+
+  for (std::size_t n = 0; n < n_samples; ++n) {
+    for (std::size_t c = 0; c < n_chains; ++c)
+      samplers[c].sample(samples[c]);
+
+    mean.setZero();
+    for (std::size_t c = 0; c < n_chains; ++c)
+      mean += 1. / n_chains * samples[c];
+
+    cov.setZero();
+    for (std::size_t c = 0; c < n_chains; ++c)
+      cov += 1. / (n_chains - 1) * (samples[c] - mean) *
+             (samples[c] - mean).transpose();
+
+    double err = 1. / exact_cov.norm() * (exact_cov - cov).norm();
+
+    std::cout << "mean_err = " << mean.norm() << ", ";
+    std::cout << "cov_err = " << err;
+    std::cout << "\n";
   }
 }

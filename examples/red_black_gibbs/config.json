@@ -1,8 +1,9 @@
 {
-    "lattice_size": 21,
+    "dim": 2,
 
-    "omega": 1.98,
+    "lattice_size": 11,
 
-    "n_burnin":  1000,
-    "n_samples": 10000
+    "omega": 1.9852,
+
+    "n_samples": 300
 }

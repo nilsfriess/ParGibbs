@@ -99,9 +99,8 @@ public:
   }
 
 private:
-  template <class Predicate>
-  void sample_at_points(Eigen::SparseVector<double> &curr_sample,
-                        const Eigen::VectorXd &rand,
+  template <class Vector, class Predicate>
+  void sample_at_points(Vector &curr_sample, const Eigen::VectorXd &rand,
                         const Predicate &IncludeIndex) {
     using It = typename Matrix::InnerIterator;
 
@@ -122,30 +121,28 @@ private:
     }
   }
 
-  template <class Predicate>
-  void send_recv(Eigen::SparseVector<double> &curr_sample,
-                 const Predicate &IncludeIndex) {
+  template <class Vector, class Predicate>
+  void send_recv(Vector &curr_sample, const Predicate &IncludeIndex) {
+    if (mpi_helper::get_size() == 1)
+      return;
+
     static std::vector<double> mpi_buf(lattice->border_vertices.size());
-    std::vector<MPI_Request> reqs;
-    reqs.reserve(4);
 
     for (auto &&[target, vs] : mpi_send) {
       for (std::size_t i = 0; i < vs.size(); ++i)
-        mpi_buf[i] = curr_sample.coeff(vs[i]);
+        mpi_buf.at(i) = curr_sample.coeff(vs.at(i));
 
-      reqs.push_back(MPI_REQUEST_NULL);
-      MPI_Isend(mpi_buf.data(), vs.size(), MPI_DOUBLE, target, 0,
-                MPI_COMM_WORLD, &reqs.back());
+      MPI_Send(mpi_buf.data(), vs.size(), MPI_DOUBLE, target, 0,
+               MPI_COMM_WORLD);
     }
-    MPI_Waitall(reqs.size(), reqs.data(), MPI_STATUSES_IGNORE);
 
     for (auto &&[source, vs] : mpi_recv) {
       MPI_Recv(mpi_buf.data(), vs.size(), MPI_DOUBLE, source, 0, MPI_COMM_WORLD,
                MPI_STATUS_IGNORE);
 
       for (std::size_t i = 0; i < vs.size(); ++i)
-        if (IncludeIndex(vs[i]))
-          curr_sample.coeffRef(vs[i]) = mpi_buf[i];
+        if (IncludeIndex(vs.at(i)))
+          curr_sample.coeffRef(vs.at(i)) = mpi_buf.at(i);
     }
   }
 
