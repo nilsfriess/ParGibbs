@@ -11,8 +11,8 @@ class SamplerStatistics {
 public:
   void enable_estimate_mean() {
     est_mean = true;
-    mean.resize(lattice->get_n_total_vertices());
-    mean.setZero();
+
+    reset_statistics();
   }
 
   void enable_estimate_covariance() {
@@ -23,32 +23,35 @@ public:
     enable_estimate_mean(); // Estimating cov requires estimating mean
 
     est_cov = true;
-    cov.resize(lattice->get_n_total_vertices(),
-               lattice->get_n_total_vertices());
-    cov.setZero();
+    reset_statistics();
   }
 
-  Eigen::SparseVector<double> get_mean() const {
-    Eigen::SparseVector<double> local_mean(lattice->get_n_total_vertices());
-    for (auto v : lattice->own_vertices)
-      // Remove halo vertices
-      local_mean.insert(v) = mean.coeff(v);
-
-    return local_mean;
+  const Eigen::SparseVector<double> &get_mean() const {
+    if (not est_mean)
+      throw std::runtime_error("Tried to get_mean but est_mean is false. Call "
+                               "enable_estimate_mean() before sampling.");
+    return mean;
   }
 
   const Eigen::MatrixXd &get_covariance() const { return cov; }
 
   void reset_statistics() {
-    n_sample = 0;
-    if (est_mean)
+    n_sample = 1;
+    if (est_mean) {
+      mean.resize(lattice->get_n_total_vertices());
       mean.setZero();
-    if (est_cov)
+    }
+
+    if (est_cov) {
+      cov.resize(lattice->get_n_total_vertices(),
+                 lattice->get_n_total_vertices());
       cov.setZero();
+    }
   }
 
 protected:
-  SamplerStatistics(const Lattice *lattice) : lattice{lattice} {}
+  SamplerStatistics(const Lattice *lattice)
+      : est_mean{false}, est_cov{false}, lattice{lattice} {}
 
   bool est_mean; // true if mean should be estimated during sampling
   bool est_cov; // true if covariance matrix should be estimated during sampling
@@ -58,9 +61,12 @@ private:
     // Update mean
     if (est_mean) {
       if (n_sample == 1) {
-        mean = sample;
+        for (auto v : lattice->own_vertices)
+          mean.coeffRef(v) = sample.coeff(v);
       } else {
-        mean += 1 / (1. + n_sample) * (sample - mean);
+        for (auto v : lattice->own_vertices)
+          mean.coeffRef(v) +=
+              1 / (1. + n_sample) * (sample.coeff(v) - mean.coeff(v));
       }
     }
 
