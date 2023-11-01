@@ -10,11 +10,11 @@
 #include <Eigen/Dense>
 #include <Eigen/Sparse>
 
-std::pair<Eigen::SparseMatrix<double>, Eigen::MatrixXd>
+std::pair<Eigen::SparseMatrix<double, Eigen::RowMajor>, Eigen::MatrixXd>
 get_test_matrices(const pargibbs::Lattice &lattice) {
   const auto size = (std::size_t)lattice.get_n_total_vertices();
 
-  Eigen::SparseMatrix<double> precision(size, size);
+  Eigen::SparseMatrix<double, Eigen::RowMajor> precision(size, size);
   std::vector<Eigen::Triplet<double>> triplets;
 
   const double diag = 6;
