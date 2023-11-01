@@ -35,6 +35,10 @@ public:
                double omega = 1.)
       : SamplerStatistics{lattice}, lattice{lattice}, prec{prec},
         engine{engine}, omega{omega} {
+    if (not prec->IsRowMajor)
+      throw std::runtime_error(
+          "Precision matrix must be stored in row major format.");
+
     inv_diag.resize(prec->rows());
     rsqrt_diag.resize(prec->rows());
 
@@ -106,14 +110,8 @@ private:
 
       double sum = 0.;
       for (It it(*prec, v); it; ++it) {
-        if (it.col() != it.row()) {
-          // If the matrix is in row-major order, `it` iterates over the columns
-          // of the row `v` and vice-versa for column-major order
-          if (prec->IsRowMajor)
-            sum += it.value() * curr_sample.coeff(it.col());
-          else
-            sum += it.value() * curr_sample.coeff(it.row());
-        }
+        if (it.col() != it.row())
+          sum += it.value() * curr_sample.coeff(it.col());
       }
 
       curr_sample.coeffRef(v) =
