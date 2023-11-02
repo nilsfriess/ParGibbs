@@ -1,3 +1,4 @@
+#include "pargibbs/common/helpers.hh"
 #include <Eigen/Eigen>
 
 #include <chrono>
@@ -55,13 +56,11 @@ int main(int argc, char *argv[]) {
 #endif
 
   GMRFOperator prec_op(lattice);
-  auto *prec_matrix = &(prec_op.matrix);
 
-  auto dense_prec = Eigen::MatrixXd(prec_op.matrix);
+  auto dense_prec = Eigen::MatrixXd(GMRFOperator(lattice, true).matrix);
   auto exact_cov = dense_prec.inverse();
 
   std::size_t n_chains = 1000;
-  // const std::size_t n_burnin = config["n_burnin"];
   const std::size_t n_samples = config["n_samples"];
 
   using Sampler = GibbsSampler<GMRFOperator::SparseMatrix, pcg32>;
@@ -69,38 +68,52 @@ int main(int argc, char *argv[]) {
 
   std::vector<Sampler> samplers;
   std::vector<Vector> samples;
-  samplers.reserve(10);
-  samples.reserve(10);
-
-  for (std::size_t i = 0; i < n_chains; ++i)
-    samplers.emplace_back(&lattice, prec_matrix, &engine, config["omega"]);
+  std::vector<Eigen::VectorXd> full_samples;
 
   for (std::size_t i = 0; i < n_chains; ++i) {
+    samplers.emplace_back(&lattice, &prec_op.matrix, &engine, config["omega"]);
+
     samples.push_back(Vector(lattice.get_n_total_vertices()));
     samples[i].setZero();
+
+    full_samples.push_back(Eigen::VectorXd(lattice.get_n_total_vertices()));
+    full_samples[i].setZero();
   }
 
-  Vector mean(lattice.get_n_total_vertices());
+  Eigen::VectorXd mean(lattice.get_n_total_vertices());
+
   Eigen::MatrixXd cov(lattice.get_n_total_vertices(),
                       lattice.get_n_total_vertices());
 
   for (std::size_t n = 0; n < n_samples; ++n) {
-    for (std::size_t c = 0; c < n_chains; ++c)
+    for (std::size_t c = 0; c < n_chains; ++c) {
       samplers[c].sample(samples[c]);
 
-    mean.setZero();
-    for (std::size_t c = 0; c < n_chains; ++c)
-      mean += 1. / n_chains * samples[c];
+      // Remove halo values
+      Vector local_sample(lattice.get_n_total_vertices());
+      for (auto v : lattice.own_vertices)
+        local_sample.insert(v) = samples[c].coeff(v);
 
-    cov.setZero();
-    for (std::size_t c = 0; c < n_chains; ++c)
-      cov += 1. / (n_chains - 1) * (samples[c] - mean) *
-             (samples[c] - mean).transpose();
+      // Collect all parts of the sample which are scattered across multiple MPI
+      // ranks into a single vector
+      full_samples[c] = mpi_gather_vector(local_sample);
+    }
 
-    double err = 1. / exact_cov.norm() * (exact_cov - cov).norm();
+    if (mpi_helper::is_debug_rank()) {
+      mean.setZero();
+      for (std::size_t c = 0; c < n_chains; ++c)
+        mean += 1. / n_chains * full_samples[c];
 
-    std::cout << "mean_err = " << mean.norm() << ", ";
-    std::cout << "cov_err = " << err;
-    std::cout << "\n";
+      cov.setZero();
+      for (std::size_t c = 0; c < n_chains; ++c)
+        cov += 1. / (n_chains - 1) * (full_samples[c] - mean) *
+               (full_samples[c] - mean).transpose();
+
+      double err = 1. / exact_cov.norm() * (exact_cov - cov).norm();
+
+      std::cout << "mean_err = " << mean.norm() << ", ";
+      std::cout << "cov_err = " << err;
+      std::cout << "\n";
+    }
   }
 }

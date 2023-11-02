@@ -1,6 +1,7 @@
 add_library(pargibbs
   pargibbs/lattice/lattice.cc
-  pargibbs/mpi_helper.cc)
+  pargibbs/mpi_helper.cc
+  pargibbs/common/helpers.cc)
 
 if (${USE_MPI})
   target_compile_definitions(pargibbs PUBLIC USE_MPI=true)
