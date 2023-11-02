@@ -14,7 +14,7 @@ add_executable(
   samplers.cc
 )
 
-target_include_directories(tests PRIVATE ../include)
+target_include_directories(tests PRIVATE "${CMAKE_SOURCE_DIR}/include")
 target_compile_options(tests PRIVATE -Wall -Wextra -Wpedantic)
 
 target_link_libraries(
@@ -22,6 +22,3 @@ target_link_libraries(
   pargibbs
   GTest::gtest_main
 )
-
-# include(GoogleTest)
-# gtest_discover_tests(tests)

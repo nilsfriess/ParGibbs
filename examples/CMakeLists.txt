@@ -1,1 +1,1 @@
-add_subdirectory(red_black_gibbs)
+add_subdirectory(simple_gmrf)

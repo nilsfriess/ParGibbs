@@ -60,7 +60,7 @@ int main(int argc, char *argv[]) {
   auto dense_prec = Eigen::MatrixXd(prec_op.matrix);
   auto exact_cov = dense_prec.inverse();
 
-  std::size_t n_chains = 10000;
+  std::size_t n_chains = 1000;
   // const std::size_t n_burnin = config["n_burnin"];
   const std::size_t n_samples = config["n_samples"];
 
