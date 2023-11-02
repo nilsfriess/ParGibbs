@@ -31,7 +31,9 @@ namespace pargibbs {
 template <class Matrix, class Engine>
 class GibbsSampler : public SamplerStatistics {
 public:
-  GibbsSampler(Lattice *lattice, Matrix *prec, Engine *engine,
+  GibbsSampler(Lattice *lattice,
+               Matrix *prec,
+               Engine *engine,
                double omega = 1.)
       : SamplerStatistics{lattice}, lattice{lattice}, prec{prec},
         engine{engine}, omega{omega} {
@@ -100,7 +102,8 @@ public:
 
 private:
   template <class Vector, class Predicate>
-  void sample_at_points(Vector &curr_sample, const Eigen::VectorXd &rand,
+  void sample_at_points(Vector &curr_sample,
+                        const Eigen::VectorXd &rand,
                         const Predicate &IncludeIndex) {
     using It = typename Matrix::InnerIterator;
 
@@ -132,12 +135,17 @@ private:
       for (std::size_t i = 0; i < vs.size(); ++i)
         mpi_buf.at(i) = curr_sample.coeff(vs.at(i));
 
-      MPI_Send(mpi_buf.data(), vs.size(), MPI_DOUBLE, target, 0,
-               MPI_COMM_WORLD);
+      MPI_Send(
+          mpi_buf.data(), vs.size(), MPI_DOUBLE, target, 0, MPI_COMM_WORLD);
     }
 
     for (auto &&[source, vs] : mpi_recv) {
-      MPI_Recv(mpi_buf.data(), vs.size(), MPI_DOUBLE, source, 0, MPI_COMM_WORLD,
+      MPI_Recv(mpi_buf.data(),
+               vs.size(),
+               MPI_DOUBLE,
+               source,
+               0,
+               MPI_COMM_WORLD,
                MPI_STATUS_IGNORE);
 
       for (std::size_t i = 0; i < vs.size(); ++i)
