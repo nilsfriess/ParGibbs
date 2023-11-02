@@ -56,7 +56,6 @@ protected:
   bool est_mean; // true if mean should be estimated during sampling
   bool est_cov; // true if covariance matrix should be estimated during sampling
 
-private:
   void update_statistics(const auto &sample) {
     // Update mean
     if (est_mean) {
@@ -82,6 +81,7 @@ private:
     n_sample++;
   }
 
+private:
   Eigen::SparseVector<double> mean;
   Eigen::MatrixXd cov;
 
