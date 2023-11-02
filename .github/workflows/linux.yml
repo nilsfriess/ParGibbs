@@ -4,16 +4,16 @@ jobs:
   Run-Test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - name: Install dependencies
-        - run: |
-            apt update
-            apt install cmake openmpi-bin openmpi-common libopenmpi-dev cmake libmetis-dev
-      - name: Build ParGibbs
-        - run: |
-            mkdir build
-            cmake -S . -B build -DUSE_METIS=True
-            cmake --build build
-      - name: Run tests
-        - run: ./build/tests/tests
-          
+    - uses: actions/checkout@v4
+    - name: Install dependencies
+      run: |
+        apt update
+        apt install cmake openmpi-bin openmpi-common libopenmpi-dev cmake libmetis-dev
+    - name: Build ParGibbs
+      run: |
+        mkdir build
+        cmake -S . -B build -DUSE_METIS=True
+        cmake --build build
+    - name: Run tests
+      run: ./build/tests/tests
+    
