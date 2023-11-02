@@ -1,7 +1,7 @@
 name: Run tests
 on: [push]
 jobs:
-  Run-Test:
+  Linux:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
@@ -13,11 +13,19 @@ jobs:
         cd GKlib
         make
         make install
-    - name: Build ParGibbs
+    - name: Build ParGibbs (with MPI)
       run: |
         mkdir build
         cmake -S . -B build -DUSE_METIS=True -DMETIS_ROOT=/home/runner/local/
         cmake --build build
-    - name: Run tests
+    - name: Run tests (with MPI)
+      run: ./build/tests/tests
+    - name: Build ParGibbs (with FakeMPI)
+      run: |
+        rm -rf build
+        mkdir build
+        cmake -S . -B build -DUSE_MPI=False -DUSE_METIS=True -DMETIS_ROOT=/home/runner/local/
+        cmake --build build
+    - name: Run tests (with FakeMPI)
       run: ./build/tests/tests
   
