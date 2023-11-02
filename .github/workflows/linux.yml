@@ -8,12 +8,16 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt update
-        sudo apt install cmake openmpi-bin openmpi-common libopenmpi-dev cmake libmetis-dev libeigen3-dev
+        sudo apt install cmake openmpi-bin openmpi-common libopenmpi-dev cmake libmetis-dev libeigen3-dev git
+        git clone https://github.com/KarypisLab/GKlib.git
+        cd GKlib
+        make
+        make install
     - name: Build ParGibbs
       run: |
         mkdir build
-        cmake -S . -B build -DUSE_METIS=True
+        cmake -S . -B build -DUSE_METIS=True -DMETIS_ROOT=/home/runner/local/
         cmake --build build
     - name: Run tests
       run: ./build/tests/tests
-    
+  
