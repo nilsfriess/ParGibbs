@@ -57,10 +57,15 @@ int main(int argc, char *argv[]) {
 
   GMRFOperator prec_op(lattice);
 
-  auto dense_prec = Eigen::MatrixXd(GMRFOperator(lattice, true).matrix);
-  auto exact_cov = dense_prec.inverse();
+  Eigen::MatrixXd exact_cov;
+  // Collect all parts of the precision matrix into one dense matrix (on the
+  // debug rank).
+  auto full_prec = mpi_gather_matrix(prec_op.matrix);
+  if (mpi_helper::is_debug_rank()) {
+    exact_cov = full_prec.inverse();
+  }
 
-  std::size_t n_chains = 1000;
+  std::size_t n_chains = config["n_samples"];;
   const std::size_t n_samples = config["n_samples"];
 
   using Sampler = GibbsSampler<GMRFOperator::SparseMatrix, pcg32>;

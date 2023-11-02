@@ -11,4 +11,8 @@ namespace pargibbs {
 // This is mostly for debugging purposes as it calls MPI_Gather[v] multiple
 // times.
 Eigen::VectorXd mpi_gather_vector(const Eigen::SparseVector<double> &vec);
+
+// Same as mpi_gather_vector but for matrices. This will compress the matrix if
+// it is not already compressed.
+Eigen::MatrixXd mpi_gather_matrix(const Eigen::SparseMatrix<double> &mat);
 } // namespace pargibbs

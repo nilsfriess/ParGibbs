@@ -46,6 +46,7 @@ struct GMRFOperator {
     auto mat_size = lattice.get_n_total_vertices();
     matrix = SparseMatrix(mat_size, mat_size);
     matrix.setFromTriplets(triplets.begin(), triplets.end());
+    matrix.makeCompressed();
   }
 
   SparseMatrix matrix;
