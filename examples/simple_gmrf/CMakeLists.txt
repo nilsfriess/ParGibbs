@@ -11,13 +11,11 @@ target_include_directories(simple_gmrf SYSTEM PRIVATE "${CMAKE_SOURCE_DIR}/exter
 target_include_directories(simple_gmrf SYSTEM PRIVATE "${pcgcpp_INCLDUE_DIR}")
 target_compile_options(simple_gmrf PRIVATE -Wall -Wextra -Wpedantic -Wnon-virtual-dtor)
 target_link_libraries(simple_gmrf pargibbs Eigen3::Eigen)
+set_target_properties(simple_gmrf PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
 target_precompile_headers(simple_gmrf
   PRIVATE
   <chrono>
   <memory>
   <vector>
-  <Eigen/Core>
-  <Eigen/Eigen>
-  <Eigen/Sparse>
 )
