@@ -31,9 +31,7 @@ namespace pargibbs {
 template <class Matrix, class Engine>
 class GibbsSampler : public SamplerStatistics {
 public:
-  GibbsSampler(Lattice *lattice,
-               Matrix *prec,
-               Engine *engine,
+  GibbsSampler(Lattice *lattice, Matrix *prec, Engine *engine,
                double omega = 1.)
       : SamplerStatistics{lattice}, lattice{lattice}, prec{prec},
         engine{engine}, omega{omega} {
@@ -42,11 +40,12 @@ public:
           "Precision matrix must be stored in row major format.");
 
     inv_diag.resize(prec->rows());
-    rsqrt_diag.resize(prec->rows());
+    rsqrt_omega_diag.resize(prec->rows());
 
+    const auto factor = std::sqrt(omega * (2 - omega));
     for (auto v : lattice->own_vertices) {
       inv_diag.coeffRef(v) = 1. / prec->coeff(v, v);
-      rsqrt_diag.coeffRef(v) = 1. / std::sqrt(prec->coeff(v, v));
+      rsqrt_omega_diag.coeffRef(v) = factor / std::sqrt(prec->coeff(v, v));
     }
 
     setup_mpi_maps();
@@ -102,8 +101,7 @@ public:
 
 private:
   template <class Vector, class Predicate>
-  void sample_at_points(Vector &curr_sample,
-                        const Eigen::VectorXd &rand,
+  void sample_at_points(Vector &curr_sample, const Eigen::VectorXd &rand,
                         const Predicate &IncludeIndex) {
     using It = typename Matrix::InnerIterator;
 
@@ -117,10 +115,9 @@ private:
           sum += it.value() * curr_sample.coeff(it.col());
       }
 
-      curr_sample.coeffRef(v) =
-          (1 - omega) * curr_sample.coeff(v) +
-          rand[v] * std::sqrt(omega * (2 - omega)) * rsqrt_diag.coeff(v) -
-          omega * inv_diag.coeff(v) * sum;
+      curr_sample.coeffRef(v) = (1 - omega) * curr_sample.coeff(v) +
+                                rand[v] * rsqrt_omega_diag.coeff(v) -
+                                omega * inv_diag.coeff(v) * sum;
     }
   }
 
@@ -193,7 +190,7 @@ private:
   Engine *engine;
 
   Eigen::SparseVector<double> inv_diag;
-  Eigen::SparseVector<double> rsqrt_diag;
+  Eigen::SparseVector<double> rsqrt_omega_diag;
 
   std::normal_distribution<double> dist;
 
