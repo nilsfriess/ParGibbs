@@ -1,5 +1,6 @@
 #pragma once
 
+#include <ranges>
 #include <vector>
 
 #include <Eigen/Core>
@@ -15,7 +16,7 @@ struct GMRFOperator {
   using Triplet = Eigen::Triplet<double>;
   using SparseMatrix = Eigen::SparseMatrix<double, Eigen::RowMajor>;
 
-  GMRFOperator(const pargibbs::Lattice &lattice) {
+  GMRFOperator(const pargibbs::Lattice &lattice, bool build_full = false) {
     const int entries_per_row = 5;
     const int nnz = lattice.own_vertices.size() * entries_per_row;
     std::vector<Triplet> triplets;
@@ -23,16 +24,24 @@ struct GMRFOperator {
 
     const double noise_var = 1e-4;
 
-    for (auto v : lattice.own_vertices) {
+    auto handle_row = [&](auto v) {
       int n_neighbours = lattice.adj_idx[v + 1] - lattice.adj_idx[v];
       triplets.emplace_back(v, v, n_neighbours + noise_var);
 
       for (typename pargibbs::Lattice::IndexType n = lattice.adj_idx[v];
-           n < lattice.adj_idx[v + 1]; ++n) {
+           n < lattice.adj_idx[v + 1];
+           ++n) {
         auto nb_idx = lattice.adj_vert[n];
         triplets.emplace_back(v, nb_idx, -1);
       }
-    }
+    };
+
+    if (build_full)
+      for (auto v : std::ranges::views::iota(0, lattice.get_n_total_vertices()))
+        handle_row(v);
+    else
+      for (auto v : lattice.own_vertices)
+        handle_row(v);
 
     auto mat_size = lattice.get_n_total_vertices();
     matrix = SparseMatrix(mat_size, mat_size);
