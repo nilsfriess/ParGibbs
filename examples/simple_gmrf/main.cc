@@ -65,7 +65,7 @@ int main(int argc, char *argv[]) {
     exact_cov = full_prec.inverse();
   }
 
-  std::size_t n_chains = config["n_samples"];;
+  std::size_t n_chains = config["n_samples"];
   const std::size_t n_samples = config["n_samples"];
 
   using Sampler = GibbsSampler<GMRFOperator::SparseMatrix, pcg32>;
@@ -78,8 +78,15 @@ int main(int argc, char *argv[]) {
   for (std::size_t i = 0; i < n_chains; ++i) {
     samplers.emplace_back(&lattice, &prec_op.matrix, &engine, config["omega"]);
 
-    samples.push_back(Vector(lattice.get_n_total_vertices()));
-    samples[i].setZero();
+    samples.emplace_back();
+    samples[i].resize(lattice.get_n_total_vertices());
+    for (auto v : lattice.own_vertices) {
+      samples[i].coeffRef(v) = 0;
+      for (int n = lattice.adj_idx.at(v); n < lattice.adj_idx.at(v + 1); ++n) {
+        auto nb_idx = lattice.adj_vert.at(n);
+        samples[i].coeffRef(nb_idx) = 0;
+      }
+    }
 
     full_samples.push_back(Eigen::VectorXd(lattice.get_n_total_vertices()));
     full_samples[i].setZero();

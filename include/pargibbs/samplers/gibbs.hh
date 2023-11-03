@@ -1,5 +1,6 @@
 #pragma once
 
+#include <set>
 #if USE_MPI
 #include <mpi.h>
 #else
@@ -105,19 +106,21 @@ private:
                         const Predicate &IncludeIndex) {
     using It = typename Matrix::InnerIterator;
 
-    for (auto v : lattice->own_vertices) {
-      if (not IncludeIndex(v))
+    for (int i = 0; i < curr_sample.nonZeros(); ++i) {
+      const auto row = curr_sample.innerIndexPtr()[i];
+      if (halo_indices.contains(row) or (not IncludeIndex(row)))
         continue;
 
       double sum = 0.;
-      for (It it(*prec, v); it; ++it) {
+      for (It it(*prec, row); it; ++it) {
+        assert(row == it.row());
         if (it.col() != it.row())
           sum += it.value() * curr_sample.coeff(it.col());
       }
 
-      curr_sample.coeffRef(v) = (1 - omega) * curr_sample.coeff(v) +
-                                rand[v] * rsqrt_omega_diag.coeff(v) -
-                                omega * inv_diag.coeff(v) * sum;
+      curr_sample.valuePtr()[i] = (1 - omega) * curr_sample.valuePtr()[i] +
+                                  rand[row] * rsqrt_omega_diag.coeff(row) -
+                                  omega * inv_diag.coeff(row) * sum;
     }
   }
 
@@ -158,11 +161,14 @@ private:
       for (IndexT n = lattice->adj_idx.at(v); n < lattice->adj_idx.at(v + 1);
            ++n) {
         auto nb_idx = lattice->adj_vert.at(n);
+
         // If we have a neighbour that is owned by another MPI process, then
         // - we need to send the value at `v` to this process at some point, and
         // - we will receive values at `nb_idx` from this process at some
         //   point.
         if (lattice->mpiowner[nb_idx] != (IndexT)mpi_helper::get_rank()) {
+          halo_indices.insert(nb_idx);
+
           mpi_send[lattice->mpiowner.at(nb_idx)].push_back(v);
           mpi_recv[lattice->mpiowner.at(nb_idx)].push_back(nb_idx);
         }
@@ -200,5 +206,7 @@ private:
   std::unordered_map<int, std::vector<int>> mpi_send;
   // mpi rank -> vertex indices we will receive
   std::unordered_map<int, std::vector<int>> mpi_recv;
+  // Indices of halo vertices
+  std::set<typename Lattice::IndexType> halo_indices;
 };
 } // namespace pargibbs
