@@ -15,5 +15,6 @@ struct mpi_helper {
 
 private:
   static void assert_initalised();
+  static int _debug_rank;
 };
 }; // namespace pargibbs

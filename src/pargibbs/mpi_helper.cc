@@ -13,9 +13,16 @@
 namespace pargibbs {
 static bool mpi_is_initialised = false;
 
+int mpi_helper::_debug_rank = 0;
+
 mpi_helper::mpi_helper(int *argc, char ***argv) {
   MPI_Init(argc, argv);
   mpi_is_initialised = true;
+
+  if (const char *env_rank = std::getenv("PARGIBBS_DEBUG_RANK"))
+    _debug_rank = atoi(env_rank);
+  else
+    _debug_rank = 0;
 }
 
 mpi_helper::~mpi_helper() { MPI_Finalize(); }
@@ -40,11 +47,7 @@ int mpi_helper::get_size() {
 
 int mpi_helper::debug_rank() {
   assert_initalised();
-
-  if (const char *env_rank = std::getenv("PARGIBBS_DEBUG_RANK"))
-    return atoi(env_rank);
-  else
-    return 0;
+  return _debug_rank;
 }
 
 bool mpi_helper::is_debug_rank() {
