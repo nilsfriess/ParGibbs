@@ -1,3 +1,4 @@
+#include "pargibbs/common/helpers.hh"
 #include "pargibbs/lattice/lattice.hh"
 #include "pargibbs/samplers/gibbs.hh"
 
@@ -55,6 +56,8 @@ TEST(SamplersTest, Gibbs1D) {
   const std::size_t n_samples = 1'000'000;
 
   Eigen::SparseVector<double> sample(lattice.get_n_total_vertices());
+  pargibbs::for_each_ownindex_and_halo(
+      lattice, [&](auto idx) { sample.insert(idx) = 0; });
 
   sampler.sample(sample, n_burnin);
   sampler.reset_statistics();
@@ -67,5 +70,6 @@ TEST(SamplersTest, Gibbs1D) {
   // Expect relative error for sample covariance matrix to be near zero
   EXPECT_NEAR(1. / covariance.norm() *
                   (sampler.get_covariance() - covariance).norm(),
-              0, tol);
+              0,
+              tol);
 }
