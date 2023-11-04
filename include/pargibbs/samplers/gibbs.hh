@@ -12,6 +12,7 @@
 #include "pargibbs/samplers/sampler_statistics.hh"
 
 #include <algorithm>
+#include <cassert>
 #include <cmath>
 #include <cstddef>
 #include <random>
