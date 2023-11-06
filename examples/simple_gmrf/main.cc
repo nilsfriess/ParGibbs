@@ -93,9 +93,14 @@ int main(int argc, char *argv[]) {
   Eigen::MatrixXd cov(lattice.get_n_total_vertices(),
                       lattice.get_n_total_vertices());
 
+  Eigen::SparseVector<double> prec_mean(lattice.get_n_total_vertices());
+  for_each_ownindex_and_halo(lattice,
+                             [&](auto idx) { prec_mean.insert(idx) = 0.123; });
+  Eigen::VectorXd tgt_mean = exact_cov * prec_mean;
+
   for (std::size_t n = 0; n < n_samples; ++n) {
     for (std::size_t c = 0; c < n_chains; ++c) {
-      samplers[c].sample(samples[c]);
+      samplers[c].sample(samples[c], prec_mean);
 
       // Remove halo values
       Vector local_sample(lattice.get_n_total_vertices());
@@ -117,10 +122,11 @@ int main(int argc, char *argv[]) {
         cov += 1. / (n_chains - 1) * (full_samples[c] - mean) *
                (full_samples[c] - mean).transpose();
 
-      double err = 1. / exact_cov.norm() * (exact_cov - cov).norm();
+      double mean_err = 1. / tgt_mean.norm() * (tgt_mean - mean).norm();
+      double cov_err = 1. / exact_cov.norm() * (exact_cov - cov).norm();
 
-      std::cout << "mean_err = " << mean.norm() << ", ";
-      std::cout << "cov_err = " << err;
+      std::cout << "mean_err = " << mean_err << ", ";
+      std::cout << "cov_err = " << cov_err;
       std::cout << "\n";
     }
   }

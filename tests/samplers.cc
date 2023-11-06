@@ -59,10 +59,12 @@ TEST(SamplersTest, Gibbs1D) {
   pargibbs::for_each_ownindex_and_halo(
       lattice, [&](auto idx) { sample.insert(idx) = 0; });
 
-  sampler.sample(sample, n_burnin);
+  Eigen::SparseVector<double> nu_mean(lattice.get_n_total_vertices());
+
+  sampler.sample(sample, nu_mean, n_burnin);
   sampler.reset_statistics();
 
-  sampler.sample(sample, n_samples);
+  sampler.sample(sample, nu_mean, n_samples);
 
   const double tol = 5e-3;
   // Expect mean to be near zero

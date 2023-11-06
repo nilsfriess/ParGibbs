@@ -77,16 +77,25 @@ public:
 #endif
   }
 
+  // TODO: Remove template, this only works with Eigen::SparseVector
   template <class Vector>
-  void sample(Vector &sample, std::size_t n_samples = 1) {
-    Eigen::VectorXd rand;
+  void sample(Vector &sample, const Vector &prec_x_mean,
+              std::size_t n_samples = 1) {
+    assert(sample.size() == prec->rows() && sample.size() == prec->rows());
+
+    Eigen::SparseVector<double> rand;
     rand.resize(sample.size());
+    rand.reserve(sample.nonZeros());
+    for (int i = 0; i < sample.nonZeros(); ++i)
+      rand.insertBack(sample.innerIndexPtr()[i]);
 
     auto is_red_vertex = [](auto v) { return v % 2 == 0; };
     auto is_black_vertex = [](auto v) { return v % 2 != 0; };
 
     for (std::size_t n = 0; n < n_samples; ++n) {
-      std::generate(rand.begin(), rand.end(), [&]() { return dist(*engine); });
+      for (int i = 0; i < rand.nonZeros(); ++i)
+        rand.valuePtr()[i] = dist(*engine);
+      rand += prec_x_mean;
 
       // Update sample at "red" vertices
       sample_at_points(sample, rand, is_red_vertex);
@@ -103,7 +112,8 @@ public:
 
 private:
   template <class Vector, class Predicate>
-  void sample_at_points(Vector &curr_sample, const Eigen::VectorXd &rand,
+  void sample_at_points(Vector &curr_sample,
+                        const Eigen::SparseVector<double> &rand,
                         const Predicate &IncludeIndex) {
     using It = typename Matrix::InnerIterator;
 
@@ -119,9 +129,10 @@ private:
           sum += it.value() * curr_sample.coeff(it.col());
       }
 
-      curr_sample.valuePtr()[i] = (1 - omega) * curr_sample.valuePtr()[i] +
-                                  rand[row] * rsqrt_omega_diag.coeff(row) -
-                                  omega * inv_diag.coeff(row) * sum;
+      curr_sample.valuePtr()[i] =
+          (1 - omega) * curr_sample.valuePtr()[i] +
+          rand.valuePtr()[i] * rsqrt_omega_diag.coeff(row) -
+          omega * inv_diag.coeff(row) * sum;
     }
   }
 
