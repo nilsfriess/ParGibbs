@@ -1,10 +1,12 @@
 #include "pargibbs/common/helpers.hh"
+#include "pargibbs/lattice/helpers.hh"
 #include "pargibbs/mpi_helper.hh"
 
 #include <Eigen/Dense>
 #include <Eigen/Sparse>
 
 #include <numeric>
+#include <stdexcept>
 #include <vector>
 
 #if USE_MPI
@@ -188,4 +190,78 @@ pargibbs::mpi_gather_matrix(const Eigen::SparseMatrix<double> &mat) {
   }
 
   return res;
+}
+
+Eigen::SparseMatrix<double>
+pargibbs::make_prolongation(const pargibbs::Lattice &fine,
+                            const pargibbs::Lattice &coarse) {
+  if (fine.dim != 2 or coarse.dim != 2)
+    throw std::runtime_error(
+        "make_prolongation: Only dim = 2 supported currently.");
+
+  if (fine.dim != coarse.dim)
+    throw std::runtime_error("make_prolongation: Cannot create prolongation "
+                             "operator for lattices of different dimension.");
+
+  if (fine.get_vertices_per_dim() < coarse.get_vertices_per_dim())
+    throw std::runtime_error(
+        "make_prolongation: Fine lattice must be finer than coarse lattice.");
+
+  std::vector<Eigen::Triplet<double>> triplets;
+
+  // We construct the matrix in "block" that correspond to rows of the fine
+  // lattice. There are two types of blocks: Those that correspond to rows that
+  // share some points with the coarse grid and those that do not exist in the
+  // coarse grid.
+
+  using Idx = Lattice::IndexType;
+  Idx start = 0;
+  for (Idx block = 0; block < fine.get_vertices_per_dim(); ++block) {
+    for (Idx block_row = 0; block_row < fine.get_vertices_per_dim();
+         ++block_row) {
+      const auto row = fine.get_vertices_per_dim() * block + block_row;
+
+      // First type of "block"
+      if (block % 2 == 0) {
+        if (block_row % 2 == 0) {
+          triplets.emplace_back(row, start + block_row / 2, 1);
+        } else {
+          triplets.emplace_back(row, start + (block_row - 1) / 2, 0.5);
+          triplets.emplace_back(row, start + 1 + (block_row - 1) / 2, 0.5);
+        }
+
+      } else { // Second type of "block"
+        if (block_row % 2 == 0) {
+          triplets.emplace_back(row, start + block_row / 2, 0.5);
+          triplets.emplace_back(
+              row, start + coarse.get_vertices_per_dim() + block_row / 2, 0.5);
+        } else {
+          triplets.emplace_back(row, start + (block_row - 1) / 2, 0.25);
+          triplets.emplace_back(row, start + 1 + (block_row - 1) / 2, 0.25);
+          triplets.emplace_back(row,
+                                start + coarse.get_vertices_per_dim() +
+                                    (block_row - 1) / 2,
+                                0.25);
+          triplets.emplace_back(row,
+                                start + coarse.get_vertices_per_dim() + 1 +
+                                    (block_row - 1) / 2,
+                                0.25);
+        }
+      }
+    }
+
+    if (block % 2 == 1)
+      start += coarse.get_vertices_per_dim();
+  }
+
+  Eigen::SparseMatrix<double> mat(fine.get_n_total_vertices(),
+                                  coarse.get_n_total_vertices());
+  mat.setFromTriplets(triplets.begin(), triplets.end());
+  return mat;
+}
+
+Eigen::SparseMatrix<double>
+pargibbs::make_restriction(const pargibbs::Lattice &fine,
+                           const pargibbs::Lattice &coarse) {
+  return make_prolongation(fine, coarse).transpose();
 }

@@ -19,6 +19,11 @@ Eigen::VectorXd mpi_gather_vector(const Eigen::SparseVector<double> &vec);
 // it is not already compressed.
 Eigen::MatrixXd mpi_gather_matrix(const Eigen::SparseMatrix<double> &mat);
 
+Eigen::SparseMatrix<double> make_prolongation(const Lattice &fine,
+                                              const Lattice &coarse);
+Eigen::SparseMatrix<double> make_restriction(const Lattice &fine,
+                                             const Lattice &coarse);
+
 template <class Functor>
 void for_each_ownindex_and_halo(const Lattice &lattice, Functor f) {
   std::set<typename Lattice::IndexType> indices;
