@@ -18,6 +18,8 @@ struct Lattice {
     return std::pow(n_vertices_per_dim, dim);
   }
 
+  Lattice coarsen() const;
+
   std::size_t dim;
 
   // clang-format off

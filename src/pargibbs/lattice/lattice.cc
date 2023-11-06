@@ -20,20 +20,23 @@ Lattice::Lattice(std::size_t dim, IndexType vertices_per_dim,
   if (dim < 1 or dim > 3)
     throw std::runtime_error("Dimension must be between 1 and 3");
 
-  if (dim > 1 && n_vertices_per_dim % 2 == 0) {
-    n_vertices_per_dim++;
+  // Check if vertices_per_dim is of the form 2^n - 1. If not, warn and increase
+  // vertices_per_dim to the smallest number satisfying this (that is not
+  // smaller than vertices_per_dim).
+  auto n_elements = vertices_per_dim - 1;
+  if ((n_elements & (n_elements - 1)) != 0) {
+    n_vertices_per_dim = std::bit_ceil((std::size_t)n_vertices_per_dim) + 1;
 
-    PARGIBBS_DEBUG
-        << "The number of points per lattice dimension must be "
-           "odd when using red/black ordering. Incrementing and using "
-        << n_vertices_per_dim << " instead.\n";
+    PARGIBBS_DEBUG << "The number of points per lattice dimension must be "
+                      "of the form 2^n + 1. Incrementing and using "
+                   << n_vertices_per_dim << " instead.\n";
   }
 
   if (mpi_helper::is_debug_rank()) {
     PARGIBBS_DEBUG << "Initialising " << dim << "D lattice with "
                    << n_vertices_per_dim
                    << " vertices per dim (total: " << get_n_total_vertices()
-                   << " vertices).\n";
+                   << " vertices)." << std::endl;
   }
 
   /// Construct array of vertices in CSR style.
@@ -107,5 +110,13 @@ Lattice::Lattice(std::size_t dim, IndexType vertices_per_dim,
       }
     }
   }
+}
+
+Lattice Lattice::coarsen() const {
+  if (n_vertices_per_dim == 1)
+    throw std::runtime_error("Lattice::coarsen(): Lattice only consists of one "
+                             "vertex, cannot coarsen further.");
+
+  return Lattice(2, (n_vertices_per_dim + 1) / 2, layout);
 }
 } // namespace pargibbs
