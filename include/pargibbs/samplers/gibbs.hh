@@ -1,5 +1,6 @@
 #pragma once
 
+#include "pargibbs/common/helpers.hh"
 #include <set>
 #if USE_MPI
 #include <mpi.h>
@@ -45,10 +46,14 @@ public:
     rsqrt_omega_diag.resize(prec->rows());
 
     const auto factor = std::sqrt(omega * (2 - omega));
-    for (auto v : lattice->own_vertices) {
-      inv_diag.coeffRef(v) = 1. / prec->coeff(v, v);
-      rsqrt_omega_diag.coeffRef(v) = factor / std::sqrt(prec->coeff(v, v));
-    }
+
+    // We extract the diagonal of the precision matrix and store it in a sparse
+    // vector that is ordered the same way as the sample will be ordered. This
+    // way, we can avoid costly lookups during sampling.
+    for_each_ownindex_and_halo(*lattice, [&](auto idx) {
+      inv_diag.insert(idx) = 1. / prec->coeff(idx, idx);
+      rsqrt_omega_diag.insert(idx) = factor / std::sqrt(prec->coeff(idx, idx));
+    });
 
     setup_mpi_maps();
 
@@ -131,8 +136,8 @@ private:
 
       curr_sample.valuePtr()[i] =
           (1 - omega) * curr_sample.valuePtr()[i] +
-          rand.valuePtr()[i] * rsqrt_omega_diag.coeff(row) -
-          omega * inv_diag.coeff(row) * sum;
+          rand.valuePtr()[i] * rsqrt_omega_diag.valuePtr()[i] -
+          omega * inv_diag.valuePtr()[i] * sum;
     }
   }
 
