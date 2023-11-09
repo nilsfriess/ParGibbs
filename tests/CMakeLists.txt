@@ -12,6 +12,8 @@ add_executable(
   tests
   test_main.cc
   samplers.cc
+  lattice.cc
+  helpers.cc
 )
 
 target_include_directories(tests PRIVATE "${CMAKE_SOURCE_DIR}/include")

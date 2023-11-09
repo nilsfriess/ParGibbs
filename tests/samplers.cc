@@ -1,5 +1,6 @@
 #include "pargibbs/common/helpers.hh"
 #include "pargibbs/lattice/lattice.hh"
+#include "pargibbs/lattice/types.hh"
 #include "pargibbs/samplers/gibbs.hh"
 #include "pargibbs/samplers/multigrid.hh"
 
@@ -52,7 +53,54 @@ TEST(SamplersTest, Gibbs1D) {
 
   auto [precision, covariance] = get_test_matrices(lattice, true);
 
-  pg::GibbsSampler sampler(&lattice, &precision, &engine, 1.68);
+  pg::GibbsSampler sampler(
+      std::make_shared<pg::Lattice>(lattice),
+      std::make_shared<Eigen::SparseMatrix<double, Eigen::RowMajor>>(precision),
+      &engine,
+      1.68);
+  sampler.enable_estimate_mean();
+  sampler.enable_estimate_covariance();
+
+  const std::size_t n_burnin = 100;
+  const std::size_t n_samples = 1'000'000;
+
+  Eigen::SparseVector<double> sample(lattice.get_n_total_vertices());
+  pargibbs::for_each_ownindex_and_halo(
+      lattice, [&](auto idx) { sample.insert(idx) = 0; });
+
+  Eigen::SparseVector<double> nu_mean(lattice.get_n_total_vertices());
+
+  sampler.sample(sample, nu_mean, n_burnin);
+  sampler.reset_statistics();
+
+  sampler.sample(sample, nu_mean, n_samples);
+
+  const double tol = 5e-3;
+  // Expect mean to be near zero
+  EXPECT_NEAR(sampler.get_mean().norm(), 0, tol);
+  // Expect relative error for sample covariance matrix to be near zero
+  EXPECT_NEAR(1. / covariance.norm() *
+                  (sampler.get_covariance() - covariance).norm(),
+              0,
+              tol);
+}
+
+TEST(SamplersTest, Gibbs1DRedBlack) {
+  namespace pg = pargibbs;
+
+  const auto seed = 0xBEEFCAFE;
+  std::mt19937 engine{seed};
+
+  pg::Lattice lattice(
+      1, 8, pg::ParallelLayout::None, pg::LatticeOrdering::RedBlack);
+
+  auto [precision, covariance] = get_test_matrices(lattice, true);
+
+  pg::GibbsSampler sampler(
+      std::make_shared<pg::Lattice>(lattice),
+      std::make_shared<Eigen::SparseMatrix<double, Eigen::RowMajor>>(precision),
+      &engine,
+      1.68);
   sampler.enable_estimate_mean();
   sampler.enable_estimate_covariance();
 

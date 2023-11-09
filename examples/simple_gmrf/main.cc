@@ -1,4 +1,3 @@
-#include "pargibbs/common/helpers.hh"
 #include <Eigen/Eigen>
 
 #include <chrono>
@@ -19,6 +18,7 @@
 
 #include "gmrf_operator.hh"
 
+#include "pargibbs/common/helpers.hh"
 #include "pargibbs/common/log.hh"
 #include "pargibbs/lattice/lattice.hh"
 #include "pargibbs/lattice/types.hh"
@@ -50,7 +50,10 @@ int main(int argc, char *argv[]) {
   }
 
 #ifdef USE_METIS
-  Lattice lattice(config["dim"], config["lattice_size"], ParallelLayout::METIS);
+  Lattice lattice(config["dim"],
+                  config["lattice_size"],
+                  ParallelLayout::METIS,
+                  LatticeOrdering::RedBlack);
 #else
   Lattice lattice(config["dim"], config["lattice_size"], ParallelLayout::WORB);
 #endif
@@ -76,13 +79,16 @@ int main(int argc, char *argv[]) {
   std::vector<Eigen::VectorXd> full_samples;
 
   for (std::size_t i = 0; i < n_chains; ++i) {
-    samplers.emplace_back(&lattice, &prec_op.matrix, &engine, config["omega"]);
+    samplers.emplace_back(
+        std::make_shared<Lattice>(lattice),
+        std::make_shared<GMRFOperator::SparseMatrix>(prec_op.matrix),
+        &engine,
+        config["omega"]);
 
     samples.emplace_back();
     samples[i].resize(lattice.get_n_total_vertices());
-    for_each_ownindex_and_halo(lattice, [&](auto idx) {
-      samples[i].insert(idx) = 0;
-    });
+    for_each_ownindex_and_halo(lattice,
+                               [&](auto idx) { samples[i].insert(idx) = 0; });
 
     full_samples.push_back(Eigen::VectorXd(lattice.get_n_total_vertices()));
     full_samples[i].setZero();
@@ -93,10 +99,14 @@ int main(int argc, char *argv[]) {
   Eigen::MatrixXd cov(lattice.get_n_total_vertices(),
                       lattice.get_n_total_vertices());
 
+  std::uniform_real_distribution<double> dist(-1, 1);
   Eigen::SparseVector<double> prec_mean(lattice.get_n_total_vertices());
-  for_each_ownindex_and_halo(lattice,
-                             [&](auto idx) { prec_mean.insert(idx) = 0.123; });
-  Eigen::VectorXd tgt_mean = exact_cov * prec_mean;
+  for_each_ownindex_and_halo(
+      lattice, [&](auto idx) { prec_mean.insert(idx) = dist(engine); });
+
+  Eigen::VectorXd tgt_mean;
+  if (mpi_helper::is_debug_rank())
+    tgt_mean = exact_cov * prec_mean;
 
   for (std::size_t n = 0; n < n_samples; ++n) {
     for (std::size_t c = 0; c < n_chains; ++c) {

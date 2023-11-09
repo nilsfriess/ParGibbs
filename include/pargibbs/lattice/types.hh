@@ -11,7 +11,7 @@ template <std::size_t dim> struct LatticePoint {
   std::size_t actual_index;
 };
 
-enum class LatticeOrdering { Rowwise, RedBlack };
+enum class LatticeOrdering { Lexicographic, RedBlack };
 
 // For a red-black ordered lattice, there are different ways (in dim >= 2) to
 // decompose the lattice and distribute the points to the MPI processes.

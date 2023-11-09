@@ -11,11 +11,13 @@
 #include "pargibbs/lattice/lattice.hh"
 #include "pargibbs/mpi_helper.hh"
 #include "pargibbs/samplers/sampler_statistics.hh"
+#include "pargibbs/common/log.hh"
 
 #include <algorithm>
 #include <cassert>
 #include <cmath>
 #include <cstddef>
+#include <memory>
 #include <random>
 #include <stdexcept>
 #include <type_traits>
@@ -34,9 +36,9 @@ namespace pargibbs {
 template <class Matrix, class Engine>
 class GibbsSampler : public SamplerStatistics {
 public:
-  GibbsSampler(Lattice *lattice, Matrix *prec, Engine *engine,
-               double omega = 1.)
-      : SamplerStatistics{lattice}, lattice{lattice}, prec{prec},
+  GibbsSampler(std::shared_ptr<Lattice> lattice, std::shared_ptr<Matrix> prec,
+               Engine *engine, double omega = 1.)
+      : SamplerStatistics{lattice.get()}, lattice{lattice}, prec{prec},
         engine{engine}, omega{omega} {
     if (not prec->IsRowMajor)
       throw std::runtime_error(
@@ -61,7 +63,7 @@ public:
     if (mpi_helper::is_debug_rank()) {
       if (mpi_send.size() > 0) {
         PARGIBBS_DEBUG << "Rank " << mpi_helper::get_rank()
-                       << " has to send:\n";
+                       << " has to send:\n"; 
         for (auto &&[rank, vs] : mpi_send) {
           PARGIBBS_DEBUG << "To " << rank << ": ";
           for (auto &&idx : vs)
@@ -94,8 +96,13 @@ public:
     for (int i = 0; i < sample.nonZeros(); ++i)
       rand.insertBack(sample.innerIndexPtr()[i]);
 
-    auto is_red_vertex = [](auto v) { return v % 2 == 0; };
-    auto is_black_vertex = [](auto v) { return v % 2 != 0; };
+    auto is_red_vertex = [&](auto v) {
+      if (lattice->ordering == LatticeOrdering::Lexicographic)
+        return v % 2 == 0;
+      else
+        return v <= (lattice->get_n_total_vertices() / 2);
+    };
+    auto is_black_vertex = [&](auto v) { return !is_red_vertex(v); };
 
     for (std::size_t n = 0; n < n_samples; ++n) {
       for (int i = 0; i < rand.nonZeros(); ++i)
@@ -208,8 +215,8 @@ private:
     }
   }
 
-  const Lattice *lattice;
-  const Matrix *prec;
+  std::shared_ptr<Lattice> lattice;
+  std::shared_ptr<Matrix> prec;
   Engine *engine;
 
   Eigen::SparseVector<double> inv_diag;
