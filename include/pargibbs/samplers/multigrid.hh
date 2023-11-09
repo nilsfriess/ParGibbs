@@ -44,9 +44,8 @@ public:
     }
 
     for (std::size_t l = 0; l < levels; ++l) {
-      pre_smoothers.emplace_back(lattices[l].get(), operators[l].get(), engine, 1.9852);
-      post_smoothers.emplace_back(
-          lattices[l].get(), operators[l].get(), engine, 1.9852);
+      pre_smoothers.emplace_back(lattices[l], operators[l], engine, 1.9852);
+      post_smoothers.emplace_back(lattices[l], operators[l], engine, 1.9852);
     }
 
     for (std::size_t l = 0; l < levels; ++l) {
@@ -92,7 +91,7 @@ private:
           prolongations[level] * current_samples[level + 1];
     }
 
-    for (std::size_t k = 0; k < 2; ++k)    
+    for (std::size_t k = 0; k < 2; ++k)
       post_smoothers[level].sample(current_samples[level], nu);
   }
 
