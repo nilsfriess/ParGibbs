@@ -40,3 +40,21 @@ TEST(LatticeConstruction, RedBlack) {
   EXPECT_EQ(lattice.adj_idx, adj_idx_expected);
   EXPECT_EQ(lattice.adj_vert, adj_vert_expected);
 }
+
+TEST(LatticeConstruction, NumVertices) {
+  // Lattice constructed with 2^n + 1 vertices per dim should not change this
+  // number in its constructor
+  pargibbs::Lattice l1(2, 5);
+  pargibbs::Lattice l2(2, 33);
+
+  EXPECT_EQ(l1.get_vertices_per_dim(), 5);
+  EXPECT_EQ(l2.get_vertices_per_dim(), 33);
+
+  // Lattice constructed with vertices per dim != 2^n + 1 should change this to
+  // the next higher number satisfying this
+  pargibbs::Lattice l3(2, 4);
+  pargibbs::Lattice l4(2, 100);
+
+  EXPECT_EQ(l3.get_vertices_per_dim(), 5);
+  EXPECT_EQ(l4.get_vertices_per_dim(), 129);
+}
