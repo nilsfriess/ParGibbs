@@ -11,7 +11,6 @@ class SamplerStatistics {
 public:
   void enable_estimate_mean() {
     est_mean = true;
-
     reset_statistics();
   }
 
@@ -26,11 +25,18 @@ public:
     reset_statistics();
   }
 
-  const Eigen::SparseVector<double> &get_mean() const {
+  const Eigen::VectorXd get_mean() const {
     if (not est_mean)
       throw std::runtime_error("Tried to get_mean but est_mean is false. Call "
                                "enable_estimate_mean() before sampling.");
-    return mean;
+
+    Eigen::VectorXd ret_mean(mean.size());
+    ret_mean.setZero();
+    // Remove halo vertices
+    for (auto v : lattice->own_vertices)
+      ret_mean[v] = mean.coeff(v);
+
+    return ret_mean;
   }
 
   const Eigen::MatrixXd &get_covariance() const { return cov; }
@@ -60,12 +66,9 @@ protected:
     // Update mean
     if (est_mean) {
       if (n_sample == 1) {
-        for (auto v : lattice->own_vertices)
-          mean.coeffRef(v) = sample.coeff(v);
+        mean = sample;
       } else {
-        for (auto v : lattice->own_vertices)
-          mean.coeffRef(v) +=
-              1 / (1. + n_sample) * (sample.coeff(v) - mean.coeff(v));
+        mean += 1 / (1. + n_sample) * (sample - mean);
       }
     }
 
@@ -82,7 +85,7 @@ protected:
   }
 
 private:
-  Eigen::SparseVector<double> mean;
+  Eigen::VectorXd mean;
   Eigen::MatrixXd cov;
 
   std::size_t n_sample = 0;
