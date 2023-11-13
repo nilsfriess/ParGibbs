@@ -68,14 +68,14 @@ int main(int argc, char *argv[]) {
     exact_cov = full_prec.inverse();
   }
 
-  std::size_t n_chains = config["n_samples"];
+  std::size_t n_chains = config["n_chains"];
   const std::size_t n_samples = config["n_samples"];
 
   using Sampler = GibbsSampler<GMRFOperator::SparseMatrix, pcg32>;
-  using Vector = Eigen::SparseVector<double>;
+  using SampleType = Eigen::SparseVector<double>;
 
   std::vector<Sampler> samplers;
-  std::vector<Vector> samples;
+  std::vector<SampleType> samples;
   std::vector<Eigen::VectorXd> full_samples;
 
   for (std::size_t i = 0; i < n_chains; ++i) {
@@ -88,7 +88,7 @@ int main(int argc, char *argv[]) {
     samples.emplace_back();
     samples[i].resize(lattice.get_n_total_vertices());
     for_each_ownindex_and_halo(lattice,
-                               [&](auto idx) { samples[i].insert(idx) = 0; });
+                               [&](auto idx) { samples[i].coeffRef(idx) = 0; });
 
     full_samples.push_back(Eigen::VectorXd(lattice.get_n_total_vertices()));
     full_samples[i].setZero();
@@ -100,9 +100,9 @@ int main(int argc, char *argv[]) {
                       lattice.get_n_total_vertices());
 
   std::uniform_real_distribution<double> dist(-1, 1);
-  Eigen::SparseVector<double> prec_mean(lattice.get_n_total_vertices());
+  SampleType prec_mean(lattice.get_n_total_vertices());
   for_each_ownindex_and_halo(
-      lattice, [&](auto idx) { prec_mean.insert(idx) = dist(engine); });
+      lattice, [&](auto idx) { prec_mean.coeffRef(idx) = dist(engine); });
 
   Eigen::VectorXd tgt_mean;
   if (mpi_helper::is_debug_rank())
@@ -113,13 +113,13 @@ int main(int argc, char *argv[]) {
       samplers[c].sample(samples[c], prec_mean);
 
       // Remove halo values
-      Vector local_sample(lattice.get_n_total_vertices());
+      Eigen::VectorXd local_sample(lattice.get_n_total_vertices());
       for (auto v : lattice.own_vertices)
-        local_sample.insert(v) = samples[c].coeff(v);
+        local_sample[v] = samples[c].coeff(v);
 
       // Collect all parts of the sample which are scattered across multiple MPI
       // ranks into a single vector
-      full_samples[c] = mpi_gather_vector(local_sample);
+      full_samples[c] = mpi_gather_vector(local_sample, lattice);
     }
 
     if (mpi_helper::is_debug_rank()) {

@@ -64,11 +64,11 @@ TEST(SamplersTest, Gibbs1D) {
   const std::size_t n_burnin = 100;
   const std::size_t n_samples = 1'000'000;
 
-  Eigen::SparseVector<double> sample(lattice.get_n_total_vertices());
-  pargibbs::for_each_ownindex_and_halo(
-      lattice, [&](auto idx) { sample.insert(idx) = 0; });
+  Eigen::VectorXd sample(lattice.get_n_total_vertices());
+  sample.setZero();
 
-  Eigen::SparseVector<double> nu_mean(lattice.get_n_total_vertices());
+  Eigen::VectorXd nu_mean(lattice.get_n_total_vertices());
+  nu_mean.setZero();
 
   sampler.sample(sample, nu_mean, n_burnin);
   sampler.reset_statistics();
@@ -107,11 +107,11 @@ TEST(SamplersTest, Gibbs1DRedBlack) {
   const std::size_t n_burnin = 100;
   const std::size_t n_samples = 1'000'000;
 
-  Eigen::SparseVector<double> sample(lattice.get_n_total_vertices());
-  pargibbs::for_each_ownindex_and_halo(
-      lattice, [&](auto idx) { sample.insert(idx) = 0; });
+  Eigen::VectorXd sample(lattice.get_n_total_vertices());
+  sample.setZero();
 
-  Eigen::SparseVector<double> nu_mean(lattice.get_n_total_vertices());
+  Eigen::VectorXd nu_mean(lattice.get_n_total_vertices());
+  sample.setZero();
 
   sampler.sample(sample, nu_mean, n_burnin);
   sampler.reset_statistics();
@@ -153,11 +153,10 @@ TEST(SamplersTest, Multigrid2d) {
   const std::size_t n_burnin = 1000;
   const std::size_t n_samples = 100000;
 
-  Eigen::SparseVector<double> sample(lattice.get_n_total_vertices());
-  pargibbs::for_each_ownindex_and_halo(
-      lattice, [&](auto idx) { sample.insert(idx) = 0; });
+  Eigen::VectorXd sample(lattice.get_n_total_vertices());
+  sample.setZero();
 
-  Eigen::SparseVector<double> nu_mean(lattice.get_n_total_vertices());
+  Eigen::VectorXd nu_mean(lattice.get_n_total_vertices());
   nu_mean.setZero();
 
   sampler.sample(sample, nu_mean, n_burnin);

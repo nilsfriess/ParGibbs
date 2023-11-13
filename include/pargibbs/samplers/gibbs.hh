@@ -1,17 +1,17 @@
 #pragma once
 
-#include "pargibbs/common/helpers.hh"
-#include <set>
 #if USE_MPI
 #include <mpi.h>
 #else
 #include "FakeMPI/mpi.h"
 #endif
 
+#include "pargibbs/common/helpers.hh"
+#include "pargibbs/common/log.hh"
+#include "pargibbs/common/traits.hh"
 #include "pargibbs/lattice/lattice.hh"
 #include "pargibbs/mpi_helper.hh"
 #include "pargibbs/samplers/sampler_statistics.hh"
-#include "pargibbs/common/log.hh"
 
 #include <algorithm>
 #include <cassert>
@@ -19,6 +19,7 @@
 #include <cstddef>
 #include <memory>
 #include <random>
+#include <set>
 #include <stdexcept>
 #include <type_traits>
 #include <unordered_map>
@@ -49,13 +50,10 @@ public:
 
     const auto factor = std::sqrt(omega * (2 - omega));
 
-    // We extract the diagonal of the precision matrix and store it in a sparse
-    // vector that is ordered the same way as the sample will be ordered. This
-    // way, we can avoid costly lookups during sampling.
-    for_each_ownindex_and_halo(*lattice, [&](auto idx) {
-      inv_diag.insert(idx) = 1. / prec->coeff(idx, idx);
-      rsqrt_omega_diag.insert(idx) = factor / std::sqrt(prec->coeff(idx, idx));
-    });
+    for (auto v : lattice->own_vertices) {
+      inv_diag[v] = 1. / prec->coeff(v, v);
+      rsqrt_omega_diag[v] = factor / std::sqrt(prec->coeff(v, v));
+    }
 
     setup_mpi_maps();
 
@@ -63,7 +61,7 @@ public:
     if (mpi_helper::is_debug_rank()) {
       if (mpi_send.size() > 0) {
         PARGIBBS_DEBUG << "Rank " << mpi_helper::get_rank()
-                       << " has to send:\n"; 
+                       << " has to send:\n";
         for (auto &&[rank, vs] : mpi_send) {
           PARGIBBS_DEBUG << "To " << rank << ": ";
           for (auto &&idx : vs)
@@ -84,18 +82,9 @@ public:
 #endif
   }
 
-  // TODO: Remove template, this only works with Eigen::SparseVector
   template <class Vector>
   void sample(Vector &sample, const Vector &prec_x_mean,
               std::size_t n_samples = 1) {
-    assert(sample.size() == prec->rows() && sample.size() == prec->rows());
-
-    Eigen::SparseVector<double> rand;
-    rand.resize(sample.size());
-    rand.reserve(sample.nonZeros());
-    for (int i = 0; i < sample.nonZeros(); ++i)
-      rand.insertBack(sample.innerIndexPtr()[i]);
-
     auto is_red_vertex = [&](auto v) {
       if (lattice->ordering == LatticeOrdering::Lexicographic)
         return v % 2 == 0;
@@ -104,9 +93,20 @@ public:
     };
     auto is_black_vertex = [&](auto v) { return !is_red_vertex(v); };
 
+    Vector rand(sample.size());
+
+    if constexpr (detail::is_eigen_sparse_vector_v<Vector>)
+      rand = sample;
+
     for (std::size_t n = 0; n < n_samples; ++n) {
-      for (int i = 0; i < rand.nonZeros(); ++i)
-        rand.valuePtr()[i] = dist(*engine);
+      if constexpr (detail::is_eigen_sparse_vector_v<Vector>) {
+        for (int i = 0; i < rand.nonZeros(); ++i)
+          rand.valuePtr()[i] = dist(*engine);
+      } else {
+        for (auto v : lattice->own_vertices)
+          rand[v] = dist(*engine);
+      }
+
       rand += prec_x_mean;
 
       // Update sample at "red" vertices
@@ -124,27 +124,24 @@ public:
 
 private:
   template <class Vector, class Predicate>
-  void sample_at_points(Vector &curr_sample,
-                        const Eigen::SparseVector<double> &rand,
-                        const Predicate &IncludeIndex) {
+  void sample_at_points(Vector &curr_sample, const Vector &rand,
+                        Predicate &&IncludeIndex) {
     using It = typename Matrix::InnerIterator;
 
-    for (int i = 0; i < curr_sample.nonZeros(); ++i) {
-      const auto row = curr_sample.innerIndexPtr()[i];
-      if (halo_indices.contains(row) or (not IncludeIndex(row)))
+    for (auto row : lattice->own_vertices) {
+      if (not IncludeIndex(row))
         continue;
 
       double sum = 0.;
+      // Loop over non-zero entries in current row
       for (It it(*prec, row); it; ++it) {
         assert(row == it.row());
-        if (it.col() != it.row())
-          sum += it.value() * curr_sample.coeff(it.col());
+        sum += (it.col() != row) * it.value() * curr_sample.coeff(it.col());
       }
 
-      curr_sample.valuePtr()[i] =
-          (1 - omega) * curr_sample.valuePtr()[i] +
-          rand.valuePtr()[i] * rsqrt_omega_diag.valuePtr()[i] -
-          omega * inv_diag.valuePtr()[i] * sum;
+      curr_sample.coeffRef(row) = (1 - omega) * curr_sample.coeff(row) +
+                                  rand.coeff(row) * rsqrt_omega_diag[row] -
+                                  omega * inv_diag[row] * sum;
     }
   }
 
@@ -219,8 +216,8 @@ private:
   std::shared_ptr<Matrix> prec;
   Engine *engine;
 
-  Eigen::SparseVector<double> inv_diag;
-  Eigen::SparseVector<double> rsqrt_omega_diag;
+  Eigen::VectorXd inv_diag;
+  Eigen::VectorXd rsqrt_omega_diag;
 
   std::normal_distribution<double> dist;
 

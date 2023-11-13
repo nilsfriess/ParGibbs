@@ -1,5 +1,6 @@
 #include "pargibbs/common/helpers.hh"
 #include "pargibbs/lattice/helpers.hh"
+#include "pargibbs/lattice/lattice.hh"
 #include "pargibbs/mpi_helper.hh"
 
 #include <Eigen/Dense>
@@ -14,6 +15,71 @@
 #else
 #include "FakeMPI/mpi.h"
 #endif
+
+Eigen::VectorXd pargibbs::mpi_gather_vector(const Eigen::VectorXd &vec,
+                                            const Lattice &lattice) {
+  // Gather number of vertices
+  std::vector<int> n_vertices;
+  if (mpi_helper::is_debug_rank())
+    n_vertices.resize(mpi_helper::get_size());
+
+  auto own_n_vertices = lattice.own_vertices.size();
+  MPI_Gather(&own_n_vertices,
+             1,
+             MPI_INT,
+             n_vertices.data(),
+             1,
+             MPI_INT,
+             mpi_helper::debug_rank(),
+             MPI_COMM_WORLD);
+
+  std::vector<int> displs;
+  if (mpi_helper::is_debug_rank()) {
+    displs.resize(mpi_helper::get_size());
+    displs[0] = 0;
+    for (std::size_t i = 1; i < displs.size(); ++i)
+      displs[i] = displs[i - 1] + n_vertices[i - 1];
+  }
+
+  std::vector<int> indices;
+  if (mpi_helper::is_debug_rank())
+    indices.resize(vec.size());
+
+  MPI_Gatherv(lattice.own_vertices.data(),
+              own_n_vertices,
+              MPI_INT,
+              indices.data(),
+              n_vertices.data(),
+              displs.data(),
+              MPI_INT,
+              mpi_helper::debug_rank(),
+              MPI_COMM_WORLD);
+
+  std::vector<double> own_values(own_n_vertices);
+  for (std::size_t i = 0; i < own_n_vertices; ++i)
+    own_values[i] = vec[lattice.own_vertices[i]];
+
+  std::vector<double> values;
+  if (mpi_helper::is_debug_rank())
+    values.resize(vec.size());
+
+  MPI_Gatherv(own_values.data(),
+              own_n_vertices,
+              MPI_DOUBLE,
+              values.data(),
+              n_vertices.data(),
+              displs.data(),
+              MPI_DOUBLE,
+              mpi_helper::debug_rank(),
+              MPI_COMM_WORLD);
+
+  Eigen::VectorXd res(values.size());
+  if (mpi_helper::is_debug_rank())
+    for (std::size_t i = 0; i < values.size(); ++i)
+      res[indices[i]] = values[i];
+
+  return res;
+}
 
 Eigen::VectorXd
 pargibbs::mpi_gather_vector(const Eigen::SparseVector<double> &vec) {

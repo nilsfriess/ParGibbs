@@ -7,6 +7,13 @@
 #include <set>
 
 namespace pargibbs {
+// Gathers Eigen::VectorXds that are scattered across multiple MPI processes
+// into one Eigen::VectorXd on the rank that is returned by
+// mpi_helper::debug_rank(). The lattice is required since it stores the
+// vertices that the respective MPI process owns.
+Eigen::VectorXd mpi_gather_vector(const Eigen::VectorXd &vec,
+                                  const Lattice &lattice);
+
 // Gathers Eigen::SparseVectors that are scattered across multiple MPI processes
 // into one dense Eigen::VectorXd on the rank that is returned by
 // mpi_helper::debug_rank(). Assumes that the vectors are non-overlapping, i.e.,
