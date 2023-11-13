@@ -58,17 +58,18 @@ TEST(SamplersTest, Gibbs1D) {
       std::make_shared<Eigen::SparseMatrix<double, Eigen::RowMajor>>(precision),
       &engine,
       1.68);
-  sampler.enable_estimate_mean();
   sampler.enable_estimate_covariance();
 
-  const std::size_t n_burnin = 100;
+  const std::size_t n_burnin = 1000;
   const std::size_t n_samples = 1'000'000;
 
   Eigen::VectorXd sample(lattice.get_n_total_vertices());
   sample.setZero();
 
   Eigen::VectorXd nu_mean(lattice.get_n_total_vertices());
-  nu_mean.setZero();
+  std::uniform_real_distribution<double> real_dist(0, 1);
+  pargibbs::for_each_ownindex_and_halo(
+      lattice, [&](auto idx) { nu_mean.coeffRef(idx) = real_dist(engine); });
 
   sampler.sample(sample, nu_mean, n_burnin);
   sampler.reset_statistics();
@@ -76,8 +77,6 @@ TEST(SamplersTest, Gibbs1D) {
   sampler.sample(sample, nu_mean, n_samples);
 
   const double tol = 5e-3;
-  // Expect mean to be near zero
-  EXPECT_NEAR(sampler.get_mean().norm(), 0, tol);
   // Expect relative error for sample covariance matrix to be near zero
   EXPECT_NEAR(1. / covariance.norm() *
                   (sampler.get_covariance() - covariance).norm(),
@@ -104,14 +103,16 @@ TEST(SamplersTest, Gibbs1DRedBlack) {
   sampler.enable_estimate_mean();
   sampler.enable_estimate_covariance();
 
-  const std::size_t n_burnin = 100;
+  const std::size_t n_burnin = 1000;
   const std::size_t n_samples = 1'000'000;
 
   Eigen::VectorXd sample(lattice.get_n_total_vertices());
   sample.setZero();
 
   Eigen::VectorXd nu_mean(lattice.get_n_total_vertices());
-  sample.setZero();
+  std::uniform_real_distribution<double> real_dist(0, 1);
+  pargibbs::for_each_ownindex_and_halo(
+      lattice, [&](auto idx) { nu_mean.coeffRef(idx) = real_dist(engine); });
 
   sampler.sample(sample, nu_mean, n_burnin);
   sampler.reset_statistics();
@@ -119,8 +120,6 @@ TEST(SamplersTest, Gibbs1DRedBlack) {
   sampler.sample(sample, nu_mean, n_samples);
 
   const double tol = 5e-3;
-  // Expect mean to be near zero
-  EXPECT_NEAR(sampler.get_mean().norm(), 0, tol);
   // Expect relative error for sample covariance matrix to be near zero
   EXPECT_NEAR(1. / covariance.norm() *
                   (sampler.get_covariance() - covariance).norm(),
@@ -139,23 +138,22 @@ TEST(SamplersTest, Multigrid2d) {
   auto [precision, covariance] = get_test_matrices(lattice, true);
   std::cout << " done." << std::endl;
 
-  const std::size_t levels = 4;
-  const std::size_t cycles = 1;
-
   using Sampler = pg::
       MultigridSampler<Eigen::VectorXd, decltype(precision), decltype(engine)>;
+
+  Sampler::Parameters params{
+      .levels = 3, .cycles = 2, .n_presample = 2, .n_postsample = 2};
 
   Sampler sampler(
       std::make_shared<pg::Lattice>(lattice),
       std::make_shared<Eigen::SparseMatrix<double, Eigen::RowMajor>>(precision),
       &engine,
-      levels,
-      cycles);
+      params);
   sampler.enable_estimate_mean();
   sampler.enable_estimate_covariance();
 
   const std::size_t n_burnin = 1000;
-  const std::size_t n_samples = 100000;
+  const std::size_t n_samples = 1'000'000;
 
   Eigen::VectorXd sample(lattice.get_n_total_vertices());
   sample.setZero();
@@ -169,11 +167,9 @@ TEST(SamplersTest, Multigrid2d) {
   sampler.sample(sample, nu_mean, n_samples);
 
   const double tol = 8e-3;
-  // Expect mean to be near zero
-  // EXPECT_NEAR(sampler.get_mean().norm(), 0, tol);
   // Expect relative error for sample covariance matrix to be near zero
-  // EXPECT_NEAR(1. / covariance.norm() *
-  //                 (sampler.get_covariance() - covariance).norm(),
-  //             0,
-  //             tol);
+  EXPECT_NEAR(1. / covariance.norm() *
+                  (sampler.get_covariance() - covariance).norm(),
+              0,
+              tol);
 }

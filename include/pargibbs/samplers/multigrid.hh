@@ -5,21 +5,28 @@
 #include "pargibbs/samplers/gibbs.hh"
 #include "pargibbs/samplers/sampler_statistics.hh"
 
+#include <cstddef>
 #include <memory>
 
 namespace pargibbs {
-  template <class Vector, class Matrix, class Engine>
+template <class Vector, class Matrix, class Engine>
 class MultigridSampler : public SamplerStatistics {
   using Smoother = GibbsSampler<Matrix, Engine>;
 
 public:
-  // TODO: Think again about what should be passed to the constructor, maybe
-  // some factory functionals instead?
+  struct Parameters {
+    std::size_t levels;
+    std::size_t cycles;
+    std::size_t n_presample;
+    std::size_t n_postsample;
+  };
+
   MultigridSampler(std::shared_ptr<Lattice> finest_lattice,
                    std::shared_ptr<Matrix> prec, Engine *engine,
-                   std::size_t levels, std::size_t cycles = 1)
-      : SamplerStatistics{finest_lattice.get()}, engine{engine}, levels{levels},
-        cycles{cycles} {
+                   const Parameters &params)
+      : SamplerStatistics{finest_lattice.get()}, engine{engine},
+        levels{params.levels}, cycles{params.cycles},
+        n_presample{params.n_presample}, n_postsample{params.n_postsample} {
     // Create hierachy of lattices
     lattices.resize(levels);
     lattices[0] = finest_lattice;
@@ -30,17 +37,15 @@ public:
     for (std::size_t l = 1; l < levels; ++l) {
       prolongations.push_back(
           make_prolongation(*lattices[l - 1], *lattices[l]));
-
-      restrictions.push_back(make_restriction(*lattices[l - 1], *lattices[l]));
     }
 
     // Next, create hierachy of operators
     operators.resize(levels);
     operators[0] = prec;
     for (std::size_t l = 1; l < levels; ++l) {
-      const auto restr = make_restriction(*lattices[l - 1], *lattices[l]);
-      operators[l] = std::make_shared<Matrix>(restr * (*operators[l - 1]) *
-                                              prolongations[l - 1]);
+      operators[l] =
+          std::make_shared<Matrix>(prolongations[l - 1].transpose() *
+                                   (*operators[l - 1]) * prolongations[l - 1]);
     }
 
     for (std::size_t l = 0; l < levels; ++l) {
@@ -56,7 +61,8 @@ public:
     }
   }
 
-  void sample(Vector &sample, const Vector &prec_x_mean, std::size_t n_samples = 1) {
+  void sample(Vector &sample, const Vector &prec_x_mean,
+              std::size_t n_samples = 1) {
     current_samples[0] = sample;
 
     for (std::size_t n = 0; n < n_samples; ++n) {
@@ -71,13 +77,12 @@ public:
 
 private:
   void sample_impl(std::size_t level, const Vector &nu) {
-    for (std::size_t k = 0; k < 2; ++k)
-      pre_smoothers[level].sample(current_samples[level], nu);
+    pre_smoothers[level].sample(current_samples[level], nu, n_presample);
 
     if (level < levels - 1) {
 
       // Compute residual
-      Vector resid = restrictions[level] *
+      Vector resid = prolongations[level].transpose() *
                      (nu - *operators[level] * current_samples[level]);
 
       current_samples[level + 1].setZero();
@@ -90,8 +95,7 @@ private:
           prolongations[level] * current_samples[level + 1];
     }
 
-    for (std::size_t k = 0; k < 2; ++k)
-      post_smoothers[level].sample(current_samples[level], nu);
+    post_smoothers[level].sample(current_samples[level], nu, n_postsample);
   }
 
   Matrix *prec;
@@ -104,12 +108,12 @@ private:
   std::vector<Smoother> post_smoothers;
 
   std::vector<Eigen::SparseMatrix<double>> prolongations;
-  std::vector<Eigen::SparseMatrix<double>> restrictions;
 
   std::vector<Vector> current_samples;
 
   std::size_t levels;
-
   std::size_t cycles;
+  std::size_t n_presample;
+  std::size_t n_postsample;
 };
 } // namespace pargibbs
