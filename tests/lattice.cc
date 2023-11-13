@@ -39,6 +39,9 @@ TEST(LatticeConstruction, RedBlack) {
 
   EXPECT_EQ(lattice.adj_idx, adj_idx_expected);
   EXPECT_EQ(lattice.adj_vert, adj_vert_expected);
+
+  std::vector<int> own_vertices_expected = {0, 1, 2, 3, 4, 5, 6, 7, 8};
+  EXPECT_EQ(lattice.own_vertices, own_vertices_expected);
 }
 
 TEST(LatticeConstruction, NumVertices) {
