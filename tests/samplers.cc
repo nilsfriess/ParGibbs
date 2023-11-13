@@ -141,7 +141,11 @@ TEST(SamplersTest, Multigrid2d) {
 
   const std::size_t levels = 4;
   const std::size_t cycles = 1;
-  pg::MultigridSampler sampler(
+
+  using Sampler = pg::
+      MultigridSampler<Eigen::VectorXd, decltype(precision), decltype(engine)>;
+
+  Sampler sampler(
       std::make_shared<pg::Lattice>(lattice),
       std::make_shared<Eigen::SparseMatrix<double, Eigen::RowMajor>>(precision),
       &engine,

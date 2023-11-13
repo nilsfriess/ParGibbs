@@ -8,7 +8,7 @@
 #include <memory>
 
 namespace pargibbs {
-template <class Matrix, class Engine>
+  template <class Vector, class Matrix, class Engine>
 class MultigridSampler : public SamplerStatistics {
   using Smoother = GibbsSampler<Matrix, Engine>;
 
@@ -50,17 +50,17 @@ public:
 
     for (std::size_t l = 0; l < levels; ++l) {
       current_samples.emplace_back(lattices[l]->get_n_total_vertices());
-      pargibbs::for_each_ownindex_and_halo(
-          *lattices[l], [&](auto idx) { current_samples[l].insert(idx) = 0; });
+      for_each_ownindex_and_halo(*lattices[l], [&](auto idx) {
+        current_samples[l].coeffRef(idx) = 0;
+      });
     }
   }
 
-  template <class Vector>
-  void sample(Vector &sample, const Vector &nu, std::size_t n_samples = 1) {
+  void sample(Vector &sample, const Vector &prec_x_mean, std::size_t n_samples = 1) {
     current_samples[0] = sample;
 
     for (std::size_t n = 0; n < n_samples; ++n) {
-      sample_impl(0, nu);
+      sample_impl(0, prec_x_mean);
 
       if (est_mean || est_cov)
         update_statistics(current_samples[0]);
@@ -70,7 +70,6 @@ public:
   }
 
 private:
-  template <class Vector>
   void sample_impl(std::size_t level, const Vector &nu) {
     for (std::size_t k = 0; k < 2; ++k)
       pre_smoothers[level].sample(current_samples[level], nu);
@@ -107,7 +106,7 @@ private:
   std::vector<Eigen::SparseMatrix<double>> prolongations;
   std::vector<Eigen::SparseMatrix<double>> restrictions;
 
-  std::vector<Eigen::SparseVector<double>> current_samples;
+  std::vector<Vector> current_samples;
 
   std::size_t levels;
 
