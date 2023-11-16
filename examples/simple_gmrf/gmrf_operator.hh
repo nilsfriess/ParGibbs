@@ -1,6 +1,5 @@
 #pragma once
 
-#include <ranges>
 #include <vector>
 
 #include <Eigen/Core>
@@ -8,46 +7,32 @@
 
 #include "pargibbs/lattice/lattice.hh"
 
-// This operator is represented by a matrix that comes from Example 6.1 from
-// [Fox, Parker: Accelerated Gibbs sampling of normal distributions using matrix
-// splittings and polynomials, https://arxiv.org/abs/1505.03512]
+inline Eigen::SparseMatrix<double>
+gmrf_matrix_builder(const pargibbs::Lattice &lattice) {
+  const int entries_per_row = 5;
+  const int nnz = lattice.own_vertices.size() * entries_per_row;
+  std::vector<Eigen::Triplet<double>> triplets;
+  triplets.reserve(nnz);
 
-struct GMRFOperator {
-  using Triplet = Eigen::Triplet<double>;
-  using SparseMatrix = Eigen::SparseMatrix<double, Eigen::RowMajor>;
+  const double noise_var = 1e-4;
 
-  GMRFOperator(const pargibbs::Lattice &lattice, bool build_full = false) {
-    const int entries_per_row = 5;
-    const int nnz = lattice.own_vertices.size() * entries_per_row;
-    std::vector<Triplet> triplets;
-    triplets.reserve(nnz);
+  auto handle_row = [&](auto v) {
+    int n_neighbours = lattice.adj_idx[v + 1] - lattice.adj_idx[v];
+    triplets.emplace_back(v, v, n_neighbours + noise_var);
 
-    const double noise_var = 1e-4;
+    for (typename pargibbs::Lattice::IndexType n = lattice.adj_idx[v];
+         n < lattice.adj_idx[v + 1];
+         ++n) {
+      auto nb_idx = lattice.adj_vert[n];
+      triplets.emplace_back(v, nb_idx, -1);
+    }
+  };
 
-    auto handle_row = [&](auto v) {
-      int n_neighbours = lattice.adj_idx[v + 1] - lattice.adj_idx[v];
-      triplets.emplace_back(v, v, n_neighbours + noise_var);
+  for (auto v : lattice.own_vertices)
+    handle_row(v);
 
-      for (typename pargibbs::Lattice::IndexType n = lattice.adj_idx[v];
-           n < lattice.adj_idx[v + 1];
-           ++n) {
-        auto nb_idx = lattice.adj_vert[n];
-        triplets.emplace_back(v, nb_idx, -1);
-      }
-    };
-
-    if (build_full)
-      for (auto v : std::ranges::views::iota(0, lattice.get_n_total_vertices()))
-        handle_row(v);
-    else
-      for (auto v : lattice.own_vertices)
-        handle_row(v);
-
-    auto mat_size = lattice.get_n_total_vertices();
-    matrix = SparseMatrix(mat_size, mat_size);
-    matrix.setFromTriplets(triplets.begin(), triplets.end());
-    matrix.makeCompressed();
-  }
-
-  SparseMatrix matrix;
-};
+  auto mat_size = lattice.get_n_total_vertices();
+  Eigen::SparseMatrix<double> matrix(mat_size, mat_size);
+  matrix.setFromTriplets(triplets.begin(), triplets.end());
+  return matrix;
+}
