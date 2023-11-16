@@ -158,16 +158,19 @@ TEST(SamplersTest, Multigrid2d) {
     op.vector().coeffRef(idx) = real_dist(engine);
   });
 
-  pg::MultigridSampler sampler(
+  using Sampler = pg::MultigridSampler<decltype(op), decltype(engine)>;
+
+  Sampler sampler(
       std::make_shared<Operator>(op),
       &engine,
-      {.levels = 3, .cycles = 2, .n_presample = 2, .n_postsample = 2});
+      Sampler::Parameters{
+          .levels = 3, .cycles = 2, .n_presample = 2, .n_postsample = 2});
 
   sampler.enable_estimate_mean();
   sampler.enable_estimate_covariance();
 
   const std::size_t n_burnin = 1000;
-  const std::size_t n_samples = 1'000;
+  const std::size_t n_samples = 1'000'000;
 
   Eigen::VectorXd sample(op.size());
   sample.setZero();
@@ -177,9 +180,10 @@ TEST(SamplersTest, Multigrid2d) {
 
   sampler.sample(sample, n_samples);
 
-  // const double tol = 8e-3;
-  // // Expect relative error for sample covariance matrix to be near zero
-  // EXPECT_NEAR(1. / covariance.norm() * (sampler.get_covariance() - covariance).norm(),
-  //             0,
-  //             tol);
+  const double tol = 1e-2;
+  // Expect relative error for sample covariance matrix to be near zero
+  EXPECT_NEAR(1. / covariance.norm() *
+                  (sampler.get_covariance() - covariance).norm(),
+              0,
+              tol);
 }
