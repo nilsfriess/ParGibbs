@@ -1,13 +1,15 @@
 #pragma once
 
+#include "pargibbs/common/lattice_operator.hh"
 #include "pargibbs/lattice/lattice.hh"
 #include "pargibbs/mpi_helper.hh"
 
 #include <Eigen/Dense>
 #include <Eigen/Sparse>
+#include <memory>
 
 namespace pargibbs {
-class SamplerStatistics {
+template <class Operator> class SamplerStatistics {
 public:
   void enable_estimate_mean() {
     est_mean = true;
@@ -33,7 +35,7 @@ public:
     Eigen::VectorXd ret_mean(mean.size());
     ret_mean.setZero();
     // Remove halo vertices
-    for (auto v : lattice->own_vertices)
+    for (auto v : lattice_operator->get_lattice().own_vertices)
       ret_mean[v] = mean.coeff(v);
 
     return ret_mean;
@@ -44,25 +46,27 @@ public:
   void reset_statistics() {
     n_sample = 1;
     if (est_mean) {
-      mean.resize(lattice->get_n_total_vertices());
+      mean.resize(lattice_operator->size());
       mean.setZero();
     }
 
     if (est_cov) {
-      cov.resize(lattice->get_n_total_vertices(),
-                 lattice->get_n_total_vertices());
+      cov.resize(lattice_operator->size(), lattice_operator->size());
       cov.setZero();
     }
   }
 
 protected:
-  SamplerStatistics(const Lattice *lattice)
-      : est_mean{false}, est_cov{false}, lattice{lattice} {}
+  SamplerStatistics(std::shared_ptr<Operator> lattice_operator)
+      : est_mean{false}, est_cov{false}, lattice_operator{lattice_operator} {}
 
   bool est_mean; // true if mean should be estimated during sampling
   bool est_cov; // true if covariance matrix should be estimated during sampling
 
   void update_statistics(const auto &sample) {
+    if (!est_mean and !est_cov)
+      return;
+
     // Update mean
     if (est_mean) {
       if (n_sample == 1) {
@@ -90,6 +94,6 @@ private:
 
   std::size_t n_sample = 0;
 
-  const Lattice *lattice;
+  std::shared_ptr<Operator> lattice_operator;
 };
 } // namespace pargibbs

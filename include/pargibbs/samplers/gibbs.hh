@@ -7,11 +7,15 @@
 #endif
 
 #include "pargibbs/common/helpers.hh"
-#include "pargibbs/common/log.hh"
+#include "pargibbs/common/lattice_operator.hh"
 #include "pargibbs/common/traits.hh"
 #include "pargibbs/lattice/lattice.hh"
 #include "pargibbs/mpi_helper.hh"
 #include "pargibbs/samplers/sampler_statistics.hh"
+
+#ifdef PG_DEBUG_MODE
+#include "pargibbs/common/log.hh"
+#endif
 
 #include <algorithm>
 #include <cassert>
@@ -28,32 +32,30 @@
 #include <Eigen/Dense>
 #include <Eigen/Sparse>
 
-#ifdef PG_DEBUG_MODE
-#include "pargibbs/common/log.hh"
-#endif
-
 namespace pargibbs {
 
-template <class Matrix, class Engine>
-class GibbsSampler : public SamplerStatistics {
+template <class Operator, class Engine>
+class GibbsSampler : public SamplerStatistics<Operator> {
 public:
-  GibbsSampler(std::shared_ptr<Lattice> lattice, std::shared_ptr<Matrix> prec,
-               Engine *engine, double omega = 1.)
-      : SamplerStatistics{lattice.get()}, lattice{lattice}, prec{prec},
-        engine{engine}, omega{omega} {
-    if (not prec->IsRowMajor)
+  GibbsSampler(std::shared_ptr<Operator> lattice_operator, Engine *engine,
+               double omega = 1.)
+      : SamplerStatistics<Operator>{lattice_operator},
+        op{lattice_operator}, engine{engine}, omega{omega} {
+    if (not op->get_matrix().IsRowMajor)
       throw std::runtime_error(
           "Precision matrix must be stored in row major format.");
 
-    inv_diag.resize(prec->rows());
-    rsqrt_omega_diag.resize(prec->rows());
+    inv_diag.resize(op->get_matrix().rows());
+    rsqrt_omega_diag.resize(op->get_matrix().rows());
 
     const auto factor = std::sqrt(omega * (2 - omega));
 
-    for (auto v : lattice->own_vertices) {
-      inv_diag[v] = 1. / prec->coeff(v, v);
-      rsqrt_omega_diag[v] = factor / std::sqrt(prec->coeff(v, v));
+    for (auto v : op->get_lattice().own_vertices) {
+      inv_diag[v] = 1. / op->get_matrix().coeff(v, v);
+      rsqrt_omega_diag[v] = factor / std::sqrt(op->get_matrix().coeff(v, v));
     }
+
+    rand.resize(op->get_matrix().rows());
 
     setup_mpi_maps();
 
@@ -82,59 +84,54 @@ public:
 #endif
   }
 
-  template <class Vector>
-  void sample(Vector &sample, const Vector &prec_x_mean,
-              std::size_t n_samples = 1) {
+  void sample(typename Operator::Vector &sample, std::size_t n_samples = 1) {
     auto is_red_vertex = [&](auto v) {
-      if (lattice->ordering == LatticeOrdering::Lexicographic)
+      if (op->get_lattice().ordering == LatticeOrdering::Lexicographic)
         return v % 2 == 0;
       else
-        return v <= (lattice->get_n_total_vertices() / 2);
+        return v <= (op->get_lattice().get_n_total_vertices() / 2);
     };
     auto is_black_vertex = [&](auto v) { return !is_red_vertex(v); };
 
-    Vector rand(sample.size());
-
-    if constexpr (detail::is_eigen_sparse_vector_v<Vector>)
-      rand = sample;
-
     for (std::size_t n = 0; n < n_samples; ++n) {
-      if constexpr (detail::is_eigen_sparse_vector_v<Vector>) {
+      if constexpr (detail::is_eigen_sparse_vector_v<
+                        typename Operator::Vector>) {
         for (int i = 0; i < rand.nonZeros(); ++i)
           rand.valuePtr()[i] = dist(*engine);
       } else {
-        for (auto v : lattice->own_vertices)
+        for (auto v : op->get_lattice().own_vertices)
           rand[v] = dist(*engine);
       }
 
-      rand += prec_x_mean;
+      rand += op->vector();
 
       // Update sample at "red" vertices
-      sample_at_points(sample, rand, is_red_vertex);
+      sample_at_points(sample, is_red_vertex);
       send_recv(sample, is_red_vertex);
 
       // Update sample at "black" vertices
-      sample_at_points(sample, rand, is_black_vertex);
+      sample_at_points(sample, is_black_vertex);
       send_recv(sample, is_black_vertex);
 
-      if (est_mean || est_cov)
-        update_statistics(sample);
+      this->update_statistics(sample);
     }
   }
 
 private:
-  template <class Vector, class Predicate>
-  void sample_at_points(Vector &curr_sample, const Vector &rand,
+  template <class Predicate>
+  void sample_at_points(typename Operator::Vector &curr_sample,
                         Predicate &&IncludeIndex) {
-    using It = typename Matrix::InnerIterator;
+    assert(curr_sample.size() == op->get_matrix().rows());
+    
+    using It = typename Operator::Matrix::InnerIterator;
 
-    for (auto row : lattice->own_vertices) {
+    for (auto row : op->get_lattice().own_vertices) {
       if (not IncludeIndex(row))
         continue;
 
       double sum = 0.;
       // Loop over non-zero entries in current row
-      for (It it(*prec, row); it; ++it) {
+      for (It it(op->get_matrix(), row); it; ++it) {
         assert(row == it.row());
         sum += (it.col() != row) * it.value() * curr_sample.coeff(it.col());
       }
@@ -145,12 +142,14 @@ private:
     }
   }
 
-  template <class Vector, class Predicate>
-  void send_recv(Vector &curr_sample, const Predicate &IncludeIndex) {
+  template <class Predicate>
+  void send_recv(typename Operator::Vector &curr_sample,
+                 const Predicate &IncludeIndex) {
     if (mpi_helper::get_size() == 1)
       return;
 
-    static std::vector<double> mpi_buf(lattice->border_vertices.size());
+    static std::vector<double> mpi_buf(
+        op->get_lattice().border_vertices.size());
 
     for (auto &&[target, vs] : mpi_send) {
       for (std::size_t i = 0; i < vs.size(); ++i)
@@ -178,20 +177,22 @@ private:
   void setup_mpi_maps() {
     using IndexT = typename Lattice::IndexType;
 
-    for (auto v : lattice->border_vertices) {
-      for (IndexT n = lattice->adj_idx.at(v); n < lattice->adj_idx.at(v + 1);
+    for (auto v : op->get_lattice().border_vertices) {
+      for (IndexT n = op->get_lattice().adj_idx.at(v);
+           n < op->get_lattice().adj_idx.at(v + 1);
            ++n) {
-        auto nb_idx = lattice->adj_vert.at(n);
+        auto nb_idx = op->get_lattice().adj_vert.at(n);
 
         // If we have a neighbour that is owned by another MPI process, then
         // - we need to send the value at `v` to this process at some point, and
         // - we will receive values at `nb_idx` from this process at some
         //   point.
-        if (lattice->mpiowner[nb_idx] != (IndexT)mpi_helper::get_rank()) {
+        if (op->get_lattice().mpiowner[nb_idx] !=
+            (IndexT)mpi_helper::get_rank()) {
           halo_indices.insert(nb_idx);
 
-          mpi_send[lattice->mpiowner.at(nb_idx)].push_back(v);
-          mpi_recv[lattice->mpiowner.at(nb_idx)].push_back(nb_idx);
+          mpi_send[op->get_lattice().mpiowner.at(nb_idx)].push_back(v);
+          mpi_recv[op->get_lattice().mpiowner.at(nb_idx)].push_back(nb_idx);
         }
       }
     }
@@ -212,10 +213,10 @@ private:
     }
   }
 
-  std::shared_ptr<Lattice> lattice;
-  std::shared_ptr<Matrix> prec;
+  std::shared_ptr<Operator> op;
   Engine *engine;
 
+  typename Operator::Vector rand;
   Eigen::VectorXd inv_diag;
   Eigen::VectorXd rsqrt_omega_diag;
 
