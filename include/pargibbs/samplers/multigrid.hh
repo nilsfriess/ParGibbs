@@ -18,6 +18,7 @@ public:
     std::size_t cycles;
     std::size_t n_presample;
     std::size_t n_postsample;
+    double prepost_sampler_omega = 1.;
   };
 
   MultigridSampler(std::shared_ptr<Operator> finest_operator, Engine *engine,
@@ -44,8 +45,8 @@ public:
           });
       operators.push_back(coarse_operator);
 
-      pre_smoothers.emplace_back(operators[l], engine);
-      post_smoothers.emplace_back(operators[l], engine);
+      pre_smoothers.emplace_back(operators[l], engine, params.prepost_sampler_omega);
+      post_smoothers.emplace_back(operators[l], engine, params.prepost_sampler_omega);
     }
 
     for (std::size_t l = 0; l < levels; ++l) {

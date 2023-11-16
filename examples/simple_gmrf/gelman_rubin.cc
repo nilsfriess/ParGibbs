@@ -4,6 +4,7 @@
 #include "pargibbs/samplers/gibbs.hh"
 #include "pargibbs/samplers/multigrid.hh"
 
+#include <chrono>
 #include <cmath>
 #include <iostream>
 
@@ -15,13 +16,14 @@ namespace pg = pargibbs;
 struct GR_Result {
   bool converged = false;
   double R = 0;
+  std::chrono::milliseconds time = std::chrono::milliseconds::zero();
   std::size_t iterations = 0;
 };
 
 template <class SamplerFactory>
 GR_Result gelman_rubin_test(SamplerFactory &&factory, std::size_t n_burnin,
                             std::size_t n_chains, std::size_t vector_size,
-                            double R_tol, std::size_t max_its = 100'000) {
+                            double R_tol, std::size_t max_its = 50'000) {
   using Vector = Eigen::VectorXd;
 
   // Create samplers using provided factory function
@@ -41,18 +43,29 @@ GR_Result gelman_rubin_test(SamplerFactory &&factory, std::size_t n_burnin,
   for (std::size_t chain = 0; chain < n_chains; ++chain)
     samplers[chain].sample(samples[chain], n_burnin);
 
+  // Measure time spent sampling
+  std::chrono::milliseconds time = std::chrono::milliseconds::zero();;
+
   // Create array of sample norms for each chain
   std::vector<std::vector<double>> sample_norms(n_chains);
-  std::size_t it;
-  for (it = 0; it < max_its; ++it) {
+  std::size_t step_size = 10;
+  for (std::size_t it = 0; it < max_its / step_size; ++it ) {
     // Start sampling
     for (std::size_t chain = 0; chain < n_chains; ++chain) {
-      samplers[chain].sample(samples[chain], 1);
+      auto start = std::chrono::steady_clock::now();
+      samplers[chain].sample(samples[chain], step_size);
+      auto end = std::chrono::steady_clock::now();
+      time +=
+          std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
       sample_norms[chain].push_back(samples[chain].norm());
     }
 
     /// Compute Gelman-Rubin diagnostic
     auto n_samples = it + 1;
+
+    // Need at least two samples to compute GR diagnostic
+    if (n_samples == 1)
+      continue;
 
     // Compute intra chain means
     std::vector<double> intra_means(n_chains);
@@ -103,8 +116,9 @@ GR_Result gelman_rubin_test(SamplerFactory &&factory, std::size_t n_burnin,
     if (std::abs(R - 1) < R_tol) {
       GR_Result res;
       res.converged = true;
-      res.iterations = it;
+      res.iterations = it * step_size;
       res.R = R;
+      res.time = time;
       return res;
     }
   }
@@ -127,46 +141,50 @@ int main(int argc, char *argv[]) {
 
   const std::size_t n_chains = 100;
   const std::size_t n_burnin = 100;
+  double R_tol = 0.005;
+  double omega = 1.9852;
 
   {
     using Sampler = pg::MultigridSampler<Operator, pcg32>;
 
     auto mg_sampler_factory = [&]() {
-      return Sampler(
-          op,
-          &engine,
-          Sampler::Parameters{
-              .levels = 3, .cycles = 2, .n_presample = 2, .n_postsample = 2});
+      return Sampler(op,
+                     &engine,
+                     Sampler::Parameters{.levels = 3,
+                                         .cycles = 2,
+                                         .n_presample = 2,
+                                         .n_postsample = 2,
+                                         .prepost_sampler_omega = omega});
     };
 
     std::cout << "Performing Gelman-Rubin test for Multigrid sampler..."
               << std::flush;
     auto res = gelman_rubin_test(
-        mg_sampler_factory, n_burnin, n_chains, op->size(), 0.01);
+        mg_sampler_factory, n_burnin, n_chains, op->size(), R_tol);
     std::cout << " Done.\n";
 
     if (res.converged)
       std::cout << "Converged with R = " << res.R << " in " << res.iterations
-                << " iterations.\n";
+                << " iterations (time = " << res.time << ").\n";
     else
-      std::cout << "Did no converge.\n";
+      std::cout << "Did not converge.\n";
   }
 
   {
     using Sampler = pg::GibbsSampler<Operator, pcg32>;
 
-    auto mg_sampler_factory = [&]() { return Sampler(op, &engine, 1.9852); };
+    auto mg_sampler_factory = [&]() { return Sampler(op, &engine, omega); };
 
     std::cout << "Performing Gelman-Rubin test for Gibbs sampler..."
               << std::flush;
     auto res = gelman_rubin_test(
-        mg_sampler_factory, n_burnin, n_chains, op->size(), 0.01);
+        mg_sampler_factory, n_burnin, n_chains, op->size(), R_tol);
     std::cout << " Done.\n";
 
     if (res.converged)
       std::cout << "Converged with R = " << res.R << " in " << res.iterations
-                << " iterations.\n";
+                << " iterations (time = " << res.time << ").\n";
     else
-      std::cout << "Did no converge.\n";
+      std::cout << "Did not converge.\n";
   }
 }
