@@ -13,15 +13,16 @@
 
 namespace pg = pargibbs;
 
-struct GR_Result {
+struct GR_result {
+  using duration_t = std::chrono::duration<double>;
   bool converged = false;
   double R = 0;
-  std::chrono::milliseconds time = std::chrono::milliseconds::zero();
+  duration_t time = duration_t::zero();
   std::size_t iterations = 0;
 };
 
 template <class SamplerFactory>
-GR_Result gelman_rubin_test(SamplerFactory &&factory, std::size_t n_burnin,
+GR_result gelman_rubin_test(SamplerFactory &&factory, std::size_t n_burnin,
                             std::size_t n_chains, std::size_t vector_size,
                             double R_tol, std::size_t max_its = 50'000) {
   using Vector = Eigen::VectorXd;
@@ -44,19 +45,18 @@ GR_Result gelman_rubin_test(SamplerFactory &&factory, std::size_t n_burnin,
     samplers[chain].sample(samples[chain], n_burnin);
 
   // Measure time spent sampling
-  std::chrono::milliseconds time = std::chrono::milliseconds::zero();;
+  GR_result::duration_t time = GR_result::duration_t::zero();
 
   // Create array of sample norms for each chain
   std::vector<std::vector<double>> sample_norms(n_chains);
   std::size_t step_size = 10;
-  for (std::size_t it = 0; it < max_its / step_size; ++it ) {
+  for (std::size_t it = 0; it < max_its / step_size; ++it) {
     // Start sampling
     for (std::size_t chain = 0; chain < n_chains; ++chain) {
       auto start = std::chrono::steady_clock::now();
       samplers[chain].sample(samples[chain], step_size);
       auto end = std::chrono::steady_clock::now();
-      time +=
-          std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+      time += end - start;
       sample_norms[chain].push_back(samples[chain].norm());
     }
 
@@ -114,7 +114,7 @@ GR_Result gelman_rubin_test(SamplerFactory &&factory, std::size_t n_burnin,
     double R = std::sqrt(V / avg_variances);
 
     if (std::abs(R - 1) < R_tol) {
-      GR_Result res;
+      GR_result res;
       res.converged = true;
       res.iterations = it * step_size;
       res.R = R;
@@ -123,7 +123,7 @@ GR_Result gelman_rubin_test(SamplerFactory &&factory, std::size_t n_burnin,
     }
   }
 
-  GR_Result res;
+  GR_result res;
   res.converged = false;
   return res;
 }
@@ -165,7 +165,7 @@ int main(int argc, char *argv[]) {
 
     if (res.converged)
       std::cout << "Converged with R = " << res.R << " in " << res.iterations
-                << " iterations (time = " << res.time << ").\n";
+                << " iterations (time = " << res.time.count() << "s).\n";
     else
       std::cout << "Did not converge.\n";
   }
@@ -183,7 +183,7 @@ int main(int argc, char *argv[]) {
 
     if (res.converged)
       std::cout << "Converged with R = " << res.R << " in " << res.iterations
-                << " iterations (time = " << res.time << ").\n";
+                << " iterations (time = " << res.time.count() << "s).\n";
     else
       std::cout << "Did not converge.\n";
   }
