@@ -148,13 +148,14 @@ int main(int argc, char *argv[]) {
     using Sampler = pg::MultigridSampler<Operator, pcg32>;
 
     auto mg_sampler_factory = [&]() {
-      return Sampler(op,
-                     &engine,
-                     Sampler::Parameters{.levels = 3,
-                                         .cycles = 2,
-                                         .n_presample = 2,
-                                         .n_postsample = 2,
-                                         .prepost_sampler_omega = omega});
+      Sampler::Parameters params;
+      params.levels = 3;
+      params.cycles = 2;
+      params.n_presample = 2;
+      params.n_postsample = 2;
+      params.prepost_sampler_omega = omega;
+
+      return Sampler(op, &engine, params);
     };
 
     std::cout << "Performing Gelman-Rubin test for Multigrid sampler..."

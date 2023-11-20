@@ -1,4 +1,3 @@
-#include "pargibbs/common/lattice_operator.hh"
 #include <Eigen/Eigen>
 
 #include <chrono>
@@ -21,6 +20,7 @@
 #include "gmrf_operator.hh"
 
 #include "pargibbs/common/helpers.hh"
+#include "pargibbs/common/lattice_operator.hh"
 #include "pargibbs/common/log.hh"
 #include "pargibbs/lattice/lattice.hh"
 #include "pargibbs/lattice/types.hh"
@@ -32,35 +32,6 @@ using namespace pargibbs;
 
 #include <nlohmann/json.hpp>
 using json = nlohmann::json;
-
-Eigen::SparseMatrix<double> matrix_builder(const Lattice &lattice) {
-  const int entries_per_row = 5;
-  const int nnz = lattice.own_vertices.size() * entries_per_row;
-  std::vector<Eigen::Triplet<double>> triplets;
-  triplets.reserve(nnz);
-
-  const double noise_var = 1e-4;
-
-  auto handle_row = [&](auto v) {
-    int n_neighbours = lattice.adj_idx[v + 1] - lattice.adj_idx[v];
-    triplets.emplace_back(v, v, n_neighbours + noise_var);
-
-    for (typename pargibbs::Lattice::IndexType n = lattice.adj_idx[v];
-         n < lattice.adj_idx[v + 1];
-         ++n) {
-      auto nb_idx = lattice.adj_vert[n];
-      triplets.emplace_back(v, nb_idx, -1);
-    }
-  };
-
-  for (auto v : lattice.own_vertices)
-    handle_row(v);
-
-  auto mat_size = lattice.get_n_total_vertices();
-  Eigen::SparseMatrix<double> matrix(mat_size, mat_size);
-  matrix.setFromTriplets(triplets.begin(), triplets.end());
-  return matrix;
-}
 
 int main(int argc, char *argv[]) {
   mpi_helper helper(&argc, &argv);
@@ -85,7 +56,7 @@ int main(int argc, char *argv[]) {
   using Matrix = Eigen::SparseMatrix<double, Eigen::RowMajor>;
   using Operator = LatticeOperator<Matrix, Vector>;
 
-  auto op = std::make_shared<Operator>(2, 9, matrix_builder);
+  auto op = std::make_shared<Operator>(2, 9, gmrf_matrix_builder);
   for (auto v : op->get_lattice().own_vertices)
     op->vector().coeffRef(v) = 1;
 
@@ -107,13 +78,15 @@ int main(int argc, char *argv[]) {
   std::vector<Vector> samples;
   std::vector<Eigen::VectorXd> full_samples;
 
+  Sampler::Parameters params;
+  params.levels = 3;
+  params.cycles = 1;
+  params.n_presample = 4;
+  params.n_postsample = 0;
+
   for (std::size_t i = 0; i < n_chains; ++i) {
     // samplers.emplace_back(op, &engine, config["omega"]);
-    samplers.emplace_back(
-        op,
-        &engine,
-        Sampler::Parameters{
-            .levels = 3, .cycles = 1, .n_presample = 4, .n_postsample = 0});
+    samplers.emplace_back(op, &engine, params);
 
     samples.emplace_back(op->size());
     for_each_ownindex_and_halo(op->get_lattice(),

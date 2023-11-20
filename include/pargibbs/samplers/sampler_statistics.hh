@@ -63,7 +63,8 @@ protected:
   bool est_mean; // true if mean should be estimated during sampling
   bool est_cov; // true if covariance matrix should be estimated during sampling
 
-  void update_statistics(const auto &sample) {
+  template <class SampleT>
+  void update_statistics(const SampleT &sample) {
     if (!est_mean and !est_cov)
       return;
 

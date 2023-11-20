@@ -160,11 +160,13 @@ TEST(SamplersTest, Multigrid2d) {
 
   using Sampler = pg::MultigridSampler<decltype(op), decltype(engine)>;
 
-  Sampler sampler(
-      std::make_shared<Operator>(op),
-      &engine,
-      Sampler::Parameters{
-          .levels = 3, .cycles = 2, .n_presample = 2, .n_postsample = 2});
+  Sampler::Parameters params;
+  params.levels = 3;
+  params.cycles = 2;
+  params.n_presample = 2;
+  params.n_postsample = 2;
+
+  Sampler sampler(std::make_shared<Operator>(op), &engine, params);
 
   sampler.enable_estimate_mean();
   sampler.enable_estimate_covariance();
