@@ -1,8 +1,8 @@
 #include "gmrf_operator.hh"
 
-#include "pargibbs/mpi_helper.hh"
-#include "pargibbs/samplers/gibbs.hh"
-#include "pargibbs/samplers/multigrid.hh"
+#include "parmgmc/mpi_helper.hh"
+#include "parmgmc/samplers/gibbs.hh"
+#include "parmgmc/samplers/multigrid.hh"
 
 #include <chrono>
 #include <cmath>
@@ -11,7 +11,7 @@
 #include <pcg_random.hpp>
 #include <random>
 
-namespace pg = pargibbs;
+namespace pg = parmgmc;
 
 struct GR_result {
   using duration_t = std::chrono::duration<double>;

@@ -4,7 +4,7 @@
 #include <stdexcept>
 #include <vector>
 
-namespace pargibbs {
+namespace parmgmc {
 inline std::size_t xyz_to_linear(std::vector<std::size_t> coord,
                                  std::vector<std::size_t> points_per_dim) {
   const auto dim = coord.size();
@@ -46,4 +46,4 @@ linear_to_xyz(std::size_t idx, std::vector<std::size_t> n_points_per_dim) {
 
   return coord;
 }
-} // namespace pargibbs
+} // namespace parmgmc

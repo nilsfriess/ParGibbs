@@ -2,7 +2,7 @@
 
 #include <utility>
 
-namespace pargibbs {
+namespace parmgmc {
 struct mpi_helper {
   mpi_helper(int *argc = nullptr, char ***argv = nullptr);
   ~mpi_helper();
@@ -17,4 +17,4 @@ private:
   static void assert_initalised();
   static int _debug_rank;
 };
-}; // namespace pargibbs
+}; // namespace parmgmc

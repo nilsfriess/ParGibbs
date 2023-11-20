@@ -8,9 +8,9 @@
 #include "FakeMPI/mpi.h"
 #endif
 
-#include "pargibbs/mpi_helper.hh"
+#include "parmgmc/mpi_helper.hh"
 
-namespace pargibbs {
+namespace parmgmc {
 static bool mpi_is_initialised = false;
 
 int mpi_helper::_debug_rank = 0;
@@ -19,7 +19,7 @@ mpi_helper::mpi_helper(int *argc, char ***argv) {
   MPI_Init(argc, argv);
   mpi_is_initialised = true;
 
-  if (const char *env_rank = std::getenv("PARGIBBS_DEBUG_RANK"))
+  if (const char *env_rank = std::getenv("PARMGMC_DEBUG_RANK"))
     _debug_rank = atoi(env_rank);
   else
     _debug_rank = 0;
@@ -58,7 +58,7 @@ bool mpi_helper::is_debug_rank() {
 void mpi_helper::assert_initalised() {
   if (!mpi_is_initialised)
     throw std::runtime_error(
-        "Construct a pargibbs::mpi_helper object in main().");
+        "Construct a parmgmc::mpi_helper object in main().");
 }
 
-} // namespace pargibbs
+} // namespace parmgmc

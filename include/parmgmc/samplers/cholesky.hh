@@ -5,16 +5,16 @@
 #include <Eigen/Core>
 #include <Eigen/SparseCholesky>
 
-#include "pargibbs/common/log.hh"
+#include "parmgmc/common/log.hh"
 
-namespace pargibbs {
+namespace parmgmc {
 template <class Matrix, class Engine = std::mt19937_64> class CholeskySampler {
 public:
   CholeskySampler(const Matrix &precision_matrix, Engine &engine)
       : prec(precision_matrix), engine(engine) {
     solver.compute(prec);
     if (solver.info() != Eigen::Success) {
-      PARGIBBS_DEBUG << "Decomposition failed.\n";
+      PARMGMC_DEBUG << "Decomposition failed.\n";
       return;
     }
   }
@@ -34,4 +34,4 @@ private:
 
   std::normal_distribution<double> dist;
 };
-} // namespace pargibbs
+} // namespace parmgmc

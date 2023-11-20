@@ -1,12 +1,12 @@
 #pragma once
 
-#include "pargibbs/lattice/lattice.hh"
+#include "parmgmc/lattice/lattice.hh"
 
-#include <cstddef>
 #include <cassert>
+#include <cstddef>
 #include <memory>
 
-namespace pargibbs {
+namespace parmgmc {
 template <class Mat, class Vec> class LatticeOperator {
 public:
   using Matrix = Mat;
@@ -53,4 +53,4 @@ private:
   Vector vector_;
 };
 
-} // namespace pargibbs
+} // namespace parmgmc

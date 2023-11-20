@@ -6,7 +6,7 @@
 
 #include "types.hh"
 
-namespace pargibbs {
+namespace parmgmc {
 struct Lattice {
   using IndexType = int;
 
@@ -77,4 +77,4 @@ struct Lattice {
   LatticeOrdering ordering;
 };
 
-} // namespace pargibbs
+} // namespace parmgmc

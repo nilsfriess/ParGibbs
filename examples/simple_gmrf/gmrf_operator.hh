@@ -5,10 +5,10 @@
 #include <Eigen/Core>
 #include <Eigen/Sparse>
 
-#include "pargibbs/lattice/lattice.hh"
+#include "parmgmc/lattice/lattice.hh"
 
 inline Eigen::SparseMatrix<double>
-gmrf_matrix_builder(const pargibbs::Lattice &lattice) {
+gmrf_matrix_builder(const parmgmc::Lattice &lattice) {
   const int entries_per_row = 5;
   const int nnz = lattice.own_vertices.size() * entries_per_row;
   std::vector<Eigen::Triplet<double>> triplets;
@@ -20,7 +20,7 @@ gmrf_matrix_builder(const pargibbs::Lattice &lattice) {
     int n_neighbours = lattice.adj_idx[v + 1] - lattice.adj_idx[v];
     triplets.emplace_back(v, v, n_neighbours + noise_var);
 
-    for (typename pargibbs::Lattice::IndexType n = lattice.adj_idx[v];
+    for (typename parmgmc::Lattice::IndexType n = lattice.adj_idx[v];
          n < lattice.adj_idx[v + 1];
          ++n) {
       auto nb_idx = lattice.adj_vert[n];

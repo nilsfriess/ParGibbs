@@ -1,9 +1,9 @@
-#include "pargibbs/common/helpers.hh"
-#include "pargibbs/common/lattice_operator.hh"
-#include "pargibbs/lattice/lattice.hh"
-#include "pargibbs/lattice/types.hh"
-#include "pargibbs/samplers/gibbs.hh"
-#include "pargibbs/samplers/multigrid.hh"
+#include "parmgmc/common/helpers.hh"
+#include "parmgmc/common/lattice_operator.hh"
+#include "parmgmc/lattice/lattice.hh"
+#include "parmgmc/lattice/types.hh"
+#include "parmgmc/samplers/gibbs.hh"
+#include "parmgmc/samplers/multigrid.hh"
 
 #include <gtest/gtest.h>
 
@@ -16,7 +16,7 @@
 #include <Eigen/Sparse>
 
 std::pair<Eigen::SparseMatrix<double, Eigen::RowMajor>, Eigen::MatrixXd>
-get_test_matrices(const pargibbs::Lattice &lattice, bool compute_cov = false) {
+get_test_matrices(const parmgmc::Lattice &lattice, bool compute_cov = false) {
   const auto size = (std::size_t)lattice.get_n_total_vertices();
 
   Eigen::SparseMatrix<double, Eigen::RowMajor> precision(size, size);
@@ -45,7 +45,7 @@ get_test_matrices(const pargibbs::Lattice &lattice, bool compute_cov = false) {
 }
 
 TEST(SamplersTest, Gibbs1D) {
-  namespace pg = pargibbs;
+  namespace pg = parmgmc;
 
   const auto seed = 0xBEEFCAFE;
   std::mt19937 engine{seed};
@@ -91,7 +91,7 @@ TEST(SamplersTest, Gibbs1D) {
 }
 
 // TEST(SamplersTest, Gibbs1DRedBlack) {
-//   namespace pg = pargibbs;
+//   namespace pg = parmgmc;
 
 //   const auto seed = 0xBEEFCAFE;
 //   std::mt19937 engine{seed};
@@ -102,7 +102,7 @@ TEST(SamplersTest, Gibbs1D) {
 //   auto [precision, covariance] = get_test_matrices(lattice, true);
 //   Eigen::VectorXd nu_mean(lattice.get_n_total_vertices());
 //   std::uniform_real_distribution<double> real_dist(0, 1);
-//   pargibbs::for_each_ownindex_and_halo(
+//   parmgmc::for_each_ownindex_and_halo(
 //       lattice, [&](auto idx) { nu_mean.coeffRef(idx) = real_dist(engine); });
 
 //   pg::GibbsSampler sampler(
@@ -135,7 +135,7 @@ TEST(SamplersTest, Gibbs1D) {
 // }
 
 TEST(SamplersTest, Multigrid2d) {
-  namespace pg = pargibbs;
+  namespace pg = parmgmc;
 
   const auto seed = 0xBEEFCAFE;
   std::mt19937 engine{seed};

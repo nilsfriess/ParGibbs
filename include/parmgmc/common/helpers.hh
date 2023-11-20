@@ -1,12 +1,12 @@
 #pragma once
 
-#include "pargibbs/lattice/lattice.hh"
+#include "parmgmc/lattice/lattice.hh"
 
 #include <Eigen/Dense>
 #include <Eigen/Sparse>
 #include <set>
 
-namespace pargibbs {
+namespace parmgmc {
 // Gathers Eigen::VectorXds that are scattered across multiple MPI processes
 // into one Eigen::VectorXd on the rank that is returned by
 // mpi_helper::debug_rank(). The lattice is required since it stores the
@@ -45,4 +45,4 @@ void for_each_ownindex_and_halo(const Lattice &lattice, Functor f) {
   for (auto index : indices)
     f(index);
 }
-} // namespace pargibbs
+} // namespace parmgmc

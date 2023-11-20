@@ -1,7 +1,7 @@
-#include "pargibbs/common/helpers.hh"
-#include "pargibbs/lattice/helpers.hh"
-#include "pargibbs/lattice/lattice.hh"
-#include "pargibbs/mpi_helper.hh"
+#include "parmgmc/common/helpers.hh"
+#include "parmgmc/lattice/helpers.hh"
+#include "parmgmc/lattice/lattice.hh"
+#include "parmgmc/mpi_helper.hh"
 
 #include <Eigen/Dense>
 #include <Eigen/Sparse>
@@ -16,8 +16,8 @@
 #include "FakeMPI/mpi.h"
 #endif
 
-Eigen::VectorXd pargibbs::mpi_gather_vector(const Eigen::VectorXd &vec,
-                                            const Lattice &lattice) {
+Eigen::VectorXd parmgmc::mpi_gather_vector(const Eigen::VectorXd &vec,
+                                           const Lattice &lattice) {
   // Gather number of vertices
   std::vector<int> n_vertices;
   if (mpi_helper::is_debug_rank())
@@ -82,7 +82,7 @@ Eigen::VectorXd pargibbs::mpi_gather_vector(const Eigen::VectorXd &vec,
 }
 
 Eigen::VectorXd
-pargibbs::mpi_gather_vector(const Eigen::SparseVector<double> &vec) {
+parmgmc::mpi_gather_vector(const Eigen::SparseVector<double> &vec) {
   // Gather number of nonzeros in vec
   std::vector<int> nnzs;
   if (mpi_helper::is_debug_rank())
@@ -155,7 +155,7 @@ pargibbs::mpi_gather_vector(const Eigen::SparseVector<double> &vec) {
 }
 
 Eigen::MatrixXd
-pargibbs::mpi_gather_matrix(const Eigen::SparseMatrix<double> &mat) {
+parmgmc::mpi_gather_matrix(const Eigen::SparseMatrix<double> &mat) {
   if (not mat.isCompressed())
     throw std::runtime_error(
         "In mpi_gather_matrix: Matrix must be compressed.");
@@ -259,8 +259,8 @@ pargibbs::mpi_gather_matrix(const Eigen::SparseMatrix<double> &mat) {
 }
 
 Eigen::SparseMatrix<double>
-pargibbs::make_prolongation(const pargibbs::Lattice &fine,
-                            const pargibbs::Lattice &coarse) {
+parmgmc::make_prolongation(const parmgmc::Lattice &fine,
+                           const parmgmc::Lattice &coarse) {
   if (fine.dim != 2 or coarse.dim != 2)
     throw std::runtime_error(
         "make_prolongation: Only dim = 2 supported currently.");
@@ -327,7 +327,7 @@ pargibbs::make_prolongation(const pargibbs::Lattice &fine,
 }
 
 Eigen::SparseMatrix<double>
-pargibbs::make_restriction(const pargibbs::Lattice &fine,
-                           const pargibbs::Lattice &coarse) {
+parmgmc::make_restriction(const parmgmc::Lattice &fine,
+                          const parmgmc::Lattice &coarse) {
   return make_prolongation(fine, coarse).transpose();
 }

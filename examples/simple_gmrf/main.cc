@@ -19,16 +19,16 @@
 
 #include "gmrf_operator.hh"
 
-#include "pargibbs/common/helpers.hh"
-#include "pargibbs/common/lattice_operator.hh"
-#include "pargibbs/common/log.hh"
-#include "pargibbs/lattice/lattice.hh"
-#include "pargibbs/lattice/types.hh"
-#include "pargibbs/mpi_helper.hh"
-#include "pargibbs/samplers/gibbs.hh"
-#include "pargibbs/samplers/multigrid.hh"
+#include "parmgmc/common/helpers.hh"
+#include "parmgmc/common/lattice_operator.hh"
+#include "parmgmc/common/log.hh"
+#include "parmgmc/lattice/lattice.hh"
+#include "parmgmc/lattice/types.hh"
+#include "parmgmc/mpi_helper.hh"
+#include "parmgmc/samplers/gibbs.hh"
+#include "parmgmc/samplers/multigrid.hh"
 
-using namespace pargibbs;
+using namespace parmgmc;
 
 #include <nlohmann/json.hpp>
 using json = nlohmann::json;

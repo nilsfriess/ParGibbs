@@ -15,11 +15,11 @@
 #include <metis.h>
 #endif
 
-#include "pargibbs/common/log.hh"
-#include "pargibbs/lattice/helpers.hh"
+#include "parmgmc/common/log.hh"
+#include "parmgmc/lattice/helpers.hh"
 #include "types.hh"
 
-namespace pargibbs::detail {
+namespace parmgmc::detail {
 struct partition {
   explicit partition(unsigned int dim) : start(dim), size(dim), weight(0) {
     if (dim < 1 || dim > 3)
@@ -168,9 +168,9 @@ block_row(const Lattice &lattice, std::size_t n_partitions) {
 
   const std::size_t len = dimensions[dim - 1] / n_partitions;
   if (len == 0) {
-    PARGIBBS_DEBUG << "Error: Cannot partition along dimension of length "
-                   << dimensions[dim - 1] << " into " << n_partitions
-                   << " partitions.\n";
+    PARMGMC_DEBUG << "Error: Cannot partition along dimension of length "
+                  << dimensions[dim - 1] << " into " << n_partitions
+                  << " partitions.\n";
     throw std::runtime_error(
         "Error during block-row partitioning. Too many partitions requested");
   }
@@ -214,8 +214,19 @@ metis(const Lattice &lattice, std::size_t n_partitions) {
   auto *xadj = const_cast<idx_t *>(lattice.adj_idx.data());
   auto *adjncy = const_cast<idx_t *>(lattice.adj_vert.data());
 
-  METIS_PartGraphRecursive(&nvtxs, &ncon, xadj, adjncy, NULL, NULL, NULL,
-                           &nparts, NULL, NULL, NULL, &objval, mpiowner.data());
+  METIS_PartGraphRecursive(&nvtxs,
+                           &ncon,
+                           xadj,
+                           adjncy,
+                           NULL,
+                           NULL,
+                           NULL,
+                           &nparts,
+                           NULL,
+                           NULL,
+                           NULL,
+                           &objval,
+                           mpiowner.data());
 
   return mpiowner;
 }
@@ -247,4 +258,4 @@ make_partition(const Lattice &lattice, std::size_t n_partitions) {
   }
 }
 
-}; // namespace pargibbs::detail
+}; // namespace parmgmc::detail

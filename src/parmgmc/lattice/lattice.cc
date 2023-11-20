@@ -1,4 +1,4 @@
-#include "pargibbs/lattice/lattice.hh"
+#include "parmgmc/lattice/lattice.hh"
 
 #include <algorithm>
 #include <cassert>
@@ -6,12 +6,12 @@
 #include <ostream>
 #include <stdexcept>
 
-#include "pargibbs/common/log.hh"
-#include "pargibbs/lattice/partition.hh"
-#include "pargibbs/lattice/types.hh"
-#include "pargibbs/mpi_helper.hh"
+#include "parmgmc/common/log.hh"
+#include "parmgmc/lattice/partition.hh"
+#include "parmgmc/lattice/types.hh"
+#include "parmgmc/mpi_helper.hh"
 
-namespace pargibbs {
+namespace parmgmc {
 
 Lattice::Lattice(std::size_t dim, IndexType vertices_per_dim,
                  ParallelLayout layout, LatticeOrdering ordering)
@@ -31,13 +31,13 @@ Lattice::Lattice(std::size_t dim, IndexType vertices_per_dim,
       power *= 2;
     n_vertices_per_dim = power + 1;
 
-    PARGIBBS_DEBUG << "The number of points per lattice dimension must be "
+    PARMGMC_DEBUG << "The number of points per lattice dimension must be "
                       "of the form 2^n + 1. Incrementing and using "
                    << n_vertices_per_dim << " instead.\n";
   }
 
   if (mpi_helper::is_debug_rank()) {
-    PARGIBBS_DEBUG << "Initialising " << dim << "D lattice with "
+    PARMGMC_DEBUG << "Initialising " << dim << "D lattice with "
                    << n_vertices_per_dim
                    << " vertices per dim (total: " << get_n_total_vertices()
                    << " vertices)." << std::endl;
@@ -115,11 +115,11 @@ Lattice::Lattice(std::size_t dim, IndexType vertices_per_dim,
 
   if (mpi_helper::get_size() > 1 && mpi_helper::is_debug_rank() &&
       get_vertices_per_dim() < 10) {
-    PARGIBBS_DEBUG << "Partitioned domain:\n";
+    PARMGMC_DEBUG << "Partitioned domain:\n";
     for (IndexType i = 0; i < (IndexType)mpiowner.size(); ++i) {
-      PARGIBBS_DEBUG_NP << mpiowner[convert_index(i)] << " ";
+      PARMGMC_DEBUG_NP << mpiowner[convert_index(i)] << " ";
       if (i % get_vertices_per_dim() == get_vertices_per_dim() - 1) {
-        PARGIBBS_DEBUG_NP << "\n";
+        PARMGMC_DEBUG_NP << "\n";
       }
     }
   }
@@ -167,4 +167,4 @@ Lattice Lattice::coarsen() const {
 
   return Lattice(2, (n_vertices_per_dim + 1) / 2, layout);
 }
-} // namespace pargibbs
+} // namespace parmgmc

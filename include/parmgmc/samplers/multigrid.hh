@@ -1,14 +1,14 @@
 #pragma once
 
-#include "pargibbs/common/helpers.hh"
-#include "pargibbs/lattice/lattice.hh"
-#include "pargibbs/samplers/gibbs.hh"
-#include "pargibbs/samplers/sampler_statistics.hh"
+#include "parmgmc/common/helpers.hh"
+#include "parmgmc/lattice/lattice.hh"
+#include "parmgmc/samplers/gibbs.hh"
+#include "parmgmc/samplers/sampler_statistics.hh"
 
 #include <cstddef>
 #include <memory>
 
-namespace pargibbs {
+namespace parmgmc {
 template <class Operator, class Engine,
           class Smoother = GibbsSampler<Operator, Engine>>
 class MultigridSampler : public SamplerStatistics<Operator> {
@@ -45,8 +45,10 @@ public:
           });
       operators.push_back(coarse_operator);
 
-      pre_smoothers.emplace_back(operators[l], engine, params.prepost_sampler_omega);
-      post_smoothers.emplace_back(operators[l], engine, params.prepost_sampler_omega);
+      pre_smoothers.emplace_back(
+          operators[l], engine, params.prepost_sampler_omega);
+      post_smoothers.emplace_back(
+          operators[l], engine, params.prepost_sampler_omega);
     }
 
     for (std::size_t l = 0; l < levels; ++l) {
@@ -110,4 +112,4 @@ private:
   std::size_t n_presample;
   std::size_t n_postsample;
 };
-} // namespace pargibbs
+} // namespace parmgmc

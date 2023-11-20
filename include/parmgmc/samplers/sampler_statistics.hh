@@ -1,14 +1,14 @@
 #pragma once
 
-#include "pargibbs/common/lattice_operator.hh"
-#include "pargibbs/lattice/lattice.hh"
-#include "pargibbs/mpi_helper.hh"
+#include "parmgmc/common/lattice_operator.hh"
+#include "parmgmc/lattice/lattice.hh"
+#include "parmgmc/mpi_helper.hh"
 
 #include <Eigen/Dense>
 #include <Eigen/Sparse>
 #include <memory>
 
-namespace pargibbs {
+namespace parmgmc {
 template <class Operator> class SamplerStatistics {
 public:
   void enable_estimate_mean() {
@@ -63,8 +63,7 @@ protected:
   bool est_mean; // true if mean should be estimated during sampling
   bool est_cov; // true if covariance matrix should be estimated during sampling
 
-  template <class SampleT>
-  void update_statistics(const SampleT &sample) {
+  template <class SampleT> void update_statistics(const SampleT &sample) {
     if (!est_mean and !est_cov)
       return;
 
@@ -97,4 +96,4 @@ private:
 
   std::shared_ptr<Operator> lattice_operator;
 };
-} // namespace pargibbs
+} // namespace parmgmc

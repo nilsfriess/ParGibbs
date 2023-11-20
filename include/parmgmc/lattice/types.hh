@@ -2,7 +2,7 @@
 
 #include <cstddef>
 
-namespace pargibbs {
+namespace parmgmc {
 enum class Colour { Red, Black, None };
 
 template <std::size_t dim> struct LatticePoint {
@@ -28,4 +28,4 @@ enum class ParallelLayout {
   METIS
 #endif
 };
-}; // namespace pargibbs
+}; // namespace parmgmc

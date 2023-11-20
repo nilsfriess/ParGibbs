@@ -1,11 +1,11 @@
 #include <gtest/gtest.h>
 
-#include "pargibbs/common/helpers.hh"
-#include "pargibbs/lattice/lattice.hh"
+#include "parmgmc/common/helpers.hh"
+#include "parmgmc/lattice/lattice.hh"
 
 TEST(IntergridTest, ProlongationMatrix2d) {
-  namespace pg = pargibbs;
-  
+  namespace pg = parmgmc;
+
   pg::Lattice fine(2, 5);
   pg::Lattice coarse(2, 3);
 
@@ -45,7 +45,7 @@ TEST(IntergridTest, ProlongationMatrix2d) {
 }
 
 TEST(IntergridTest, RestrictionMatrix2d) {
-  namespace pg = pargibbs;
+  namespace pg = parmgmc;
 
   pg::Lattice fine(2, 5);
   pg::Lattice coarse(2, 3);
@@ -84,4 +84,4 @@ TEST(IntergridTest, RestrictionMatrix2d) {
   auto expected = expected_tp.transpose();
 
   EXPECT_EQ(Eigen::MatrixXd(restr_matr), expected);
-}  
+}

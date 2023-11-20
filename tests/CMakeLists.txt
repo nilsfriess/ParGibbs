@@ -21,6 +21,6 @@ target_compile_options(tests PRIVATE -Wall -Wextra -Wpedantic)
 
 target_link_libraries(
   tests
-  pargibbs
+  parmgmc
   GTest::gtest_main
 )

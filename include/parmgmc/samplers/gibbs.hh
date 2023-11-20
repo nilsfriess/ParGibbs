@@ -6,15 +6,15 @@
 #include "FakeMPI/mpi.h"
 #endif
 
-#include "pargibbs/common/helpers.hh"
-#include "pargibbs/common/lattice_operator.hh"
-#include "pargibbs/common/traits.hh"
-#include "pargibbs/lattice/lattice.hh"
-#include "pargibbs/mpi_helper.hh"
-#include "pargibbs/samplers/sampler_statistics.hh"
+#include "parmgmc/common/helpers.hh"
+#include "parmgmc/common/lattice_operator.hh"
+#include "parmgmc/common/traits.hh"
+#include "parmgmc/lattice/lattice.hh"
+#include "parmgmc/mpi_helper.hh"
+#include "parmgmc/samplers/sampler_statistics.hh"
 
 #ifdef PG_DEBUG_MODE
-#include "pargibbs/common/log.hh"
+#include "parmgmc/common/log.hh"
 #endif
 
 #include <algorithm>
@@ -32,15 +32,15 @@
 #include <Eigen/Dense>
 #include <Eigen/Sparse>
 
-namespace pargibbs {
+namespace parmgmc {
 
 template <class Operator, class Engine>
 class GibbsSampler : public SamplerStatistics<Operator> {
 public:
   GibbsSampler(std::shared_ptr<Operator> lattice_operator, Engine *engine,
                double omega = 1.)
-      : SamplerStatistics<Operator>{lattice_operator},
-        op{lattice_operator}, engine{engine}, omega{omega} {
+      : SamplerStatistics<Operator>{lattice_operator}, op{lattice_operator},
+        engine{engine}, omega{omega} {
     if (not op->get_matrix().IsRowMajor)
       throw std::runtime_error(
           "Precision matrix must be stored in row major format.");
@@ -62,22 +62,21 @@ public:
 #ifdef PG_DEBUG_MODE
     if (mpi_helper::is_debug_rank()) {
       if (mpi_send.size() > 0) {
-        PARGIBBS_DEBUG << "Rank " << mpi_helper::get_rank()
-                       << " has to send:\n";
+        PARMGMC_DEBUG << "Rank " << mpi_helper::get_rank() << " has to send:\n";
         for (auto &&[rank, vs] : mpi_send) {
-          PARGIBBS_DEBUG << "To " << rank << ": ";
+          PARMGMC_DEBUG << "To " << rank << ": ";
           for (auto &&idx : vs)
-            PARGIBBS_DEBUG_NP << idx << " ";
-          PARGIBBS_DEBUG_NP << "\n";
+            PARMGMC_DEBUG_NP << idx << " ";
+          PARMGMC_DEBUG_NP << "\n";
         }
       }
       if (mpi_recv.size() > 0) {
-        PARGIBBS_DEBUG << "Rank " << mpi_helper::get_rank() << " receives:\n";
+        PARMGMC_DEBUG << "Rank " << mpi_helper::get_rank() << " receives:\n";
         for (auto &&[rank, vs] : mpi_recv) {
-          PARGIBBS_DEBUG << "From " << rank << ": ";
+          PARMGMC_DEBUG << "From " << rank << ": ";
           for (auto &&idx : vs)
-            PARGIBBS_DEBUG_NP << idx << " ";
-          PARGIBBS_DEBUG_NP << "\n";
+            PARMGMC_DEBUG_NP << idx << " ";
+          PARMGMC_DEBUG_NP << "\n";
         }
       }
     }
@@ -122,7 +121,7 @@ private:
   void sample_at_points(typename Operator::Vector &curr_sample,
                         Predicate &&IncludeIndex) {
     assert(curr_sample.size() == op->get_matrix().rows());
-    
+
     using It = typename Operator::Matrix::InnerIterator;
 
     for (auto row : op->get_lattice().own_vertices) {
@@ -231,4 +230,4 @@ private:
   // Indices of halo vertices
   std::set<typename Lattice::IndexType> halo_indices;
 };
-} // namespace pargibbs
+} // namespace parmgmc
