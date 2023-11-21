@@ -16,7 +16,7 @@ jobs:
     - name: Build ParMGMC (with MPI)
       run: |
         mkdir build
-        cmake -S . -B build -DUSE_METIS=True -DMETIS_ROOT=/home/runner/local/
+        cmake -S . -B build -DUSE_METIS=True -DMETIS_ROOT=/home/runner/local/ -DCMAKE_BUILD_TYPE=Release
         cmake --build build
     - name: Run tests (with MPI)
       run: ./build/tests/tests
@@ -24,7 +24,7 @@ jobs:
       run: |
         rm -rf build
         mkdir build
-        cmake -S . -B build -DUSE_MPI=False -DUSE_METIS=True -DMETIS_ROOT=/home/runner/local/
+        cmake -S . -B build -DUSE_MPI=False -DUSE_METIS=True -DMETIS_ROOT=/home/runner/local/ -DCMAKE_BUILD_TYPE=Release
         cmake --build build
     - name: Run tests (with FakeMPI)
       run: ./build/tests/tests
