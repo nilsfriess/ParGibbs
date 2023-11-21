@@ -211,8 +211,9 @@ metis(const Lattice &lattice, std::size_t n_partitions) {
   idx_t objval = 0;
 
   // Const-casting is fine here, METIS does not change these pointers
-  auto *xadj = const_cast<idx_t *>(lattice.adj_idx.data());
-  auto *adjncy = const_cast<idx_t *>(lattice.adj_vert.data());
+  auto [adj_idx, adj_vert] = lattice.get_adjacency_lists();
+  auto *xadj = const_cast<idx_t *>(adj_idx.data());
+  auto *adjncy = const_cast<idx_t *>(adj_vert.data());
 
   METIS_PartGraphRecursive(&nvtxs,
                            &ncon,
@@ -235,7 +236,7 @@ metis(const Lattice &lattice, std::size_t n_partitions) {
 template <class Lattice>
 inline std::vector<typename Lattice::IndexType>
 make_partition(const Lattice &lattice, std::size_t n_partitions) {
-  switch (lattice.layout) {
+  switch (lattice.get_layout()) {
   case ParallelLayout::None: {
     std::vector<typename Lattice::IndexType> mpiowner(
         lattice.get_n_total_vertices());

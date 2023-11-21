@@ -33,16 +33,7 @@ Eigen::SparseMatrix<double> make_restriction(const Lattice &fine,
 
 template <class Functor>
 void for_each_ownindex_and_halo(const Lattice &lattice, Functor f) {
-  std::set<typename Lattice::IndexType> indices;
-  for (auto v : lattice.own_vertices) {
-    indices.insert(v);
-    for (int n = lattice.adj_idx.at(v); n < lattice.adj_idx.at(v + 1); ++n) {
-      auto nb_idx = lattice.adj_vert.at(n);
-      indices.insert(nb_idx);
-    }
-  }
-
-  for (auto index : indices)
-    f(index);
+  for (auto v : lattice.vertices(VertexType::Any))
+    f(v);
 }
 } // namespace parmgmc

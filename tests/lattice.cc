@@ -14,34 +14,16 @@ TEST(LatticeCoarsening, Lattice2d5x5) {
 }
 
 TEST(LatticeConstruction, Lexicographic) {
-  parmgmc::Lattice lattice(2,
-                            3,
-                            parmgmc::ParallelLayout::None,
-                            parmgmc::LatticeOrdering::Lexicographic);
+  parmgmc::Lattice lattice(2, 3, parmgmc::ParallelLayout::None);
 
   std::vector<int> adj_idx_expected = {0, 2, 5, 7, 10, 14, 17, 19, 22, 24};
   std::vector<int> adj_vert_expected = {1, 3, 0, 2, 4, 1, 5, 4, 6, 0, 3, 5,
                                         7, 1, 4, 8, 2, 7, 3, 6, 8, 4, 7, 5};
 
-  EXPECT_EQ(lattice.adj_idx, adj_idx_expected);
-  EXPECT_EQ(lattice.adj_vert, adj_vert_expected);
-}
+  const auto [adj_idx, adj_vert] = lattice.get_adjacency_lists();
 
-TEST(LatticeConstruction, RedBlack) {
-  parmgmc::Lattice lattice(2,
-                            3,
-                            parmgmc::ParallelLayout::None,
-                            parmgmc::LatticeOrdering::RedBlack);
-
-  std::vector<int> adj_idx_expected = {0, 2, 4, 8, 10, 12, 15, 18, 21, 24};
-  std::vector<int> adj_vert_expected = {5, 6, 5, 7, 6, 7, 8, 5, 8, 6, 8, 7,
-                                        0, 1, 2, 2, 3, 0, 2, 4, 1, 3, 4, 2};
-
-  EXPECT_EQ(lattice.adj_idx, adj_idx_expected);
-  EXPECT_EQ(lattice.adj_vert, adj_vert_expected);
-
-  std::vector<int> own_vertices_expected = {0, 1, 2, 3, 4, 5, 6, 7, 8};
-  EXPECT_EQ(lattice.own_vertices, own_vertices_expected);
+  EXPECT_EQ(adj_idx, adj_idx_expected);
+  EXPECT_EQ(adj_vert, adj_vert_expected);
 }
 
 TEST(LatticeConstruction, NumVertices) {

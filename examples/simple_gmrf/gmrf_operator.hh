@@ -10,25 +10,25 @@
 inline Eigen::SparseMatrix<double>
 gmrf_matrix_builder(const parmgmc::Lattice &lattice) {
   const int entries_per_row = 5;
-  const int nnz = lattice.own_vertices.size() * entries_per_row;
+  const int nnz = lattice.get_n_own_vertices() * entries_per_row;
   std::vector<Eigen::Triplet<double>> triplets;
   triplets.reserve(nnz);
 
   const double noise_var = 1e-4;
-
   auto handle_row = [&](auto v) {
-    int n_neighbours = lattice.adj_idx[v + 1] - lattice.adj_idx[v];
+    const auto [adj_idx, adj_vert] = lattice.get_adjacency_lists();
+    int n_neighbours = adj_idx[v + 1] - adj_idx[v];
     triplets.emplace_back(v, v, n_neighbours + noise_var);
 
-    for (typename parmgmc::Lattice::IndexType n = lattice.adj_idx[v];
-         n < lattice.adj_idx[v + 1];
+    for (typename parmgmc::Lattice::IndexType n = adj_idx[v];
+         n < adj_idx[v + 1];
          ++n) {
-      auto nb_idx = lattice.adj_vert[n];
+      auto nb_idx = adj_vert[n];
       triplets.emplace_back(v, nb_idx, -1);
     }
   };
 
-  for (auto v : lattice.own_vertices)
+  for (auto v : lattice.vertices())
     handle_row(v);
 
   auto mat_size = lattice.get_n_total_vertices();

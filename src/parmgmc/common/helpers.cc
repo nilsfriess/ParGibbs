@@ -6,6 +6,7 @@
 #include <Eigen/Dense>
 #include <Eigen/Sparse>
 
+#include <algorithm>
 #include <numeric>
 #include <stdexcept>
 #include <vector>
@@ -23,7 +24,7 @@ Eigen::VectorXd parmgmc::mpi_gather_vector(const Eigen::VectorXd &vec,
   if (mpi_helper::is_debug_rank())
     n_vertices.resize(mpi_helper::get_size());
 
-  auto own_n_vertices = lattice.own_vertices.size();
+  auto own_n_vertices = lattice.get_n_own_vertices();
   MPI_Gather(&own_n_vertices,
              1,
              MPI_INT,
@@ -45,7 +46,12 @@ Eigen::VectorXd parmgmc::mpi_gather_vector(const Eigen::VectorXd &vec,
   if (mpi_helper::is_debug_rank())
     indices.resize(vec.size());
 
-  MPI_Gatherv(lattice.own_vertices.data(),
+  std::vector<int> own_vertices(lattice.get_n_own_vertices());
+  std::copy(lattice.vertices().begin(),
+            lattice.vertices().end(),
+            own_vertices.begin());
+
+  MPI_Gatherv(own_vertices.data(),
               own_n_vertices,
               MPI_INT,
               indices.data(),
@@ -57,7 +63,7 @@ Eigen::VectorXd parmgmc::mpi_gather_vector(const Eigen::VectorXd &vec,
 
   std::vector<double> own_values(own_n_vertices);
   for (std::size_t i = 0; i < own_n_vertices; ++i)
-    own_values[i] = vec[lattice.own_vertices[i]];
+    own_values[i] = vec[own_vertices[i]];
 
   std::vector<double> values;
   if (mpi_helper::is_debug_rank())

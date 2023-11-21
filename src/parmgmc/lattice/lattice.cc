@@ -14,10 +14,9 @@
 namespace parmgmc {
 
 Lattice::Lattice(std::size_t dim, IndexType vertices_per_dim,
-                 ParallelLayout layout, LatticeOrdering ordering)
+                 ParallelLayout layout)
     : dim(dim), n_vertices_per_dim(vertices_per_dim),
-      meshwidth(1. / (n_vertices_per_dim - 1)), layout{layout},
-      ordering{ordering} {
+      meshwidth(1. / (n_vertices_per_dim - 1)), layout{layout} {
   if (dim < 1 or dim > 3)
     throw std::runtime_error("Dimension must be between 1 and 3");
 
@@ -32,131 +31,106 @@ Lattice::Lattice(std::size_t dim, IndexType vertices_per_dim,
     n_vertices_per_dim = power + 1;
 
     PARMGMC_DEBUG << "The number of points per lattice dimension must be "
-                      "of the form 2^n + 1. Incrementing and using "
-                   << n_vertices_per_dim << " instead.\n";
+                     "of the form 2^n + 1. Incrementing and using "
+                  << n_vertices_per_dim << " instead.\n";
   }
 
   if (mpi_helper::is_debug_rank()) {
     PARMGMC_DEBUG << "Initialising " << dim << "D lattice with "
-                   << n_vertices_per_dim
-                   << " vertices per dim (total: " << get_n_total_vertices()
-                   << " vertices)." << std::endl;
+                  << n_vertices_per_dim
+                  << " vertices per dim (total: " << get_n_total_vertices()
+                  << " vertices)." << std::endl;
   }
 
-  // For lexicographic ordering, this function is just the identity. For red
-  // black ordering, we map red indices to [0, 1, 2, ..., N/2] and black indices
-  // to [N/2 + 1, N/2 + 2, ..., N].
-  const auto convert_index = [&](auto i) {
-    if (ordering == LatticeOrdering::Lexicographic)
-      return i;
+  // Setup graph desribing the grid
+  setup_graph();
 
-    if (i % 2 == 0)
-      return i / 2;
-    else
-      return (get_n_total_vertices() / 2) + (i + 1) / 2;
-  };
+  // Partition graph
+  auto size = mpi_helper::get_size();
+  mpiowner = detail::make_partition(*this, size);
+  assert((IndexType)mpiowner.size() == get_n_total_vertices());
+  print_partition();
 
-  const auto handle_vertex = [&](IndexType &curr_idx, IndexType i) {
+  n_internal_vertices = 0;
+  n_border_vertices = 0;
+  for (IndexType i = 0; i < get_n_total_vertices(); ++i) {
+    if (mpiowner.at(i) == (IndexType)mpi_helper::get_rank()) {
+      n_internal_vertices++;
+      own_vertices.push_back(i);
+
+      bool is_border = false;
+      for (IndexType j = adj_idx.at(i); j < adj_idx.at(i + 1); ++j) {
+        auto nb = adj_vert.at(j); // Get index of neighbouring vertex
+        if (mpiowner.at(nb) != (IndexType)mpi_helper::get_rank()) {
+          is_border = true;
+          n_border_vertices++;
+          break;
+        }
+      }
+
+      if (is_border)
+        vertex_types.push_back(VertexType::Border);
+      else
+        vertex_types.push_back(VertexType::Internal);
+    } else {
+      // Vertex is not assigned directly to us, but might be a ghost vertex
+      for (IndexType j = adj_idx.at(i); j < adj_idx.at(i + 1); ++j) {
+        auto nb = adj_vert.at(j); // Get index of neighbouring vertex
+        if (mpiowner.at(nb) == (IndexType)mpi_helper::get_rank()) {
+          // If we own the neighbouring vertex, then this is a ghost vertex
+          own_vertices.push_back(i);
+          vertex_types.push_back(VertexType::Ghost);
+          break;
+        }
+      }
+    }
+  }
+}
+
+void Lattice::setup_graph() {
+  IndexType curr_idx = 0;
+  for (IndexType i = 0; i < get_n_total_vertices(); ++i) {
     adj_idx.push_back(curr_idx);
 
     // Check if west neighbour exists
     if (i % n_vertices_per_dim != 0) {
-      adj_vert.push_back(convert_index(i - 1));
+      adj_vert.push_back(i - 1);
       curr_idx++;
     }
 
     // Check if east neighbour exists
     if (i % n_vertices_per_dim != n_vertices_per_dim - 1) {
-      adj_vert.push_back(convert_index(i + 1));
+      adj_vert.push_back(i + 1);
       curr_idx++;
     }
 
     if (dim > 1) {
       // Check if north neighbour exists
       if (i + n_vertices_per_dim < get_n_total_vertices()) {
-        adj_vert.push_back(convert_index(i + n_vertices_per_dim));
+        adj_vert.push_back(i + n_vertices_per_dim);
         curr_idx++;
       }
 
       // Check if south neighbour exists
       if (i >= n_vertices_per_dim) {
-        adj_vert.push_back(convert_index(i - n_vertices_per_dim));
+        adj_vert.push_back(i - n_vertices_per_dim);
         curr_idx++;
       }
     }
-  };
-
-  if (ordering == LatticeOrdering::Lexicographic) {
-    IndexType curr_idx = 0;
-
-    // In case of lexicographic ordering, we loop over all indices directly
-    for (IndexType i = 0; i < get_n_total_vertices(); ++i)
-      handle_vertex(curr_idx, i);
-    adj_idx.push_back(adj_vert.size());
-  } else {
-    IndexType curr_idx = 0;
-
-    // In case of red/black ordering, we first traverse "red" (=even) vertices
-    for (IndexType i = 0; i < get_n_total_vertices(); i += 2)
-      handle_vertex(curr_idx, i);
-
-    // Next, we traverse "black" (=odd) indices
-    for (IndexType i = 1; i < get_n_total_vertices(); i += 2)
-      handle_vertex(curr_idx, i);
-
-    adj_idx.push_back(adj_vert.size());
   }
+  adj_idx.push_back(adj_vert.size());
+}
 
-  /// Next we partition the domain and store for each vertex the rank of the
-  /// MPI process that is responsible for that vertex.
-  auto size = mpi_helper::get_size();
-  mpiowner = detail::make_partition(*this, size);
-  assert((IndexType)mpiowner.size() == get_n_total_vertices());
-
+void Lattice::print_partition() const {
   if (mpi_helper::get_size() > 1 && mpi_helper::is_debug_rank() &&
       get_vertices_per_dim() < 10) {
     PARMGMC_DEBUG << "Partitioned domain:\n";
     for (IndexType i = 0; i < (IndexType)mpiowner.size(); ++i) {
-      PARMGMC_DEBUG_NP << mpiowner[convert_index(i)] << " ";
+      PARMGMC_DEBUG_NP << mpiowner[i] << " ";
       if (i % get_vertices_per_dim() == get_vertices_per_dim() - 1) {
         PARMGMC_DEBUG_NP << "\n";
       }
     }
-  }
-
-  /// As a helper array, we also separately store the vertices that the
-  /// current MPI rank is responsible for as well as the subset of those
-  /// that have neighbouring vertices that are owned by a different MPI
-  /// rank (this can be used when checking which vertices have to be
-  /// communicated to other MPI ranks).
-  const auto handle_mpi_vertex = [&](auto i) {
-    auto conv_idx = convert_index(i);
-
-    if (mpiowner.at(conv_idx) == (IndexType)mpi_helper::get_rank()) {
-      own_vertices.push_back(conv_idx);
-
-      for (IndexType j = adj_idx.at(conv_idx); j < adj_idx.at(conv_idx + 1);
-           ++j) {
-        auto nb = adj_vert.at(j); // Get index of neighbouring vertex
-        if (mpiowner.at(nb) != (IndexType)mpi_helper::get_rank()) {
-          // At least one of the neighbouring vertices of the current
-          // vertex is not owned by the current MPI rank, i.e., it is at
-          // the border of a partition
-          border_vertices.push_back(conv_idx);
-          break;
-        }
-      }
-    }
-  };
-
-  if (ordering == LatticeOrdering::Lexicographic) {
-    for (IndexType i = 0; i < get_n_total_vertices(); ++i)
-      handle_mpi_vertex(i);
-  } else {
-    for (IndexType i = 0; i < get_n_total_vertices(); i += 2)
-      handle_mpi_vertex(i);
-    for (IndexType i = 1; i < get_n_total_vertices(); i += 2)
-      handle_mpi_vertex(i);
   }
 }
 
@@ -165,6 +139,15 @@ Lattice Lattice::coarsen() const {
     throw std::runtime_error("Lattice::coarsen(): Lattice only consists of one "
                              "vertex, cannot coarsen further.");
 
+  // // We cannot just define a lattice with half the points per dimension as
+  // this
+  // // might create a totatlly different partitioning which would require lots
+  // of
+  // // communication. Instead we manually set up the coarse lattice.
+  // Lattice coarse_lattice;
+  // coarse_lattice.n_vertices_per_dim = (n_vertices_per_dim + 1) / 2;
+
+  // return coarse_lattice;
   return Lattice(2, (n_vertices_per_dim + 1) / 2, layout);
 }
 } // namespace parmgmc

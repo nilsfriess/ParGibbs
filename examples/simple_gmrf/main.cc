@@ -57,7 +57,7 @@ int main(int argc, char *argv[]) {
   using Operator = LatticeOperator<Matrix, Vector>;
 
   auto op = std::make_shared<Operator>(2, 9, gmrf_matrix_builder);
-  for (auto v : op->get_lattice().own_vertices)
+  for (auto v : op->get_lattice().vertices())
     op->vector().coeffRef(v) = 1;
 
   Eigen::MatrixXd exact_cov;
@@ -71,22 +71,22 @@ int main(int argc, char *argv[]) {
   std::size_t n_chains = config["n_chains"];
   const std::size_t n_samples = config["n_samples"];
 
-  // using Sampler = GibbsSampler<Operator, pcg32>;
-  using Sampler = MultigridSampler<Operator, pcg32>;
+  using Sampler = GibbsSampler<Operator, pcg32>;
+  // using Sampler = MultigridSampler<Operator, pcg32>;
 
   std::vector<Sampler> samplers;
   std::vector<Vector> samples;
   std::vector<Eigen::VectorXd> full_samples;
 
-  Sampler::Parameters params;
-  params.levels = 3;
-  params.cycles = 1;
-  params.n_presample = 4;
-  params.n_postsample = 0;
+  // Sampler::Parameters params;
+  // params.levels = 3;
+  // params.cycles = 1;
+  // params.n_presample = 4;
+  // params.n_postsample = 0;
 
   for (std::size_t i = 0; i < n_chains; ++i) {
-    // samplers.emplace_back(op, &engine, config["omega"]);
-    samplers.emplace_back(op, &engine, params);
+    samplers.emplace_back(op, &engine, config["omega"]);
+    // samplers.emplace_back(op, &engine, params);
 
     samples.emplace_back(op->size());
     for_each_ownindex_and_halo(op->get_lattice(),
@@ -108,13 +108,12 @@ int main(int argc, char *argv[]) {
       samplers[c].sample(samples[c]);
 
       // Remove halo values
-      Eigen::VectorXd local_sample(op->size());
-      for (auto v : op->get_lattice().own_vertices)
-        local_sample[v] = samples[c].coeff(v);
+      for (auto v : op->get_lattice().vertices(VertexType::Ghost))
+        samples[c].coeffRef(v) = 0;
 
       // Collect all parts of the sample which are scattered across multiple MPI
       // ranks into a single vector
-      full_samples[c] = mpi_gather_vector(local_sample, op->get_lattice());
+      full_samples[c] = mpi_gather_vector(samples[c], op->get_lattice());
     }
 
     if (mpi_helper::is_debug_rank()) {

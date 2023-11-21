@@ -50,7 +50,7 @@ public:
 
     const auto factor = std::sqrt(omega * (2 - omega));
 
-    for (auto v : op->get_lattice().own_vertices) {
+    for (auto v : op->get_lattice().vertices()) {
       inv_diag[v] = 1. / op->get_matrix().coeff(v, v);
       rsqrt_omega_diag[v] = factor / std::sqrt(op->get_matrix().coeff(v, v));
     }
@@ -84,12 +84,7 @@ public:
   }
 
   void sample(typename Operator::Vector &sample, std::size_t n_samples = 1) {
-    auto is_red_vertex = [&](auto v) {
-      if (op->get_lattice().ordering == LatticeOrdering::Lexicographic)
-        return v % 2 == 0;
-      else
-        return v <= (op->get_lattice().get_n_total_vertices() / 2);
-    };
+    auto is_red_vertex = [&](auto v) { return v % 2 == 0; };
     auto is_black_vertex = [&](auto v) { return !is_red_vertex(v); };
 
     for (std::size_t n = 0; n < n_samples; ++n) {
@@ -98,7 +93,7 @@ public:
         for (int i = 0; i < rand.nonZeros(); ++i)
           rand.valuePtr()[i] = dist(*engine);
       } else {
-        for (auto v : op->get_lattice().own_vertices)
+        for (auto v : op->get_lattice().vertices())
           rand[v] = dist(*engine);
       }
 
@@ -124,7 +119,7 @@ private:
 
     using It = typename Operator::Matrix::InnerIterator;
 
-    for (auto row : op->get_lattice().own_vertices) {
+    for (auto row : op->get_lattice().vertices()) {
       if (not IncludeIndex(row))
         continue;
 
@@ -148,7 +143,7 @@ private:
       return;
 
     static std::vector<double> mpi_buf(
-        op->get_lattice().border_vertices.size());
+        op->get_lattice().get_n_border_vertices());
 
     for (auto &&[target, vs] : mpi_send) {
       for (std::size_t i = 0; i < vs.size(); ++i)
@@ -176,11 +171,10 @@ private:
   void setup_mpi_maps() {
     using IndexT = typename Lattice::IndexType;
 
-    for (auto v : op->get_lattice().border_vertices) {
-      for (IndexT n = op->get_lattice().adj_idx.at(v);
-           n < op->get_lattice().adj_idx.at(v + 1);
-           ++n) {
-        auto nb_idx = op->get_lattice().adj_vert.at(n);
+    const auto [adj_idx, adj_vert] = op->get_lattice().get_adjacency_lists();
+    for (auto v : op->get_lattice().vertices(VertexType::Border)) {
+      for (IndexT n = adj_idx.at(v); n < adj_idx.at(v + 1); ++n) {
+        auto nb_idx = adj_vert.at(n);
 
         // If we have a neighbour that is owned by another MPI process, then
         // - we need to send the value at `v` to this process at some point, and

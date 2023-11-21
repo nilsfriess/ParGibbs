@@ -1,6 +1,7 @@
 #pragma once
 
 #include "parmgmc/lattice/lattice.hh"
+#include "parmgmc/lattice/types.hh"
 
 #include <cassert>
 #include <cstddef>
@@ -16,6 +17,14 @@ public:
   LatticeOperator(std::size_t dim, Lattice::IndexType lattice_size,
                   MatBuilder &&matrix_builder)
       : lattice_{dim, lattice_size}, matrix_{matrix_builder(lattice_)},
+        vector_(matrix_.rows()) {
+    vector_.setZero();
+  }
+
+  template <class MatBuilder>
+  LatticeOperator(std::size_t dim, Lattice::IndexType lattice_size,
+                  ParallelLayout layout, MatBuilder &&matrix_builder)
+      : lattice_{dim, lattice_size, layout}, matrix_{matrix_builder(lattice_)},
         vector_(matrix_.rows()) {
     vector_.setZero();
   }
