@@ -7,6 +7,7 @@
 #include <stdexcept>
 
 #include "parmgmc/common/log.hh"
+#include "parmgmc/lattice/helpers.hh"
 #include "parmgmc/lattice/partition.hh"
 #include "parmgmc/lattice/types.hh"
 #include "parmgmc/mpi_helper.hh"
@@ -50,41 +51,7 @@ Lattice::Lattice(std::size_t dim, IndexType vertices_per_dim,
   mpiowner = detail::make_partition(*this, size);
   assert((IndexType)mpiowner.size() == get_n_total_vertices());
   print_partition();
-
-  n_internal_vertices = 0;
-  n_border_vertices = 0;
-  for (IndexType i = 0; i < get_n_total_vertices(); ++i) {
-    if (mpiowner.at(i) == (IndexType)mpi_helper::get_rank()) {
-      n_internal_vertices++;
-      own_vertices.push_back(i);
-
-      bool is_border = false;
-      for (IndexType j = adj_idx.at(i); j < adj_idx.at(i + 1); ++j) {
-        auto nb = adj_vert.at(j); // Get index of neighbouring vertex
-        if (mpiowner.at(nb) != (IndexType)mpi_helper::get_rank()) {
-          is_border = true;
-          n_border_vertices++;
-          break;
-        }
-      }
-
-      if (is_border)
-        vertex_types.push_back(VertexType::Border);
-      else
-        vertex_types.push_back(VertexType::Internal);
-    } else {
-      // Vertex is not assigned directly to us, but might be a ghost vertex
-      for (IndexType j = adj_idx.at(i); j < adj_idx.at(i + 1); ++j) {
-        auto nb = adj_vert.at(j); // Get index of neighbouring vertex
-        if (mpiowner.at(nb) == (IndexType)mpi_helper::get_rank()) {
-          // If we own the neighbouring vertex, then this is a ghost vertex
-          own_vertices.push_back(i);
-          vertex_types.push_back(VertexType::Ghost);
-          break;
-        }
-      }
-    }
-  }
+  update_vertices();
 }
 
 void Lattice::setup_graph() {
@@ -134,20 +101,86 @@ void Lattice::print_partition() const {
   }
 }
 
+void Lattice::update_vertices() {
+  n_internal_vertices = 0;
+  n_border_vertices = 0;
+  for (IndexType i = 0; i < get_n_total_vertices(); ++i) {
+    if (mpiowner.at(i) == (IndexType)mpi_helper::get_rank()) {
+      n_internal_vertices++;
+      own_vertices.push_back(i);
+
+      bool is_border = false;
+      for (IndexType j = adj_idx.at(i); j < adj_idx.at(i + 1); ++j) {
+        auto nb = adj_vert.at(j); // Get index of neighbouring vertex
+        if (mpiowner.at(nb) != (IndexType)mpi_helper::get_rank()) {
+          is_border = true;
+          n_border_vertices++;
+          break;
+        }
+      }
+
+      if (is_border)
+        vertex_types.push_back(VertexType::Border);
+      else
+        vertex_types.push_back(VertexType::Internal);
+    } else {
+      // Vertex is not assigned directly to us, but might be a ghost vertex
+      for (IndexType j = adj_idx.at(i); j < adj_idx.at(i + 1); ++j) {
+        auto nb = adj_vert.at(j); // Get index of neighbouring vertex
+        if (mpiowner.at(nb) == (IndexType)mpi_helper::get_rank()) {
+          // If we own the neighbouring vertex, then this is a ghost vertex
+          own_vertices.push_back(i);
+          vertex_types.push_back(VertexType::Ghost);
+          break;
+        }
+      }
+    }
+  }
+}
+
 Lattice Lattice::coarsen() const {
   if (n_vertices_per_dim == 1)
     throw std::runtime_error("Lattice::coarsen(): Lattice only consists of one "
                              "vertex, cannot coarsen further.");
 
-  // // We cannot just define a lattice with half the points per dimension as
-  // this
-  // // might create a totatlly different partitioning which would require lots
-  // of
-  // // communication. Instead we manually set up the coarse lattice.
-  // Lattice coarse_lattice;
-  // coarse_lattice.n_vertices_per_dim = (n_vertices_per_dim + 1) / 2;
+  const std::vector<std::size_t> vert_per_dim(dim, n_vertices_per_dim);
 
-  // return coarse_lattice;
-  return Lattice(2, (n_vertices_per_dim + 1) / 2, layout);
+  Lattice coarse_lattice;
+  coarse_lattice.dim = dim;
+  coarse_lattice.n_vertices_per_dim = (n_vertices_per_dim + 1) / 2;
+
+  // Since we have a vector that maps lattice vertices to MPI ranks,
+  // we can simply coarsen this map and recompute inner vertices, border
+  // vertices etc. using the Lattice::update_vertices() method.
+
+  const auto convert_to_coarse = [&](auto fine_idx) {
+    auto fine_xyz = linear_to_xyz(fine_idx, vert_per_dim);
+    for (auto &coord : fine_xyz)
+      coord /= 2; // Compute coarsened coordinate
+    return xyz_to_linear(fine_xyz, coarse_lattice.n_vertices_per_dim);
+  };
+
+  coarse_lattice.mpiowner.resize(coarse_lattice.get_n_total_vertices());
+  for (IndexType i = 0; i < get_n_total_vertices(); ++i) {
+    auto fine_xyz = linear_to_xyz(i, vert_per_dim);
+
+    bool keep_on_coarse = true;
+    for (auto coord : fine_xyz)
+      // Coarsen by only keeping every second point in each direction
+      if (coord % 2 != 0) {
+        keep_on_coarse = false;
+        break;
+      }
+
+    if (!keep_on_coarse)
+      continue;
+
+    coarse_lattice.mpiowner.at(convert_to_coarse(i)) = mpiowner.at(i);
+  }
+
+  coarse_lattice.setup_graph();
+  coarse_lattice.update_vertices();
+
+  return coarse_lattice;
 }
 } // namespace parmgmc

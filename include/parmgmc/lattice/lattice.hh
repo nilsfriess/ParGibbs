@@ -10,7 +10,7 @@
 
 namespace parmgmc {
 /* Type of a specific vertex. Internal vertices are those owned by the current
- * MPI process. Border vertices are internal vertices that have at least
+ * MPI process. Border vertices are internal vertices that have at least one
  * neighbouring index that is owned by another MPI index. Ghost vertices are
  * owned by another MPI process but have at least one of our vertices as
  * neighbours. Any is the union of Internal and Ghost vertices. */
@@ -181,6 +181,7 @@ private:
 
   void setup_graph();
   void print_partition() const;
+  void update_vertices();
 };
 
 } // namespace parmgmc
