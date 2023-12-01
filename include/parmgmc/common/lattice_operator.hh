@@ -18,7 +18,8 @@ public:
                   MatBuilder &&matrix_builder)
       : lattice_{dim, lattice_size}, matrix_{matrix_builder(lattice_)},
         vector_(matrix_.rows()) {
-    vector_.setZero();
+    for (auto vertex : lattice_.vertices(VertexType::Any))
+      vector_.coeffRef(vertex) = 0;
   }
 
   template <class MatBuilder>
@@ -26,7 +27,8 @@ public:
                   ParallelLayout layout, MatBuilder &&matrix_builder)
       : lattice_{dim, lattice_size, layout}, matrix_{matrix_builder(lattice_)},
         vector_(matrix_.rows()) {
-    vector_.setZero();
+    for (auto vertex : lattice_.vertices(VertexType::Any))
+      vector_.coeffRef(vertex) = 0;
   }
 
   const Lattice &get_lattice() const { return lattice_; }
@@ -34,6 +36,7 @@ public:
   const Matrix &get_matrix() const { return matrix_; }
 
   Vector &vector() { return vector_; }
+  const Vector &vector() const { return vector_; }
 
   std::size_t size() const { return lattice_.get_n_total_vertices(); };
 
@@ -54,7 +57,8 @@ private:
   LatticeOperator(Lattice &&lattice, Matrix &&matrix)
       : lattice_{std::move(lattice)}, matrix_{std::move(matrix)},
         vector_(matrix_.rows()) {
-    vector_.setZero();
+    for (auto vertex : lattice_.vertices(VertexType::Any))
+      vector_.coeffRef(vertex) = 0;
   };
 
   Lattice lattice_;
