@@ -35,7 +35,7 @@ public:
     Eigen::VectorXd ret_mean(mean.size());
     ret_mean.setZero();
     // Remove halo vertices
-    for (auto v : lattice_operator->get_lattice().own_vertices)
+    for (auto v : lattice_operator->get_lattice().vertices())
       ret_mean[v] = mean.coeff(v);
 
     return ret_mean;
