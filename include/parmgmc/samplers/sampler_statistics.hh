@@ -44,7 +44,7 @@ public:
   const Eigen::MatrixXd &get_covariance() const { return cov; }
 
   void reset_statistics() {
-    n_sample = 1;
+    n_sample = 0;
     if (est_mean) {
       mean.resize(lattice_operator->size());
       mean.setZero();
@@ -67,30 +67,35 @@ protected:
     if (!est_mean and !est_cov)
       return;
 
+    n_sample++;
+
+    // Update covariance matrix
+    if (est_cov) {
+      if (n_sample == 1) {
+        first_sample = sample;
+      } else {
+        cov *= (n_sample - 2.) / (n_sample - 1.);
+        cov += 1. / n_sample * (sample - mean) * (sample - mean).transpose();
+      }
+    }
+
     // Update mean
     if (est_mean) {
       if (n_sample == 1) {
         mean = sample;
       } else {
-        mean += 1 / (1. + n_sample) * (sample - mean);
+        mean += 1. / n_sample * (sample - mean);
       }
     }
-
-    // Update covariance matrix
-    if (est_cov) {
-      if (n_sample >= 2) {
-        cov *= n_sample / (1. + n_sample);
-        cov += n_sample / ((1. + n_sample) * (1. + n_sample)) *
-               (sample - mean) * (sample - mean).transpose();
-      }
-    }
-
-    n_sample++;
   }
 
 private:
   Eigen::VectorXd mean;
   Eigen::MatrixXd cov;
+
+  Eigen::VectorXd
+      first_sample; // temporarily store first sample since we need at least two
+                    // samples for covariance estimation
 
   std::size_t n_sample = 0;
 

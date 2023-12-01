@@ -9,6 +9,7 @@
 
 #include <iostream>
 #include <memory>
+#include <numeric>
 #include <random>
 #include <utility>
 
@@ -188,4 +189,54 @@ TEST(SamplersTest, Multigrid2d) {
                   (sampler.get_covariance() - covariance).norm(),
               0,
               tol);
+}
+
+TEST(SamplerStatisticsTest, MeanAndCovComputation) {
+  namespace pg = parmgmc;
+
+  using Matrix = Eigen::SparseMatrix<double, Eigen::RowMajor>;
+  using Vector = Eigen::VectorXd;
+  using Operator = pg::LatticeOperator<Matrix, Vector>;
+
+  auto op = std::make_shared<Operator>(2, 8, [&](const auto &lattice) {
+    auto [prec, cov] = get_test_matrices(lattice, false);
+    return prec;
+  });
+
+  const auto seed = 0xBEEFCAFE;
+  std::mt19937 engine{seed};
+
+  pg::GibbsSampler sampler(op, &engine);
+  sampler.enable_estimate_mean();
+  sampler.enable_estimate_covariance();
+
+  std::size_t n_samples = 1000;
+  std::vector<Vector> samples(n_samples);
+  samples[0].resize(op->size());
+  samples[0].setZero();
+  sampler.sample(samples[0]);
+
+  for (std::size_t n = 0; n < n_samples - 1; ++n) {
+    samples[n + 1] = samples[n];
+    sampler.sample(samples[n + 1]);
+  }
+
+  Vector zero = Vector::Zero(op->size());
+  Vector mean =
+      1. / n_samples * std::reduce(samples.begin(), samples.end(), zero);
+
+  EXPECT_NEAR(sampler.get_mean().norm(), mean.norm(), 1e-12);
+
+  Eigen::MatrixXd zero_mat(op->size(), op->size());
+  zero_mat.setZero();
+  Eigen::MatrixXd cov =
+      std::accumulate(samples.begin(),
+                      samples.end(),
+                      zero_mat,
+                      [&](const auto &c, const auto &sample) {
+                        return c + 1. / (n_samples - 1.) * (sample - mean) *
+                                       (sample - mean).transpose();
+                      });
+
+  EXPECT_NEAR(sampler.get_covariance().norm(), cov.norm(), 1e-12);
 }
