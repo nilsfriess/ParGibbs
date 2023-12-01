@@ -31,8 +31,8 @@ public:
     using pointer = value_type *;
     using reference = const value_type &;
 
-    Iterator(const Lattice *lattice, VertexType type, std::size_t index)
-        : lattice{lattice}, type{type}, index{index} {
+    Iterator(const Lattice *lattice, VertexType type, std::size_t id)
+        : lattice{lattice}, type{type}, index{id} {
       while (index < lattice->own_vertices.size() and
              (not is_right_type_index(index)))
         index++;
