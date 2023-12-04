@@ -8,14 +8,11 @@
 
 #include "parmgmc/common/helpers.hh"
 #include "parmgmc/common/lattice_operator.hh"
+#include "parmgmc/common/log.hh"
 #include "parmgmc/common/traits.hh"
 #include "parmgmc/lattice/lattice.hh"
 #include "parmgmc/mpi_helper.hh"
 #include "parmgmc/samplers/sampler_statistics.hh"
-
-#ifdef PG_DEBUG_MODE
-#include "parmgmc/common/log.hh"
-#endif
 
 #include <algorithm>
 #include <cassert>
@@ -59,7 +56,7 @@ public:
 
     setup_mpi_maps();
 
-#ifdef PG_DEBUG_MODE
+#if PARMGMC_DEBUG_LEVEL == PARMGMC_DEBUG_LEVEL_VERBOSE
     if (mpi_helper::is_debug_rank()) {
       if (mpi_send.size() > 0) {
         PARMGMC_DEBUG << "Rank " << mpi_helper::get_rank() << " has to send:\n";
