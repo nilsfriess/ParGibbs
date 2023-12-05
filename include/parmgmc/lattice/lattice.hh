@@ -15,13 +15,15 @@ namespace parmgmc {
  * owned by another MPI process but have at least one of our vertices as
  * neighbours. Any is the union of Internal and Ghost vertices. */
 enum class VertexType { Internal, Border, Ghost, Any };
+enum class VertexColour { Red, Black, Any };
 
 class Lattice {
 public:
   using IndexType = int;
 
   /* Iterator class that allows to easily loop over certain types of lattice
-     vertices. Should be used with the Lattice::vertices(VertexType) method.
+     vertices. Should be used with the Lattice::vertices(VertexType,
+     VertexColour) method.
    */
   class Iterator {
   public:
@@ -31,8 +33,9 @@ public:
     using pointer = value_type *;
     using reference = const value_type &;
 
-    Iterator(const Lattice *lattice, VertexType type, std::size_t id)
-        : lattice{lattice}, type{type}, index{id} {
+    Iterator(const Lattice *lattice, VertexType type, VertexColour colour,
+             std::size_t id)
+        : lattice{lattice}, type{type}, colour{colour}, index{id} {
       while (index < lattice->own_vertices.size() and
              (not is_right_type_index(index)))
         index++;
@@ -65,6 +68,15 @@ public:
 
   private:
     bool is_right_type_index(std::size_t i) const {
+      // First check if the colour does match
+      if (colour == VertexColour::Red && (lattice->own_vertices[i] % 2 != 0))
+        return false;
+
+      if (colour == VertexColour::Black && (lattice->own_vertices[i] % 2 == 0))
+        return false;
+
+      // Here we know that the colour is correct (or colour == Any), so check
+      // the type
       if (type == VertexType::Any)
         return true;
 
@@ -88,23 +100,25 @@ public:
 
     const Lattice *lattice;
     VertexType type;
+    VertexColour colour;
 
     std::size_t index;
   };
 
   class VerticesProxy {
   public:
-    VerticesProxy(const Lattice *lattice, VertexType type)
-        : lattice{lattice}, type{type} {}
+    VerticesProxy(const Lattice *lattice, VertexType type, VertexColour colour)
+        : lattice{lattice}, type{type}, colour{colour} {}
 
-    Iterator begin() { return Iterator{lattice, type, 0}; }
+    Iterator begin() { return Iterator{lattice, type, colour, 0}; }
     Iterator end() {
-      return Iterator{lattice, type, lattice->own_vertices.size()};
+      return Iterator{lattice, type, colour, lattice->own_vertices.size()};
     }
 
   private:
     const Lattice *lattice;
     VertexType type;
+    VertexColour colour;
   };
 
   Lattice(std::size_t dim, IndexType vertices_per_dim,
@@ -119,8 +133,9 @@ public:
 
   Lattice coarsen() const;
 
-  VerticesProxy vertices(VertexType type = VertexType::Internal) const {
-    return VerticesProxy(this, type);
+  VerticesProxy vertices(VertexType type = VertexType::Internal,
+                         VertexColour colour = VertexColour::Any) const {
+    return VerticesProxy(this, type, colour);
   }
 
   ParallelLayout get_layout() const { return layout; };

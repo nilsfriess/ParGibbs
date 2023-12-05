@@ -33,6 +33,9 @@ namespace parmgmc {
 
 template <class Operator, class Engine>
 class GibbsSampler : public SamplerStatistics<Operator> {
+  using Vector = typename Operator::Vector;
+  using Matrix = typename Operator::Matrix;
+
 public:
   GibbsSampler(std::shared_ptr<Operator> lattice_operator, Engine *engine,
                double omega = 1.)
@@ -80,13 +83,9 @@ public:
 #endif
   }
 
-  void sample(typename Operator::Vector &sample, std::size_t n_samples = 1) {
-    auto is_red_vertex = [&](auto v) { return v % 2 == 0; };
-    auto is_black_vertex = [&](auto v) { return !is_red_vertex(v); };
-
+  void sample(Vector &sample, std::size_t n_samples = 1) {
     for (std::size_t n = 0; n < n_samples; ++n) {
-      if constexpr (detail::is_eigen_sparse_vector_v<
-                        typename Operator::Vector>) {
+      if constexpr (detail::is_eigen_sparse_vector_v<Vector>) {
         for (int i = 0; i < rand.nonZeros(); ++i)
           rand.valuePtr()[i] = dist(*engine);
       } else {
@@ -97,29 +96,23 @@ public:
       rand += op->vector();
 
       // Update sample at "red" vertices
-      sample_at_points(sample, is_red_vertex);
-      send_recv(sample, is_red_vertex);
+      sample_at_points(sample, VertexColour::Red);
+      send_recv(sample, VertexColour::Red);
 
       // Update sample at "black" vertices
-      sample_at_points(sample, is_black_vertex);
-      send_recv(sample, is_black_vertex);
+      sample_at_points(sample, VertexColour::Black);
+      send_recv(sample, VertexColour::Black);
 
       this->update_statistics(sample);
     }
   }
 
-private:
-  template <class Predicate>
-  void sample_at_points(typename Operator::Vector &curr_sample,
-                        Predicate &&IncludeIndex) {
+protected:
+  void sample_at_points(Vector &curr_sample, VertexColour colour) {
     assert(curr_sample.size() == op->get_matrix().rows());
 
-    using It = typename Operator::Matrix::InnerIterator;
-
-    for (auto row : op->get_lattice().vertices()) {
-      if (not IncludeIndex(row))
-        continue;
-
+    using It = typename Matrix::InnerIterator;
+    for (auto row : op->get_lattice().vertices(VertexType::Internal, colour)) {
       double sum = 0.;
       // Loop over non-zero entries in current row
       for (It it(op->get_matrix(), row); it; ++it) {
@@ -133,9 +126,7 @@ private:
     }
   }
 
-  template <class Predicate>
-  void send_recv(typename Operator::Vector &curr_sample,
-                 const Predicate &IncludeIndex) {
+  void send_recv(Vector &curr_sample, VertexColour colour) {
     if (mpi_helper::get_size() == 1)
       return;
 
@@ -160,7 +151,9 @@ private:
                MPI_STATUS_IGNORE);
 
       for (std::size_t i = 0; i < vs.size(); ++i)
-        if (IncludeIndex(vs.at(i)))
+        if ((colour == VertexColour::Any) or
+            (colour == VertexColour::Red && (vs[i] % 2 == 0)) or
+            (colour == VertexColour::Black && (vs[i] % 2 != 0)))
           curr_sample.coeffRef(vs.at(i)) = mpi_buf.at(i);
     }
   }
@@ -179,8 +172,6 @@ private:
         //   point.
         if (op->get_lattice().mpiowner[nb_idx] !=
             (IndexT)mpi_helper::get_rank()) {
-          halo_indices.insert(nb_idx);
-
           mpi_send[op->get_lattice().mpiowner.at(nb_idx)].push_back(v);
           mpi_recv[op->get_lattice().mpiowner.at(nb_idx)].push_back(nb_idx);
         }
@@ -206,7 +197,7 @@ private:
   std::shared_ptr<Operator> op;
   Engine *engine;
 
-  typename Operator::Vector rand;
+  Vector rand;
   Eigen::VectorXd inv_diag;
   Eigen::VectorXd rsqrt_omega_diag;
 
@@ -218,7 +209,5 @@ private:
   std::unordered_map<int, std::vector<int>> mpi_send;
   // mpi rank -> vertex indices we will receive
   std::unordered_map<int, std::vector<int>> mpi_recv;
-  // Indices of halo vertices
-  std::set<typename Lattice::IndexType> halo_indices;
 };
 } // namespace parmgmc
