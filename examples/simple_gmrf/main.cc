@@ -1,3 +1,4 @@
+#include "parmgmc/samplers/hybrid_gibbs.hh"
 #include <Eigen/Eigen>
 
 #include <chrono>
@@ -43,7 +44,7 @@ int main(int argc, char *argv[]) {
   std::ifstream f(argv[1]);
   json config = json::parse(f);
 
-  pcg32 engine(0, mpi_helper::get_rank());
+  pcg32 engine;
 
   if (argc > 2)
     engine.seed(std::atoi(argv[2]));
@@ -52,14 +53,16 @@ int main(int argc, char *argv[]) {
     engine.seed(seed_source);
   }
 
+  engine.set_stream(mpi_helper::get_rank());
+
   using Vector = Eigen::VectorXd;
   using Matrix = Eigen::SparseMatrix<double, Eigen::RowMajor>;
   using Operator = LatticeOperator<Matrix, Vector>;
 
-  auto op = std::make_shared<Operator>(
-      config["dim"], config["lattice_size"], gmrf_matrix_builder);
-  for (auto v : op->get_lattice().vertices())
-    op->vector().coeffRef(v) = 1;
+  auto op = std::make_shared<Operator>(config["dim"],
+                                       config["lattice_size"],
+                                       ParallelLayout::BlockRow,
+                                       gmrf_matrix_builder);
 
   Eigen::MatrixXd exact_cov;
   // Collect all parts of the precision matrix into one dense matrix (on the
@@ -72,23 +75,25 @@ int main(int argc, char *argv[]) {
   std::size_t n_chains = config["n_chains"];
   const std::size_t n_samples = config["n_samples"];
 
-  // using Sampler = GibbsSampler<Operator, pcg32>;
-  using Sampler = MultigridSampler<Operator, pcg32>;
+  // using Smoother = GibbsSampler<Operator, pcg32>;
+  // using Sampler = HybridGibbsSampler<Operator, pcg32>;
+  using Sampler = GibbsSampler<Operator, pcg32>;
+
+  // using Sampler = MultigridSampler<Operator, pcg32, Smoother>;
+  // Sampler::Parameters params;
+  // params.levels = 3;
+  // params.cycles = 2;
+  // params.n_presample = 2;
+  // params.n_postsample = 1;
+  // params.prepost_sampler_omega = config["omega"];
 
   std::vector<Sampler> samplers;
   std::vector<Vector> samples;
   std::vector<Eigen::VectorXd> full_samples;
 
-  Sampler::Parameters params;
-  params.levels = 3;
-  params.cycles = 1;
-  params.n_presample = 2;
-  params.n_postsample = 1;
-  params.prepost_sampler_omega = config["omega"];
-
   for (std::size_t i = 0; i < n_chains; ++i) {
-    // samplers.emplace_back(op, &engine, config["omega"]);
-    samplers.emplace_back(op, &engine, params);
+    samplers.emplace_back(op, &engine, config["omega"]);
+    // samplers.emplace_back(op, &engine, params, gmrf_matrix_builder);
 
     samples.emplace_back(op->size());
     for (auto idx : op->get_lattice().vertices(VertexType::Any))
@@ -101,13 +106,14 @@ int main(int argc, char *argv[]) {
   Eigen::VectorXd mean(op->size());
   Eigen::MatrixXd cov(op->size(), op->size());
 
-  Eigen::VectorXd tgt_mean;
-  if (mpi_helper::is_debug_rank())
-    tgt_mean = exact_cov * op->vector();
-
   for (std::size_t n = 0; n < n_samples; ++n) {
+    double sampling_time = 0;
     for (std::size_t c = 0; c < n_chains; ++c) {
+      auto start = MPI_Wtime();
       samplers[c].sample(samples[c]);
+      MPI_Barrier(MPI_COMM_WORLD);
+      auto end = MPI_Wtime();
+      sampling_time += end - start;
 
       // Remove halo values
       Vector clean_sample(op->size());
@@ -122,18 +128,20 @@ int main(int argc, char *argv[]) {
     if (mpi_helper::is_debug_rank()) {
       mean.setZero();
       for (std::size_t c = 0; c < n_chains; ++c)
-        mean += 1. / n_chains * full_samples[c];
+        mean += (1. / n_chains) * full_samples[c];
 
       cov.setZero();
       for (std::size_t c = 0; c < n_chains; ++c)
         cov += 1. / (n_chains - 1) * (full_samples[c] - mean) *
                (full_samples[c] - mean).transpose();
 
-      double mean_err = 1. / tgt_mean.norm() * (tgt_mean - mean).norm();
+      double mean_err = mean.norm();
       double cov_err = 1. / exact_cov.norm() * (exact_cov - cov).norm();
 
-      std::cout << "mean_err = " << mean_err << ", ";
-      std::cout << "cov_err = " << cov_err;
+      // std::cout << "mean_err = " << mean_err << ", ";
+      // std::cout << "cov_err = " << cov_err;
+      std::cout << cov_err;
+      // std::cout << " (time: " << sampling_time << "s)";
       std::cout << "\n";
     }
   }

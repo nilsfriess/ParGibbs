@@ -28,6 +28,50 @@ public:
         n_presample{params.n_presample}, n_postsample{params.n_postsample} {
     assert(levels >= 2 && "Multigrid sampler must at least have two levels");
 
+    init(finest_operator,
+         params,
+         [&](auto level,
+             const auto & /*coarse_lattice*/,
+             const auto &fine_matrix) {
+           return prolongations[level - 1].transpose() * fine_matrix *
+                  prolongations[level - 1];
+         });
+  }
+
+  template <class CoarseOperatorGenerator>
+  MultigridSampler(std::shared_ptr<Operator> finest_operator, Engine *engine,
+                   const Parameters &params,
+                   CoarseOperatorGenerator &&generator)
+      : SamplerStatistics<Operator>{finest_operator}, engine{engine},
+        levels{params.levels}, cycles{params.cycles},
+        n_presample{params.n_presample}, n_postsample{params.n_postsample} {
+    assert(levels >= 2 && "Multigrid sampler must at least have two levels");
+
+    init(finest_operator,
+         params,
+         [&](auto /*level*/,
+             const auto &coarse_lattice,
+             const auto & /*fine_matrix*/) {
+           return generator(coarse_lattice);
+         });
+  }
+
+  void sample(typename Operator::Vector &sample, std::size_t n_samples = 1) {
+    current_samples[0] = sample;
+
+    for (std::size_t n = 0; n < n_samples; ++n) {
+      sample_impl(0, operators[0]->vector());
+
+      this->update_statistics(current_samples[0]);
+    }
+
+    sample = current_samples[0];
+  }
+
+private:
+  template <class CoarseMatrixBuilder>
+  void init(std::shared_ptr<Operator> finest_operator, const Parameters &params,
+            CoarseMatrixBuilder &&coarse_mat_builder) {
     operators.push_back(finest_operator);
     pre_smoothers.emplace_back(finest_operator, engine);
     post_smoothers.emplace_back(finest_operator, engine);
@@ -40,8 +84,7 @@ public:
             prolongations.push_back(make_prolongation(
                 operators[l - 1]->get_lattice(), coarse_lattice));
 
-            return prolongations[l - 1].transpose() * fine_matrix *
-                   prolongations[l - 1];
+            return coarse_mat_builder(l, coarse_lattice, fine_matrix);
           });
       operators.push_back(coarse_operator);
 
@@ -59,19 +102,6 @@ public:
     }
   }
 
-  void sample(typename Operator::Vector &sample, std::size_t n_samples = 1) {
-    current_samples[0] = sample;
-
-    for (std::size_t n = 0; n < n_samples; ++n) {
-      sample_impl(0, operators[0]->vector());
-
-      this->update_statistics(current_samples[0]);
-    }
-
-    sample = current_samples[0];
-  }
-
-private:
   void sample_impl(std::size_t level, const typename Operator::Vector &nu) {
     operators[level]->vector() = nu;
     pre_smoothers[level].sample(current_samples[level], n_presample);
