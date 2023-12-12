@@ -16,8 +16,8 @@
 #include <petscvec.h>
 
 #include "parmgmc/common/helpers.hh"
+#include "parmgmc/common/petsc_helper.hh"
 #include "parmgmc/grid/grid_operator.hh"
-#include "parmgmc/petsc_helper.hh"
 #include "parmgmc/samplers/multigrid.hh"
 #include "parmgmc/samplers/sample_chain.hh"
 #include "parmgmc/samplers/sor.hh"
