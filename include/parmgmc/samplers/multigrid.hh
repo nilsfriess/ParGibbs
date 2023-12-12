@@ -35,19 +35,23 @@ public:
     /* As in the SORSampler, we create a full Krylov solver but set it to only
      * run the (Multigrid) preconditioner. */
     call(KSPCreate(MPI_COMM_WORLD, &ksp));
-    call(KSPSetType(ksp, KSPPREONLY));
+    call(KSPSetType(ksp, KSPRICHARDSON));
     call(KSPSetOperators(ksp, grid_operator->mat, grid_operator->mat));
-    // call(KSPSetInitialGuessNonzero(ksp, PETSC_TRUE));
+    call(KSPSetInitialGuessNonzero(ksp, PETSC_TRUE));
+    call(KSPSetTolerances(ksp, PETSC_DEFAULT, PETSC_DEFAULT, PETSC_DEFAULT, 1));
 
-    PC prec;
-    call(KSPGetPC(ksp, &prec));
-    call(PCSetType(prec, PCMG));
+    PC pc;
+    call(KSPGetPC(ksp, &pc));
+    call(PCSetType(pc, PCMG));
 
-    call(PCMGSetLevels(prec, n_levels, NULL));
+    call(PCMGSetLevels(pc, n_levels, NULL));
 
     // Don't coarsen operators using Galerkin product, but rediscretize (see
     // below)
-    call(PCMGSetGalerkin(prec, PC_MG_GALERKIN_NONE));
+    call(PCMGSetType(pc, PC_MG_MULTIPLICATIVE));
+    call(PCMGSetGalerkin(pc, PC_MG_GALERKIN_NONE));
+    call(PCMGSetCycleType(pc, PC_MG_CYCLE_V));
+    call(PCMGSetNumberSmooth(pc, 2));
 
     // Create hierachy of meshes and operators
     for (std::size_t level = 0; level < n_levels - 1; ++level)
@@ -63,20 +67,18 @@ public:
     }
 
     // Setup multigrid sampler
-    // using PCSampler = SamplerPreconditioner<SORSampler<Engine>>;
-
     for (std::size_t level = 0; level < n_levels; ++level) {
       KSP ksp_level;
-      PC pc_level;
 
       /* We configure the smoother on each level to be a preconditioned
          Richardson smoother with a (stochastic) Gauss-Seidel preconditioner. */
-      call(PCMGGetSmoother(prec, level, &ksp_level));
+      call(PCMGGetSmoother(pc, level, &ksp_level));
       call(KSPSetType(ksp_level, KSPRICHARDSON));
       call(KSPSetOperators(ksp_level, ops[level]->mat, ops[level]->mat));
       call(KSPSetInitialGuessNonzero(ksp_level, PETSC_TRUE));
 
       // Set preconditioner to be stochastic SOR
+      PC pc_level;
       call(KSPGetPC(ksp_level, &pc_level));
       call(PCSetType(pc_level, PCSHELL));
 
@@ -94,28 +96,12 @@ public:
         DM dm_coarse = ops[level - 1]->dm;
 
         call(DMCreateInterpolation(dm_coarse, dm_fine, &grid_transfer, NULL));
-        call(PCMGSetInterpolation(prec, level, grid_transfer));
-
-        // We can set the interpolation matrix as restriction matrix, PETSc will
-        // figure out that it should use the transpose.
-        call(PCMGSetRestriction(prec, level, grid_transfer));
+        call(PCMGSetInterpolation(pc, level, grid_transfer));
         call(MatDestroy(&grid_transfer));
       }
     }
 
-    // KSP ksp_coarse;
-    // call(PCMGGetCoarseSolve(prec, &ksp_coarse));
-    // call(KSPSetType(ksp_coarse, KSPPREONLY));
-    // call(KSPSetOperators(ksp_coarse, ops[0]->mat, ops[0]->mat));
-
-    // PC pc_coarse;
-    // using CoarseSampler = SamplerPreconditioner<CholeskySampler<Engine>>;
-
-    // call(KSPGetPC(ksp_coarse, &pc_coarse));
-    // call(PCSetType(pc_coarse, PCSHELL));
-    // call(CoarseSampler::attach(pc_coarse, ops[0], engine));
-
-    call(PCSetFromOptions(prec));
+    call(PCSetFromOptions(pc));
 
     PetscFunctionReturnVoid();
   }
