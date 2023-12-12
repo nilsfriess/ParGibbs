@@ -1,9 +1,0 @@
-{
-    "dim": 2,
-    "lattice_size": 11,
-
-    "omega": 1.9852,
-
-    "n_samples": 300,
-    "n_chains": 1000
-}
