@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cassert>
+#include <functional>
 #include <iostream>
 #include <stdexcept>
 #include <utility>
@@ -13,8 +14,9 @@ namespace parmgmc {
 template <class Sampler> class SampleChain {
 public:
   template <typename... Args>
-  SampleChain(Args &&...sampler_args)
-      : sampler(std::forward<Args>(sampler_args)...), n_samples{0},
+  SampleChain(std::function<PetscErrorCode(Vec, PetscReal *)> qoi,
+              Args &&...sampler_args)
+      : sampler(std::forward<Args>(sampler_args)...), qoi{qoi}, n_samples{0},
         save_samples{false}, est_mean_online{true} {}
 
   PetscErrorCode sample(Vec sample, Vec rhs, std::size_t n_steps = 1) {
@@ -25,48 +27,33 @@ public:
 
       PetscCall(sampler.sample(sample, rhs));
 
-      if (save_samples)
-        PetscCall(add_sample(sample));
+      if (save_samples || est_mean_online) {
+        PetscReal q;
+        PetscCall(qoi(sample, &q));
 
-      if (est_mean_online)
-        PetscCall(update_mean(sample));
+        if (save_samples)
+          samples.push_back(q);
+
+        if (est_mean_online)
+          update_mean(q);
+      }
     }
 
     PetscFunctionReturn(PETSC_SUCCESS);
   }
 
-  PetscErrorCode add_sample(Vec sample) {
-    Vec new_sample;
-    PetscFunctionBeginUser;
-    PetscCall(VecDuplicate(sample, &new_sample));
-    PetscCall(VecCopy(sample, new_sample));
-    samples.push_back(new_sample);
-    PetscFunctionReturn(PETSC_SUCCESS);
-  }
-
-  PetscErrorCode get_mean(Vec mean) {
-    PetscFunctionBeginUser;
-
+  PetscReal get_mean() {
     if (est_mean_online)
-      PetscCall(VecCopy(mean_, mean));
+      return mean_;
     else
-      PetscCall(compute_mean(mean));
-
-    PetscFunctionReturn(PETSC_SUCCESS);
+      return compute_mean();
   }
 
-  PetscErrorCode update_mean(Vec new_sample) {
-    PetscFunctionBeginUser;
-
-    if (n_samples == 1) {
-      PetscCall(VecDuplicate(new_sample, &mean_));
-      PetscCall(VecCopy(new_sample, mean_));
-    } else {
-      PetscCall(VecAXPBY(
-          mean_, 1. / n_samples, (n_samples - 1.) / n_samples, new_sample));
-    }
-
-    PetscFunctionReturn(PETSC_SUCCESS);
+  void update_mean(PetscReal q) {
+    if (n_samples == 1)
+      mean_ = q;
+    else
+      mean_ = (1. / n_samples) * q + (n_samples - 1.) / n_samples * mean_;
   }
 
   void enable_save_samples() { save_samples = true; }
@@ -80,35 +67,28 @@ public:
     n_samples = 0;
   }
 
-  ~SampleChain() {
-    VecDestroy(&mean_);
-    for (auto &sample : samples)
-      VecDestroy(&sample);
-  }
-
 private:
-  PetscErrorCode compute_mean(Vec mean) const {
+  PetscReal compute_mean() const {
     assert(samples.size() >= 1);
 
     if (!save_samples)
       throw std::runtime_error("[SampleChain::compute_mean] Cannot compute "
                                "mean when save_samples is not enabled");
 
-    PetscFunctionBeginUser;
-    VecZeroEntries(mean);
-
+    PetscReal m = 0;
     const auto n_samples = samples.size();
     for (auto sample : samples)
-      PetscCall(VecAXPY(mean, 1. / n_samples, sample));
+      m += 1. / n_samples * sample;
 
-    PetscFunctionReturn(PETSC_SUCCESS);
+    return m;
   }
 
-  Vec mean_;
-
   Sampler sampler;
+  std::function<PetscErrorCode(Vec, PetscReal *)> qoi;
 
-  std::vector<Vec> samples;
+  PetscReal mean_; // Online estimated mean
+
+  std::vector<PetscReal> samples;
   std::size_t n_samples;
 
   bool save_samples;
