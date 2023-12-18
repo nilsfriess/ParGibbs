@@ -6,6 +6,8 @@
 #include <petscerror.h>
 #include <petscmat.h>
 
+#include "parmgmc/common/types.hh"
+
 namespace parmgmc {
 struct GridOperator {
   /* Constructs a GridOperator instance for a 2d structured grid of size
@@ -16,8 +18,9 @@ struct GridOperator {
    * the values have to be set (e.g., using PETSc's MatSetValuesStencil).
    */
   template <class MatAssembler>
-  GridOperator(PetscInt global_x, PetscInt global_y,
-               MatAssembler &&mat_assembler) {
+  GridOperator(PetscInt global_x, PetscInt global_y, Coordinate lower_left,
+               Coordinate upper_right, MatAssembler &&mat_assembler)
+      : global_x{global_x}, global_y{global_y} {
     auto call = [&](auto err) { PetscCallAbort(MPI_COMM_WORLD, err); };
 
     const PetscInt dof_per_node = 1;
@@ -38,12 +41,18 @@ struct GridOperator {
                       NULL,
                       &dm));
     call(DMSetUp(dm));
+    call(DMDASetUniformCoordinates(
+        dm, lower_left.x, upper_right.x, lower_left.y, upper_right.y, 0, 0));
 
     // Allocate memory for matrix and initialise non-zero pattern
     call(DMCreateMatrix(dm, &mat));
 
     // Call provided assembly functor to fill matrix
     call(mat_assembler(mat, dm));
+
+    // Set meshwidths
+    meshwidth_x = (upper_right.x - lower_left.x) / (global_x - 1);
+    meshwidth_y = (upper_right.y - lower_left.y) / (global_y - 1);
 
     PetscFunctionReturnVoid();
   }
@@ -53,9 +62,26 @@ struct GridOperator {
   ~GridOperator() {
     MatDestroy(&mat);
     DMDestroy(&dm);
+
+    if (has_lowrank_update)
+      MatDestroy(&lowrank_factor);
   }
+
+  void set_lowrank_factor(Mat lowrank_factor) {
+    this->lowrank_factor = lowrank_factor;
+    this->has_lowrank_update = true;
+  }
+
+  PetscInt global_x;
+  PetscInt global_y;
+
+  PetscReal meshwidth_x;
+  PetscReal meshwidth_y;
 
   DM dm;
   Mat mat;
+
+  Mat lowrank_factor;
+  bool has_lowrank_update;
 };
 } // namespace parmgmc
