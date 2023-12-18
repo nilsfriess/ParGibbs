@@ -87,7 +87,7 @@ public:
       own_obs.push_back({(PetscInt)i, global_idx});
 
 #ifndef NDEBUG
-      printf("[%d] Observation %ld at (%f,%f) --> Grid point %d at (%f,%f)\n",
+      printf("[%d] Observation %zu at (%f,%f) --> Grid point %d at (%f,%f)\n",
              rank,
              i,
              obs.coord.x,

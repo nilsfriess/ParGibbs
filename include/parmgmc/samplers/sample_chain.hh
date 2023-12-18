@@ -82,8 +82,8 @@ public:
 
   ~SampleChain() {
     VecDestroy(&mean_);
-    for (auto &sample : samples)
-      VecDestroy(&sample);
+    for (auto &s : samples)
+      VecDestroy(&s);
   }
 
 private:
@@ -97,9 +97,8 @@ private:
     PetscFunctionBeginUser;
     VecZeroEntries(mean);
 
-    const auto n_samples = samples.size();
-    for (auto sample : samples)
-      PetscCall(VecAXPY(mean, 1. / n_samples, sample));
+    for (auto s : samples)
+      PetscCall(VecAXPY(mean, 1. / n_samples, s));
 
     PetscFunctionReturn(PETSC_SUCCESS);
   }

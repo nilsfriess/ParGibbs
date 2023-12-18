@@ -1,48 +1,43 @@
-#include <iostream>
-
 #include <mpi.h>
-#include <pcg_random.hpp>
-
-#include <petscdm.h>
 #include <petscdmda.h>
 #include <petscdmdatypes.h>
-#include <petscdmlabel.h>
-#include <petscds.h>
+#include <petscdmtypes.h>
 #include <petscerror.h>
-#include <petscksp.h>
 #include <petsclog.h>
 #include <petscmat.h>
 #include <petscoptions.h>
 #include <petscsys.h>
 #include <petscsystypes.h>
 #include <petscvec.h>
-#include <petscviewer.h>
+
+#include <pcg_random.hpp>
+
+#include <algorithm>
+#include <array>
+#include <cstddef>
+#include <memory>
 #include <random>
 #include <vector>
 
-#include "parmgmc/common/helpers.hh"
 #include "parmgmc/common/petsc_helper.hh"
 #include "parmgmc/common/types.hh"
 #include "parmgmc/gaussian_posterior.hh"
 #include "parmgmc/grid/grid_operator.hh"
-#include "parmgmc/samplers/multigrid.hh"
-#include "parmgmc/samplers/sample_chain.hh"
-#include "parmgmc/samplers/sor.hh"
 
 using namespace parmgmc;
 
 PetscErrorCode assemble(Mat mat, DM dm) {
   MatStencil row_stencil;
 
-  MatStencil col_stencil[5]; // At most 5 non-zero entries per row
-  PetscScalar values[5];
+  std::array<MatStencil, 5> col_stencil; // At most 5 non-zero entries per row
+  std::array<PetscScalar, 5> values;
 
   PetscFunctionBeginUser;
 
   DMDALocalInfo info;
   PetscCall(DMDAGetLocalInfo(dm, &info));
 
-  PetscReal noise_var = 1e-4;
+  const PetscReal noise_var = 1e-4;
 
   for (auto i = info.xs; i < info.xs + info.xm; ++i) {
     for (auto j = info.ys; j < info.ys + info.ym; ++j) {
@@ -84,8 +79,13 @@ PetscErrorCode assemble(Mat mat, DM dm) {
       values[k] = static_cast<PetscScalar>(k) + noise_var;
       ++k;
 
-      PetscCall(MatSetValuesStencil(
-          mat, 1, &row_stencil, k, col_stencil, values, INSERT_VALUES));
+      PetscCall(MatSetValuesStencil(mat,
+                                    1,
+                                    &row_stencil,
+                                    k,
+                                    col_stencil.data(),
+                                    values.data(),
+                                    INSERT_VALUES));
     }
   }
 
@@ -100,7 +100,7 @@ PetscErrorCode assemble(Mat mat, DM dm) {
 int main(int argc, char *argv[]) {
   PetscHelper helper(&argc, &argv);
 
-  int rank;
+  int rank = 0;
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
   PetscFunctionBeginUser;

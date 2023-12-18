@@ -20,7 +20,10 @@ struct GridOperator {
   template <class MatAssembler>
   GridOperator(PetscInt global_x, PetscInt global_y, Coordinate lower_left,
                Coordinate upper_right, MatAssembler &&mat_assembler)
-      : global_x{global_x}, global_y{global_y} {
+      : global_x{global_x}, global_y{global_y},
+        meshwidth_x{(upper_right.x - lower_left.x) / (global_x - 1)},
+        meshwidth_y{(upper_right.y - lower_left.y) / (global_y - 1)},
+        has_lowrank_update{false} {
     auto call = [&](auto err) { PetscCallAbort(MPI_COMM_WORLD, err); };
 
     const PetscInt dof_per_node = 1;
@@ -50,14 +53,8 @@ struct GridOperator {
     // Call provided assembly functor to fill matrix
     call(mat_assembler(mat, dm));
 
-    // Set meshwidths
-    meshwidth_x = (upper_right.x - lower_left.x) / (global_x - 1);
-    meshwidth_y = (upper_right.y - lower_left.y) / (global_y - 1);
-
     PetscFunctionReturnVoid();
   }
-
-  GridOperator() = default;
 
   ~GridOperator() {
     MatDestroy(&mat);
