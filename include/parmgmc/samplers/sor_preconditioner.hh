@@ -1,35 +1,62 @@
 #pragma once
 
+#include "parmgmc/common/helpers.hh"
+
 #include <iostream>
 #include <mpi.h>
 
 #include <petscerror.h>
+#include <petscmat.h>
 #include <petscpc.h>
 #include <petscpctypes.h>
 #include <petscvec.h>
 
 #include <algorithm>
+#include <petscviewer.h>
 #include <random>
 
 namespace parmgmc {
 template <class Engine> struct SORRichardsonContext {
   SORRichardsonContext(Engine *engine, Mat mat, PetscReal omega)
-      : engine{engine} {
-    auto call = [&](auto err) { PetscCallAbort(MPI_COMM_WORLD, err); };
+      : engine{engine}, with_lowrank_update{false} {
+    PetscFunctionBeginUser;
+    PetscCallVoid(init(mat, omega));
+    PetscFunctionReturnVoid();
+  }
 
-    call(MatCreateVecs(mat, &sqrt_diag, NULL));
-    call(MatGetDiagonal(mat, sqrt_diag));
-    call(VecSqrtAbs(sqrt_diag));
-    call(VecScale(sqrt_diag, std::sqrt((2 - omega) / omega)));
+  SORRichardsonContext(Engine *engine, Mat mat, Mat lowrank_factor,
+                       PetscReal omega)
+      : engine{engine}, lowrank_factor{lowrank_factor},
+        with_lowrank_update{true} {
+    PetscFunctionBeginUser;
+
+    PetscCallVoid(init(mat, omega));
+
+    PetscCallVoid(MatCreateVecs(lowrank_factor, &small_z, NULL));
+    PetscCallVoid(VecGetLocalSize(small_z, &vec_small_size));
+
+    PetscFunctionReturnVoid();
+  }
+
+  PetscErrorCode init(Mat mat, PetscReal omega) {
+    PetscFunctionBeginUser;
+
+    PetscCall(MatCreateVecs(mat, &sqrt_diag, NULL));
+    PetscCall(MatGetDiagonal(mat, sqrt_diag));
+    PetscCall(VecSqrtAbs(sqrt_diag));
+    PetscCall(VecScale(sqrt_diag, std::sqrt((2 - omega) / omega)));
 
     // Setup Gauss-Seidel preconditioner
-    call(PCCreate(MPI_COMM_WORLD, &pc));
-    call(PCSetType(pc, PCSOR));
-    call(PCSetOperators(pc, mat, mat));
+    PetscCall(PCCreate(MPI_COMM_WORLD, &pc));
+    PetscCall(PCSetType(pc, PCSOR));
+    PetscCall(PCSetOperators(pc, mat, mat));
+    PetscCall(PCSORSetOmega(pc, omega));
 
-    call(VecDuplicate(sqrt_diag, &z));
+    PetscCall(VecDuplicate(sqrt_diag, &z));
 
-    call(VecGetLocalSize(sqrt_diag, &vec_size));
+    PetscCall(VecGetLocalSize(sqrt_diag, &vec_size));
+
+    PetscFunctionReturn(PETSC_SUCCESS);
   }
 
   ~SORRichardsonContext() {
@@ -44,6 +71,11 @@ template <class Engine> struct SORRichardsonContext {
   Vec sqrt_diag;
   Vec z;
   PetscInt vec_size;
+
+  Mat lowrank_factor;
+  bool with_lowrank_update;
+  Vec small_z;
+  PetscInt vec_small_size;
 
   PC pc;
 };
@@ -76,10 +108,20 @@ sor_pc_richardson_apply(PC pc, Vec b, Vec x, Vec r, PetscReal rtol,
   PetscCall(PCShellGetContext(pc, &context));
 
   // Below we set: r <- b + sqrt((2-omega)/omega) * D^1/2 * c, where c ~ N(0,I)
-  fill_vec_rand(r, context->vec_size, *context->engine);
+  PetscCall(fill_vec_rand(r, context->vec_size, *context->engine));
 
   PetscCall(VecPointwiseMult(r, r, context->sqrt_diag));
   PetscCall(VecAXPY(r, 1., b));
+
+  // If operator has low-rank update, update rhs
+  if (context->with_lowrank_update) {
+    // Fill work vector z with N(0,1) distributed numbers
+    PetscCall(fill_vec_rand(
+        context->small_z, context->vec_small_size, *context->engine));
+
+    // Multiply by given low-rank factor and add to r
+    PetscCall(MatMultAdd(context->lowrank_factor, context->small_z, r, r));
+  }
 
   // Perform actual Richardson step
   Mat A;

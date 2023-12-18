@@ -9,39 +9,34 @@
 #include <random>
 #include <stdexcept>
 
-#include <petscpctypes.h>
-#include <petscsys.h>
 #include <petscerror.h>
 #include <petscksp.h>
 #include <petscmat.h>
 #include <petscpc.h>
+#include <petscpctypes.h>
+#include <petscsys.h>
 #include <petscsystypes.h>
 #include <petscvec.h>
 
 namespace parmgmc {
 template <class Engine> class SORSampler {
 public:
-  SORSampler(std::shared_ptr<GridOperator> grid_operator, Engine *engine, PetscReal omega = 1.) {
-    auto call = [&](auto err) { PetscCallAbort(MPI_COMM_WORLD, err); };
-
+  SORSampler(std::shared_ptr<GridOperator> grid_operator, Engine *engine,
+             PetscReal omega = 1.) {
     PetscFunctionBeginUser;
 
-    call(KSPCreate(MPI_COMM_WORLD, &ksp));
-    call(KSPSetType(ksp, KSPRICHARDSON));
-    call(KSPSetTolerances(ksp, PETSC_DEFAULT, PETSC_DEFAULT, PETSC_DEFAULT, 1));
-    call(KSPSetInitialGuessNonzero(ksp, PETSC_TRUE));
-    call(KSPSetOperators(ksp, grid_operator->mat, grid_operator->mat));
+    using Context = SORRichardsonContext<Engine>;
 
-    PC pc;
-    call(KSPGetPC(ksp, &pc));
-    call(PCSetType(pc, PCSHELL));
+    Context *context;
 
-    auto *context =
-        new SORRichardsonContext<Engine>(engine, grid_operator->mat, omega);
+    if (grid_operator->has_lowrank_update) {
+      context = new Context(
+          engine, grid_operator->mat, grid_operator->lowrank_factor, omega);
+    } else {
+      context = new Context(engine, grid_operator->mat, omega);
+    }
 
-    call(PCShellSetContext(pc, context));
-    call(PCShellSetApplyRichardson(pc, sor_pc_richardson_apply<Engine>));
-    call(PCShellSetDestroy(pc, sor_pc_richardson_destroy<Engine>));
+    PetscCallAbort(MPI_COMM_WORLD, init(grid_operator, context));
 
     PetscFunctionReturnVoid();
   }
@@ -55,11 +50,31 @@ public:
     PetscFunctionReturn(PETSC_SUCCESS);
   }
 
-  ~SORSampler() {
-    KSPDestroy(&ksp);
-  }
+  ~SORSampler() { KSPDestroy(&ksp); }
 
 private:
+  PetscErrorCode init(std::shared_ptr<GridOperator> grid_operator,
+                      SORRichardsonContext<Engine> *context) {
+    PetscFunctionBeginUser;
+
+    PetscCall(KSPCreate(MPI_COMM_WORLD, &ksp));
+    PetscCall(KSPSetType(ksp, KSPRICHARDSON));
+    PetscCall(
+        KSPSetTolerances(ksp, PETSC_DEFAULT, PETSC_DEFAULT, PETSC_DEFAULT, 1));
+    PetscCall(KSPSetInitialGuessNonzero(ksp, PETSC_TRUE));
+    PetscCall(KSPSetOperators(ksp, grid_operator->mat, grid_operator->mat));
+
+    PC pc;
+    PetscCall(KSPGetPC(ksp, &pc));
+    PetscCall(PCSetType(pc, PCSHELL));
+
+    PetscCall(PCShellSetContext(pc, context));
+    PetscCall(PCShellSetApplyRichardson(pc, sor_pc_richardson_apply<Engine>));
+    PetscCall(PCShellSetDestroy(pc, sor_pc_richardson_destroy<Engine>));
+
+    PetscFunctionReturn(PETSC_SUCCESS);
+  }
+
   KSP ksp;
 };
 } // namespace parmgmc
