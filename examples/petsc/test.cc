@@ -162,7 +162,7 @@ int main(int argc, char *argv[]) {
 
   // using Chain = SampleChain<SORSampler<pcg32>>;
   // using Chain = SampleChain<MultigridSampler<pcg32>>;
-  using Sampler = GaussianPosterior<pcg32>;
+  using Sampler = GaussianPosterior<pcg32>;  
 
   std::vector<Sampler> chains;
   chains.reserve(n_chains);
@@ -209,8 +209,9 @@ int main(int argc, char *argv[]) {
   for (auto v : samples)
     PetscCall(VecDestroy(&v));
 
-  PetscCall(VecDestroy(&prior_mean));
   PetscCall(VecDestroy(&exact_mean));
+  PetscCall(VecDestroy(&noise_diag));
+  PetscCall(VecDestroy(&prior_mean));
   PetscCall(VecDestroy(&mean));
 
   PetscFunctionReturn(PETSC_SUCCESS);

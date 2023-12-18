@@ -1,5 +1,6 @@
 #pragma once
 
+#include <iostream>
 #include <petscdmda.h>
 #include <petscdmdatypes.h>
 #include <petscdmtypes.h>
@@ -22,8 +23,7 @@ struct GridOperator {
                Coordinate upper_right, MatAssembler &&mat_assembler)
       : global_x{global_x}, global_y{global_y},
         meshwidth_x{(upper_right.x - lower_left.x) / (global_x - 1)},
-        meshwidth_y{(upper_right.y - lower_left.y) / (global_y - 1)},
-        has_lowrank_update{false} {
+        meshwidth_y{(upper_right.y - lower_left.y) / (global_y - 1)} {
     auto call = [&](auto err) { PetscCallAbort(MPI_COMM_WORLD, err); };
 
     const PetscInt dof_per_node = 1;
@@ -59,14 +59,6 @@ struct GridOperator {
   ~GridOperator() {
     MatDestroy(&mat);
     DMDestroy(&dm);
-
-    if (has_lowrank_update)
-      MatDestroy(&lowrank_factor);
-  }
-
-  void set_lowrank_factor(Mat lowrank_factor) {
-    this->lowrank_factor = lowrank_factor;
-    this->has_lowrank_update = true;
   }
 
   PetscInt global_x;
@@ -77,8 +69,5 @@ struct GridOperator {
 
   DM dm;
   Mat mat;
-
-  Mat lowrank_factor;
-  bool has_lowrank_update;
 };
 } // namespace parmgmc

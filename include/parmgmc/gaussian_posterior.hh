@@ -51,9 +51,11 @@ public:
                     const std::vector<Observation> &observations,
                     Vec noise_diag, Engine *engine)
       : prior_precision_operator{prior_precision_operator},
-        noise_diag_inv{noise_diag}, prior_mean{prior_mean} {
+        prior_mean{prior_mean} {
     PetscFunctionBeginUser;
 
+    PetscCallVoid(VecDuplicate(noise_diag, &noise_diag_inv));
+    PetscCallVoid(VecCopy(noise_diag, noise_diag_inv));
     PetscCallVoid(VecReciprocal(noise_diag_inv));
 
     int rank;
@@ -67,6 +69,7 @@ public:
     for (std::size_t i = 0; i < observations.size(); ++i) {
       const auto &obs = observations[i];
 
+      // Find coordinates of grid point closests to the given observation
       PetscInt II, JJ;
       PetscReal XX, YY;
       PetscCallVoid(DMDAGetLogicalCoordinate(prior_precision_operator->dm,
@@ -80,24 +83,14 @@ public:
                                              &YY,
                                              NULL));
 
-      if (II == -1 || JJ == -1)
+      if (II == -1 || JJ == -1) // point is not on current processor
         continue;
 
       const auto global_idx = II * prior_precision_operator->global_x + JJ;
       own_obs.push_back({(PetscInt)i, global_idx});
-
-#ifndef NDEBUG
-      printf("[%d] Observation %zu at (%f,%f) --> Grid point %d at (%f,%f)\n",
-             rank,
-             i,
-             obs.coord.x,
-             obs.coord.y,
-             global_idx,
-             XX,
-             YY);
-#endif
     }
 
+    // Construct lowrank factor needed in Gibbs sampler: A^T S^{-1/2}
     Mat lowrank_factor;
     PetscCallVoid(MatCreate(MPI_COMM_WORLD, &lowrank_factor));
     PetscCallVoid(MatSetSizes(lowrank_factor,
@@ -112,6 +105,8 @@ public:
           MatSetValue(lowrank_factor, obs_coord, obs_idx, 1., INSERT_VALUES));
     PetscCallVoid(MatAssemblyBegin(lowrank_factor, MAT_FINAL_ASSEMBLY));
     PetscCallVoid(MatAssemblyEnd(lowrank_factor, MAT_FINAL_ASSEMBLY));
+    // Store A^T separately as it is needed in the computation of the exact mean
+    // TODO: This can be avoided if we compute the exact mean here.
     PetscCallVoid(
         MatConvert(lowrank_factor, MATSAME, MAT_INITIAL_MATRIX, &obs_mat));
 
@@ -129,20 +124,23 @@ public:
     PetscCallVoid(VecReciprocal(noise_diag_copy));
     PetscCallVoid(MatDiagonalScale(lowrank_factor, NULL, noise_diag_copy));
 
-    prior_precision_operator->set_lowrank_factor(lowrank_factor);
-
     sampler = std::make_unique<SORSampler<Engine>>(
-        prior_precision_operator, engine);
+        prior_precision_operator, lowrank_factor, engine);
 
+    // To generate samples with target mean m, we need to use C*m as the rhs in
+    // the sampler (cf. [Fox, Parker, 2014]).
     Vec tmp;
     PetscCallVoid(VecDuplicate(prior_mean, &rhs));
     PetscCallVoid(VecDuplicate(prior_mean, &tmp));
 
     PetscCallVoid(exact_mean(tmp));
-
     PetscCallVoid(MatMult(prior_precision_operator->mat, tmp, rhs));
 
+    // PetscCallVoid(MatDestroy(&lowrank_factor));
+    PetscCallVoid(VecDestroy(&tmp));
     PetscCallVoid(VecDestroy(&noise_diag_copy));
+    // PetscCallVoid(MatDestroy(&lowrank_factor));
+
     PetscFunctionReturnVoid();
   }
 
@@ -154,7 +152,7 @@ public:
     PetscFunctionReturn(PETSC_SUCCESS);
   }
 
-  PetscErrorCode exact_mean(Vec exact_mean) const {
+  PetscErrorCode exact_mean(Vec exact_mean) {
     PetscFunctionBeginUser;
 
     if (exact_mean_computed) {
@@ -222,8 +220,36 @@ public:
 
     PetscCall(VecAXPY(exact_mean, 1., prior_mean));
 
+    // Cache exact_mean
+    PetscCall(VecDuplicate(exact_mean, &exact_mean_));
+    PetscCall(VecCopy(exact_mean, exact_mean_));
+    exact_mean_computed = true;
+
+    PetscCall(MatDestroy(&obs_noise_inv));
+    PetscCall(MatDestroy(&noise_inv));
+    PetscCall(MatDestroy(&Q_AtSA));
+    PetscCall(VecDestroy(&tmp1));
+    PetscCall(VecDestroy(&tmp2));
+    PetscCall(VecDestroy(&z));
+
     PetscFunctionReturn(PETSC_SUCCESS);
   }
+
+  ~GaussianPosterior() {
+    VecDestroy(&noise_diag_inv);
+    VecDestroy(&rhs);
+    VecDestroy(&obs_values);
+    VecDestroy(&exact_mean_);
+    MatDestroy(&obs_mat);
+  }
+
+  GaussianPosterior(GaussianPosterior &&other)
+      : prior_precision_operator(std::move(other.prior_precision_operator)),
+        sampler(std::move(other.sampler)), rhs(other.rhs),
+        noise_diag_inv(other.noise_diag_inv), prior_mean(other.prior_mean),
+        obs_mat(other.obs_mat), obs_values(other.obs_values),
+        exact_mean_(other.exact_mean_),
+        exact_mean_computed(other.exact_mean_computed) {}
 
 private:
   std::shared_ptr<GridOperator> prior_precision_operator;

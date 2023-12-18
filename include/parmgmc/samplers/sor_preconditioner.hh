@@ -60,10 +60,14 @@ template <class Engine> struct SORRichardsonContext {
   }
 
   ~SORRichardsonContext() {
+    VecDestroy(&small_z);
     VecDestroy(&sqrt_diag);
     VecDestroy(&z);
 
     PCDestroy(&pc);
+
+    if (with_lowrank_update)
+      MatDestroy(&lowrank_factor);
   }
 
   Engine *engine;
