@@ -10,13 +10,20 @@
 #include <petscds.h>
 #include <petscerror.h>
 #include <petscksp.h>
+#include <petsclog.h>
 #include <petscmat.h>
+#include <petscoptions.h>
 #include <petscsys.h>
 #include <petscsystypes.h>
 #include <petscvec.h>
+#include <petscviewer.h>
+#include <random>
+#include <vector>
 
 #include "parmgmc/common/helpers.hh"
 #include "parmgmc/common/petsc_helper.hh"
+#include "parmgmc/common/types.hh"
+#include "parmgmc/gaussian_posterior.hh"
 #include "parmgmc/grid/grid_operator.hh"
 #include "parmgmc/samplers/multigrid.hh"
 #include "parmgmc/samplers/sample_chain.hh"
@@ -90,22 +97,12 @@ PetscErrorCode assemble(Mat mat, DM dm) {
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
-PetscErrorCode norm_qoi(Vec sample, PetscReal *q) {
-  PetscFunctionBeginUser;
-
-  constexpr PetscInt n_vals = 5;
-  PetscInt indices[n_vals] = {1, 5, 9, 11, 24};
-  PetscScalar vals[n_vals];
-
-  PetscCall(VecGetValues(sample, n_vals, indices, vals));
-
-  *q = vals[0] + vals[1] + vals[2] + vals[3] + vals[4];
-
-  PetscFunctionReturn(PETSC_SUCCESS);
-}
-
 int main(int argc, char *argv[]) {
   PetscHelper helper(&argc, &argv);
+
+  int rank;
+  MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+
   PetscFunctionBeginUser;
 
   int n_vertices = (1 << 8) + 1;
@@ -115,69 +112,106 @@ int main(int argc, char *argv[]) {
   PetscOptionsGetInt(NULL, NULL, "-n_vertices", &n_vertices, &found);
   PetscOptionsGetInt(NULL, NULL, "-n_levels", &n_levels, &found);
 
-  auto grid_operator =
-      std::make_shared<GridOperator>(n_vertices, n_vertices, assemble);
+  Coordinate lower_left{0, 0};
+  Coordinate upper_right{1, 1};
+  auto grid_operator = std::make_shared<GridOperator>(
+      n_vertices, n_vertices, lower_left, upper_right, assemble);
 
   pcg32 engine;
-  pcg_extras::seed_seq_from<std::random_device> seed_source;
+  std::random_device rd;
+  int seed;
+  if (rank == 0) {
+    seed = rd();
+    PetscOptionsGetInt(NULL, NULL, "-seed", &seed, NULL);
+  }
 
-  engine.seed(seed_source);
-  // engine.seed(0xCAFEBEEF);
+  // Send seed to all other processes
+  MPI_Bcast(&seed, 1, MPI_INT, 0, MPI_COMM_WORLD);
 
-  int rank;
-  MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+  engine.seed(seed);
   engine.set_stream(rank);
 
-  Vec sample;
-  PetscCall(MatCreateVecs(grid_operator->mat, &sample, NULL));
-  PetscCall(VecZeroEntries(sample));
-
-  Vec rhs;
-  PetscCall(VecDuplicate(sample, &rhs));
+  Vec prior_mean;
+  PetscCall(MatCreateVecs(grid_operator->mat, &prior_mean, NULL));
   PetscInt size;
-  PetscCall(VecGetLocalSize(rhs, &size));
-  PetscCall(fill_vec_rand(rhs, size, engine));
-  // PetscCall(VecZeroEntries(rhs));
+  PetscCall(VecGetLocalSize(prior_mean, &size));
+  // PetscCall(fill_vec_rand(prior_mean, size, engine));
+  PetscCall(VecSet(prior_mean, 1.));
 
-  KSP ksp;
-  PetscCall(KSPCreate(MPI_COMM_WORLD, &ksp));
-  PetscCall(KSPSetOperators(ksp, grid_operator->mat, grid_operator->mat));
-  Vec tgt_mean;
-  PetscCall(VecDuplicate(sample, &tgt_mean));
-  PetscCall(KSPSolve(ksp, rhs, tgt_mean));
-  PetscReal tgt_mean_norm;
-  PetscCall(norm_qoi(tgt_mean, &tgt_mean_norm));
+  std::vector<Observation> obs = {{{0.1, 0.1}, 1.},
+                                  {{0.1, 0.2}, 1.5},
+                                  {{0.1, 0.3}, 1.2},
+                                  {{0.6, 0.1}, 0.2},
+                                  {{0.7, 0.7}, 0.8},
+                                  {{0.1, 0.9}, 1.},
+                                  {{1.0, 0.1}, 1.}};
+  // obs[0].coord = {0.1, 0.1};
+  // obs[1].coord = {0.3, 0.};
+  // obs[2].coord = {0.1, 1.};
+  // obs[3].coord = {1., 1.};
+  // obs[4].coord = {0.4, 0.5};
 
-  SampleChain<MultigridSampler<pcg32>> chain{
-      norm_qoi, grid_operator, &engine, n_levels, assemble};
-  // SampleChain<SORSampler<pcg32>> chain{
-  //     norm_qoi, grid_operator, &engine, 1.9852};
+  Vec noise_diag;
+  PetscCall(VecCreate(MPI_COMM_WORLD, &noise_diag));
+  PetscCall(VecSetSizes(noise_diag, PETSC_DECIDE, obs.size()));
+  PetscCall(VecSetUp(noise_diag));
+  PetscCall(VecSet(noise_diag, 0.1));
+
+  PetscInt n_chains = 10;
+  PetscOptionsGetInt(NULL, NULL, "-n_chains", &n_chains, &found);
+
+  // using Chain = SampleChain<SORSampler<pcg32>>;
+  // using Chain = SampleChain<MultigridSampler<pcg32>>;
+  using Sampler = GaussianPosterior<pcg32>;
+
+  std::vector<Sampler> chains;
+  chains.reserve(n_chains);
+  for (PetscInt i = 0; i < n_chains; ++i)
+    // chains.emplace_back(grid_operator, &engine, 1.9852);
+    chains.emplace_back(grid_operator, prior_mean, obs, noise_diag, &engine);
 
   PetscInt n_samples = 1;
   PetscOptionsGetInt(NULL, NULL, "-n_samples", &n_samples, &found);
 
-  PetscInt n_burnin = 100;
-  PetscOptionsGetInt(NULL, NULL, "-n_burnin", &n_burnin, &found);
-  chain.sample(sample, rhs, n_burnin);
-  chain.enable_est_mean_online();
-  // chain.enable_save_samples();
-
-  for (PetscInt n = 0; n < n_samples; ++n) {
-    chain.sample(sample, rhs);
-
-    const auto mean = chain.get_mean();
-    const auto rel_err = std::abs((mean - tgt_mean_norm) / tgt_mean_norm);
-
-    PetscCall(PetscPrintf(MPI_COMM_WORLD, "%f\n", rel_err));
-
-    // if (rhs_norm < 1e-18)
-    //   PetscCall(PetscPrintf(MPI_COMM_WORLD, "%f\n", err));
-    // else
-    //   std::cout << err << ", " << err / rhs_norm << "\n";
+  std::vector<Vec> samples(n_chains);
+  for (PetscInt i = 0; i < n_chains; ++i) {
+    PetscCall(VecDuplicate(prior_mean, &(samples[i])));
+    PetscCall(VecZeroEntries(samples[i]));
   }
 
-  PetscCall(VecDestroy(&sample));
-  PetscCall(VecDestroy(&rhs));
+  Vec exact_mean;
+  PetscCall(VecDuplicate(samples[0], &exact_mean));
+  PetscCall(chains[0].exact_mean(exact_mean));
+
+  PetscReal exact_mean_norm;
+
+  PetscCall(VecNorm(exact_mean, NORM_2, &exact_mean_norm));
+
+  Vec mean;
+  PetscCall(VecDuplicate(samples[0], &mean));
+
+  for (PetscInt n = 0; n < n_samples; ++n) {
+    PetscCall(VecZeroEntries(mean));
+    for (PetscInt c = 0; c < n_chains; ++c) {
+      PetscCall(chains[c].sample(samples[c]));
+
+      PetscCall(VecAXPY(mean, 1. / n_chains, samples[c]));
+    }
+
+    PetscCall(VecAXPY(mean, -1., exact_mean));
+
+    PetscReal err_norm;
+    PetscCall(VecNorm(mean, NORM_2, &err_norm));
+
+    PetscCall(PetscPrintf(MPI_COMM_WORLD, "%f\n", err_norm / exact_mean_norm));
+  }
+
+  for (auto v : samples)
+    PetscCall(VecDestroy(&v));
+
+  PetscCall(VecDestroy(&prior_mean));
+  PetscCall(VecDestroy(&exact_mean));
+  PetscCall(VecDestroy(&mean));
 
   PetscFunctionReturn(PETSC_SUCCESS);
 }
