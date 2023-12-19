@@ -1,6 +1,7 @@
 #pragma once
 
 #include "parmgmc/common/helpers.hh"
+#include "parmgmc/grid/grid_operator.hh"
 
 #include <iostream>
 #include <mpi.h>
@@ -17,46 +18,34 @@
 
 namespace parmgmc {
 template <class Engine> struct SORRichardsonContext {
-  SORRichardsonContext(Engine *engine, Mat mat, PetscReal omega)
-      : engine{engine}, with_lowrank_update{false} {
-    PetscFunctionBeginUser;
-    PetscCallVoid(init(mat, omega));
-    PetscFunctionReturnVoid();
-  }
-
-  SORRichardsonContext(Engine *engine, Mat mat, Mat lowrank_factor,
+  SORRichardsonContext(std::shared_ptr<GridOperator> op, Engine *engine,
                        PetscReal omega)
-      : engine{engine}, lowrank_factor{lowrank_factor},
-        with_lowrank_update{true} {
+      : op{op}, engine{engine} {
     PetscFunctionBeginUser;
 
-    PetscCallVoid(init(mat, omega));
-
-    PetscCallVoid(MatCreateVecs(lowrank_factor, &small_z, NULL));
-    PetscCallVoid(VecGetLocalSize(small_z, &vec_small_size));
-
-    PetscFunctionReturnVoid();
-  }
-
-  PetscErrorCode init(Mat mat, PetscReal omega) {
-    PetscFunctionBeginUser;
-
-    PetscCall(MatCreateVecs(mat, &sqrt_diag, NULL));
-    PetscCall(MatGetDiagonal(mat, sqrt_diag));
-    PetscCall(VecSqrtAbs(sqrt_diag));
-    PetscCall(VecScale(sqrt_diag, std::sqrt((2 - omega) / omega)));
+    PetscCallVoid(MatCreateVecs(op->mat, &sqrt_diag, NULL));
+    PetscCallVoid(MatGetDiagonal(op->mat, sqrt_diag));
+    PetscCallVoid(VecSqrtAbs(sqrt_diag));
+    PetscCallVoid(VecScale(sqrt_diag, std::sqrt((2 - omega) / omega)));
 
     // Setup Gauss-Seidel preconditioner
-    PetscCall(PCCreate(MPI_COMM_WORLD, &pc));
-    PetscCall(PCSetType(pc, PCSOR));
-    PetscCall(PCSetOperators(pc, mat, mat));
-    PetscCall(PCSORSetOmega(pc, omega));
+    PetscCallVoid(PCCreate(MPI_COMM_WORLD, &pc));
+    PetscCallVoid(PCSetType(pc, PCSOR));
+    PetscCallVoid(PCSORSetSymmetric(pc, SOR_LOCAL_FORWARD_SWEEP));
+    PetscCallVoid(PCSetOperators(pc, op->mat, op->mat));
+    PetscCallVoid(PCSORSetOmega(pc, omega));
 
-    PetscCall(VecDuplicate(sqrt_diag, &z));
+    // Setup (big) work vector
+    PetscCallVoid(VecDuplicate(sqrt_diag, &z));
+    PetscCallVoid(VecGetLocalSize(sqrt_diag, &vec_size));
 
-    PetscCall(VecGetLocalSize(sqrt_diag, &vec_size));
+    // Setup (small) work vector
+    if (op->lowrank_update) {
+      PetscCallVoid(op->lowrank_update->create_compatible_vecs(NULL, &small_z));
+      PetscCallVoid(VecGetLocalSize(small_z, &vec_small_size));
+    }
 
-    PetscFunctionReturn(PETSC_SUCCESS);
+    PetscFunctionReturnVoid();
   }
 
   ~SORRichardsonContext() {
@@ -65,10 +54,9 @@ template <class Engine> struct SORRichardsonContext {
     VecDestroy(&z);
 
     PCDestroy(&pc);
-
-    if (with_lowrank_update)
-      MatDestroy(&lowrank_factor);
   }
+
+  std::shared_ptr<GridOperator> op;
 
   Engine *engine;
   std::normal_distribution<PetscReal> dist;
@@ -76,8 +64,6 @@ template <class Engine> struct SORRichardsonContext {
   Vec z;
   PetscInt vec_size;
 
-  Mat lowrank_factor;
-  bool with_lowrank_update;
   Vec small_z;
   PetscInt vec_small_size;
 
@@ -111,30 +97,29 @@ sor_pc_richardson_apply(PC pc, Vec b, Vec x, Vec r, PetscReal rtol,
   SORRichardsonContext<Engine> *context;
   PetscCall(PCShellGetContext(pc, &context));
 
-  // Below we set: r <- b + sqrt((2-omega)/omega) * D^1/2 * c, where c ~ N(0,I)
+  // r <- b + sqrt((2-omega)/omega) * D^1/2 * c, where c ~ N(0,I)
   PetscCall(fill_vec_rand(r, context->vec_size, *context->engine));
-
   PetscCall(VecPointwiseMult(r, r, context->sqrt_diag));
-  PetscCall(VecAXPY(r, 1., b));
 
-  // If operator has low-rank update, update rhs
-  if (context->with_lowrank_update) {
-    // Fill work vector z with N(0,1) distributed numbers
+  if (context->op->lowrank_update) {
     PetscCall(fill_vec_rand(
         context->small_z, context->vec_small_size, *context->engine));
 
     // Multiply by given low-rank factor and add to r
-    PetscCall(MatMultAdd(context->lowrank_factor, context->small_z, r, r));
+    PetscCall(context->op->lowrank_update->apply_cholesky_L(context->small_z,
+                                                            context->z));
+    PetscCall(VecAXPY(r, -1., context->z));
   }
+
+  PetscCall(VecAXPY(r, 1., b));
 
   // Perform actual Richardson step
   Mat A;
   PetscCall(PCGetOperators(pc, &A, NULL));
 
   // r <- r - A x
-  PetscCall(VecScale(r, -1));
-  PetscCall(MatMultAdd(A, x, r, r));
-  PetscCall(VecScale(r, -1));
+  PetscCall(context->op->apply(x, context->z));
+  PetscCall(VecAXPY(r, -1., context->z));
 
   // Apply (SOR) preconditioner
   PetscCall(PCApply(context->pc, r, context->z));

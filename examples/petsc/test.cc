@@ -16,6 +16,7 @@
 #include <array>
 #include <cstddef>
 #include <memory>
+#include <petscviewer.h>
 #include <random>
 #include <vector>
 
@@ -132,37 +133,32 @@ int main(int argc, char *argv[]) {
   engine.set_stream(rank);
 
   Vec prior_mean;
-  PetscCall(MatCreateVecs(grid_operator->mat, &prior_mean, NULL));
+  PetscCall(MatCreateVecs(grid_operator->mat, NULL, &prior_mean));
   PetscInt size;
   PetscCall(VecGetLocalSize(prior_mean, &size));
   // PetscCall(fill_vec_rand(prior_mean, size, engine));
   PetscCall(VecSet(prior_mean, 1.));
 
-  std::vector<Observation> obs = {{{0.1, 0.1}, 1.},
-                                  {{0.1, 0.2}, 1.5},
-                                  {{0.1, 0.3}, 1.2},
-                                  {{0.6, 0.1}, 0.2},
-                                  {{0.7, 0.7}, 0.8},
-                                  {{0.1, 0.9}, 1.},
-                                  {{1.0, 0.1}, 1.}};
-  // obs[0].coord = {0.1, 0.1};
-  // obs[1].coord = {0.3, 0.};
-  // obs[2].coord = {0.1, 1.};
-  // obs[3].coord = {1., 1.};
-  // obs[4].coord = {0.4, 0.5};
+  std::vector<Observation> obs;
+
+  for (const auto x : {0., 0.25, 0.5, 0.75, 1.0}) {
+    for (const auto y : {0., 0.25, 0.5, 0.75, 1.0}) {
+      obs.push_back({{x, y}, 1.});
+    }
+  }
 
   Vec noise_diag;
   PetscCall(VecCreate(MPI_COMM_WORLD, &noise_diag));
   PetscCall(VecSetSizes(noise_diag, PETSC_DECIDE, obs.size()));
   PetscCall(VecSetUp(noise_diag));
-  PetscCall(VecSet(noise_diag, 0.1));
+  PetscCall(VecSet(noise_diag, 2));
 
   PetscInt n_chains = 10;
   PetscOptionsGetInt(NULL, NULL, "-n_chains", &n_chains, &found);
 
   // using Chain = SampleChain<SORSampler<pcg32>>;
   // using Chain = SampleChain<MultigridSampler<pcg32>>;
-  using Sampler = GaussianPosterior<pcg32>;  
+  using Sampler = GaussianPosterior<pcg32>;
 
   std::vector<Sampler> chains;
   chains.reserve(n_chains);
@@ -176,16 +172,19 @@ int main(int argc, char *argv[]) {
   std::vector<Vec> samples(n_chains);
   for (PetscInt i = 0; i < n_chains; ++i) {
     PetscCall(VecDuplicate(prior_mean, &(samples[i])));
-    PetscCall(VecZeroEntries(samples[i]));
+    PetscCall(VecSet(samples[i], 1.));
   }
 
   Vec exact_mean;
   PetscCall(VecDuplicate(samples[0], &exact_mean));
   PetscCall(chains[0].exact_mean(exact_mean));
 
-  PetscReal exact_mean_norm;
+  // VecView(exact_mean, PETSC_VIEWER_STDOUT_WORLD);
 
+  PetscReal exact_mean_norm;
   PetscCall(VecNorm(exact_mean, NORM_2, &exact_mean_norm));
+
+  std::cout << "err mean norm = " << exact_mean_norm << "\n";
 
   Vec mean;
   PetscCall(VecDuplicate(samples[0], &mean));
@@ -198,12 +197,17 @@ int main(int argc, char *argv[]) {
       PetscCall(VecAXPY(mean, 1. / n_chains, samples[c]));
     }
 
-    PetscCall(VecAXPY(mean, -1., exact_mean));
+    // PetscCall(VecAXPY(mean, -1., exact_mean));
 
     PetscReal err_norm;
     PetscCall(VecNorm(mean, NORM_2, &err_norm));
 
-    PetscCall(PetscPrintf(MPI_COMM_WORLD, "%f\n", err_norm / exact_mean_norm));
+    // PetscCall(VecView(mean, PETSC_VIEWER_STDOUT_WORLD));
+
+    PetscCall(PetscPrintf(MPI_COMM_WORLD,
+                          "%f, %f\n",
+                          err_norm,
+                          std::abs(err_norm - exact_mean_norm)));
   }
 
   for (auto v : samples)

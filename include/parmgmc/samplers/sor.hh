@@ -20,25 +20,14 @@
 
 namespace parmgmc {
 template <class Engine> class SORSampler {
-  using Context = SORRichardsonContext<Engine>;
-
 public:
   SORSampler(std::shared_ptr<GridOperator> grid_operator, Engine *engine,
              PetscReal omega = 1.) {
     PetscFunctionBeginUser;
 
-    auto *context = new Context(engine, grid_operator->mat, omega);
-    PetscCallAbort(MPI_COMM_WORLD, init(grid_operator, context));
-
-    PetscFunctionReturnVoid();
-  }
-
-  SORSampler(std::shared_ptr<GridOperator> grid_operator, Mat lowrank_factor,
-             Engine *engine, PetscReal omega = 1.) {
-    PetscFunctionBeginUser;
-
     auto *context =
-        new Context(engine, grid_operator->mat, lowrank_factor, omega);
+        new SORRichardsonContext<Engine>(grid_operator, engine, omega);
+
     PetscCallAbort(MPI_COMM_WORLD, init(grid_operator, context));
 
     PetscFunctionReturnVoid();

@@ -1,3 +1,4 @@
+
 #pragma once
 
 #include "parmgmc/common/types.hh"
@@ -30,14 +31,14 @@ struct Observation {
 /* Represents the (Gaussian) posterior distribution that arises from a linear
    Gaussian Bayesian inverse problem. Let f(x) = Ax be the observation operator.
    We consider noisy observations y = Ax + e, where e ~ N(0, S) is additive
-   Gaussian noise independent of x. If we endow x with a Gaussian prior N(m, C)
-   then the posterior of y|x is also Gaussian with mean
+   Gaussian noise independent of x. If we endow x with a Gaussian prior N(m,
+   C^-1) then the posterior of y|x is also Gaussian with mean
 
-     mu = m + C A^T ( S + A C A^T )^-1 (y - A m)
+     mu = m + C^-1 A^T ( S + A C^-1 A^T )^-1 (y - A m)
 
    and precision matrix
 
-     B = C^-1 + A^T S^-1 A.
+     B = C + A^T S^-1 A.
 
    Currently, only supports Gaussian noise with diagonal covariance matrix.
    Further, the observation operator A is implicitly defined by providing a
@@ -54,92 +55,67 @@ public:
         prior_mean{prior_mean} {
     PetscFunctionBeginUser;
 
-    PetscCallVoid(VecDuplicate(noise_diag, &noise_diag_inv));
-    PetscCallVoid(VecCopy(noise_diag, noise_diag_inv));
-    PetscCallVoid(VecReciprocal(noise_diag_inv));
-
-    int rank;
-    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-
     PetscInt local_size, global_size;
     PetscCallVoid(VecGetLocalSize(prior_mean, &local_size));
     PetscCallVoid(VecGetSize(prior_mean, &global_size));
 
-    std::vector<std::pair<PetscInt, PetscInt>> own_obs;
-    for (std::size_t i = 0; i < observations.size(); ++i) {
-      const auto &obs = observations[i];
-
-      // Find coordinates of grid point closests to the given observation
-      PetscInt II, JJ;
-      PetscReal XX, YY;
-      PetscCallVoid(DMDAGetLogicalCoordinate(prior_precision_operator->dm,
-                                             obs.coord.x,
-                                             obs.coord.y,
-                                             0,
-                                             &II,
-                                             &JJ,
-                                             NULL,
-                                             &XX,
-                                             &YY,
-                                             NULL));
-
-      if (II == -1 || JJ == -1) // point is not on current processor
-        continue;
-
-      const auto global_idx = II * prior_precision_operator->global_x + JJ;
-      own_obs.push_back({(PetscInt)i, global_idx});
+    { // Store S^{-1} as vector
+      PetscCallVoid(VecDuplicate(noise_diag, &noise_diag_inv));
+      PetscCallVoid(VecCopy(noise_diag, noise_diag_inv));
+      PetscCallVoid(VecReciprocal(noise_diag_inv));
     }
 
-    // Construct lowrank factor needed in Gibbs sampler: A^T S^{-1/2}
-    Mat lowrank_factor;
-    PetscCallVoid(MatCreate(MPI_COMM_WORLD, &lowrank_factor));
-    PetscCallVoid(MatSetSizes(lowrank_factor,
-                              local_size,
-                              PETSC_DECIDE,
-                              global_size,
-                              observations.size()));
-    PetscCallVoid(MatSetType(lowrank_factor, MATAIJ));
+    { // Setup observation matrix A
+      std::vector<std::pair<PetscInt, PetscInt>> own_obs;
+      PetscCallVoid(get_own_observations(observations, own_obs));
 
-    for (const auto &[obs_idx, obs_coord] : own_obs)
-      PetscCallVoid(
-          MatSetValue(lowrank_factor, obs_coord, obs_idx, 1., INSERT_VALUES));
-    PetscCallVoid(MatAssemblyBegin(lowrank_factor, MAT_FINAL_ASSEMBLY));
-    PetscCallVoid(MatAssemblyEnd(lowrank_factor, MAT_FINAL_ASSEMBLY));
-    // Store A^T separately as it is needed in the computation of the exact mean
-    // TODO: This can be avoided if we compute the exact mean here.
-    PetscCallVoid(
-        MatConvert(lowrank_factor, MATSAME, MAT_INITIAL_MATRIX, &obs_mat));
+      PetscCallVoid(MatCreate(MPI_COMM_WORLD, &obs_mat));
+      PetscCallVoid(MatSetSizes(
+          obs_mat, PETSC_DECIDE, local_size, observations.size(), global_size));
+      PetscCallVoid(MatSetType(obs_mat, MATAIJ));
 
-    PetscCallVoid(MatCreateVecs(lowrank_factor, &obs_values, NULL));
-    for (std::size_t i = 0; i < observations.size(); ++i)
-      PetscCallVoid(
-          VecSetValue(obs_values, i, observations[i].value, INSERT_VALUES));
-    PetscCallVoid(VecAssemblyBegin(obs_values));
-    PetscCallVoid(VecAssemblyEnd(obs_values));
+      // Set A_ij = 1 if observation j is closest to grid index i
+      for (const auto &[obs_idx, obs_coord] : own_obs)
+        PetscCallVoid(
+            MatSetValue(obs_mat, obs_idx, obs_coord, 1., INSERT_VALUES));
 
-    Vec noise_diag_copy;
-    PetscCallVoid(VecDuplicate(noise_diag, &noise_diag_copy));
-    PetscCallVoid(VecCopy(noise_diag, noise_diag_copy));
-    PetscCallVoid(VecSqrtAbs(noise_diag_copy));
-    PetscCallVoid(VecReciprocal(noise_diag_copy));
-    PetscCallVoid(MatDiagonalScale(lowrank_factor, NULL, noise_diag_copy));
+      PetscCallVoid(MatAssemblyBegin(obs_mat, MAT_FINAL_ASSEMBLY));
+      PetscCallVoid(MatAssemblyEnd(obs_mat, MAT_FINAL_ASSEMBLY));
+    }
 
-    sampler = std::make_unique<SORSampler<Engine>>(
-        prior_precision_operator, lowrank_factor, engine);
+    { // Store observation values in vec
+      PetscCallVoid(MatCreateVecs(obs_mat, NULL, &obs_values));
+      for (std::size_t i = 0; i < observations.size(); ++i)
+        PetscCallVoid(
+            VecSetValue(obs_values, i, observations[i].value, INSERT_VALUES));
+      PetscCallVoid(VecAssemblyBegin(obs_values));
+      PetscCallVoid(VecAssemblyEnd(obs_values));
+    }
 
-    // To generate samples with target mean m, we need to use C*m as the rhs in
-    // the sampler (cf. [Fox, Parker, 2014]).
-    Vec tmp;
-    PetscCallVoid(VecDuplicate(prior_mean, &rhs));
-    PetscCallVoid(VecDuplicate(prior_mean, &tmp));
+    { // Create lowrank update A^T S^{-1} A and attach to grid operator
+      Vec noise_inv_sqrt;
+      PetscCallVoid(VecDuplicate(noise_diag_inv, &noise_inv_sqrt));
+      PetscCallVoid(VecCopy(noise_diag_inv, noise_inv_sqrt));
+      PetscCallVoid(VecSqrtAbs(noise_inv_sqrt));
 
-    PetscCallVoid(exact_mean(tmp));
-    PetscCallVoid(MatMult(prior_precision_operator->mat, tmp, rhs));
+      prior_precision_operator->set_lowrank_factor(
+          obs_mat, noise_diag_inv, noise_inv_sqrt);
+    }
 
-    // PetscCallVoid(MatDestroy(&lowrank_factor));
-    PetscCallVoid(VecDestroy(&tmp));
-    PetscCallVoid(VecDestroy(&noise_diag_copy));
-    // PetscCallVoid(MatDestroy(&lowrank_factor));
+    { // Set potential vector
+      Vec posterior_mean;
+      PetscCallVoid(VecDuplicate(prior_mean, &posterior_mean));
+      PetscCallVoid(exact_mean(posterior_mean));
+
+      PetscCallVoid(VecDuplicate(posterior_mean, &rhs));
+
+      PetscCallVoid(prior_precision_operator->apply(posterior_mean, rhs));
+      
+      PetscCallVoid(VecDestroy(&posterior_mean));
+    }
+
+    sampler =
+        std::make_unique<SORSampler<Engine>>(prior_precision_operator, engine);
 
     PetscFunctionReturnVoid();
   }
@@ -152,6 +128,12 @@ public:
     PetscFunctionReturn(PETSC_SUCCESS);
   }
 
+  /* The exact mean is given by
+         mu = m + C^-1 A^T ( S + A C^-1 A^T )^-1 (y - A m).
+     To avoid the computation of the (inner) inverse of the precision matrix C,
+     we use the Woodbury matrix identity and rewrite mu as
+         mu = m + C^-1 A^T (S^-1 - S^-1 A ( C + A^T S^-1 A)^-1 A^T S) (y - A m).
+   */
   PetscErrorCode exact_mean(Vec exact_mean) {
     PetscFunctionBeginUser;
 
@@ -162,75 +144,106 @@ public:
 
     PetscCall(VecZeroEntries(exact_mean));
 
-    Vec z;
-    PetscCall(VecDuplicate(obs_values, &z));
-    PetscCall(MatMultTransposeAdd(obs_mat, prior_mean, obs_values, z));
-    PetscCall(VecScale(z, -1));
+    Vec z1;
+    { // z1 = y - A m (computed as z1 = -(-y + Am))
+      PetscCall(VecDuplicate(obs_values, &z1));
 
-    PetscInt noise_size;
-    PetscCall(VecGetSize(noise_diag_inv, &noise_size));
+      PetscCall(VecScale(obs_values, -1)); // y <-- -y
+      PetscCall(MatMultAdd(obs_mat, prior_mean, obs_values, z1));
+      PetscCall(VecScale(obs_values, -1)); // y <-- -y
 
-    Mat noise_inv;
-    PetscCall(MatCreate(MPI_COMM_WORLD, &noise_inv));
-    PetscCall(MatSetSizes(
-        noise_inv, PETSC_DECIDE, PETSC_DECIDE, noise_size, noise_size));
-    PetscCall(MatSetUp(noise_inv));
-    PetscCall(MatDiagonalSet(noise_inv, noise_diag_inv, INSERT_VALUES));
-
-    Mat obs_noise_inv; // = A^T S^-1
-    PetscCall(MatMatMult(
-        obs_mat, noise_inv, MAT_INITIAL_MATRIX, PETSC_DEFAULT, &obs_noise_inv));
-
-    PetscCall(MatMult(obs_noise_inv, z, exact_mean));
-
-    Mat Q_AtSA;
-    PetscCall(MatMatTransposeMult(
-        obs_noise_inv, obs_mat, MAT_INITIAL_MATRIX, PETSC_DEFAULT, &Q_AtSA));
-
-    PetscCall(MatAXPY(
-        Q_AtSA, 1., prior_precision_operator->mat, UNKNOWN_NONZERO_PATTERN));
-
-    {
-      KSP ksp;
-      PetscCall(KSPCreate(MPI_COMM_WORLD, &ksp));
-      PetscCall(KSPSetOperators(ksp, Q_AtSA, Q_AtSA));
-      PetscCall(KSPSolve(ksp, exact_mean, exact_mean));
-      PetscCall(KSPDestroy(&ksp));
+      PetscCall(VecScale(z1, -1));
     }
 
-    Vec tmp1, tmp2;
-    PetscCall(VecDuplicate(z, &tmp1));
-    PetscCall(VecDuplicate(z, &tmp2));
-    PetscCall(MatMultTranspose(obs_noise_inv, exact_mean, tmp1));
+    Mat AtSinv;
+    { // AtS =  A^T S^-1
+      PetscCall(MatTranspose(obs_mat, MAT_INITIAL_MATRIX, &AtSinv));
+      PetscCall(MatDiagonalScale(AtSinv, NULL, noise_diag_inv));
+    }
 
-    PetscCall(MatMult(noise_inv, z, tmp2));
+    Vec tmp;
 
-    PetscCall(VecAXPY(tmp1, -1, tmp2));
+    { // tmp = A^T S^-1 (y - Am) = AtSinv * z1
+      PetscCall(VecDuplicate(exact_mean, &tmp));
+      PetscCall(MatMult(AtSinv, z1, tmp));
+    }
 
-    PetscCall(MatMult(obs_mat, tmp1, exact_mean));
+    { // tmp = (C + A^T S^-1 A)^-1 * A^T S^-1 (y - Am)
+      //     = (C + A^T S^-1 A)^-1 * tmp
+      Mat Sinv;
 
-    {
+      PetscInt global_size;
+      PetscCall(VecGetSize(noise_diag_inv, &global_size));
+
+      PetscCall(MatCreate(MPI_COMM_WORLD, &Sinv));
+      // PetscCall(MatSetType(Sinv, MATDIAGONAL));
+      PetscCall(MatSetType(Sinv, MATAIJ));
+      PetscCall(MatSetSizes(
+          Sinv, PETSC_DECIDE, PETSC_DECIDE, global_size, global_size));
+      PetscCall(MatSetUp(Sinv));
+      PetscCall(MatDiagonalSet(Sinv, noise_diag_inv, INSERT_VALUES));
+      PetscCall(MatAssemblyBegin(Sinv, MAT_FINAL_ASSEMBLY));
+      PetscCall(MatAssemblyEnd(Sinv, MAT_FINAL_ASSEMBLY));
+
+      Mat M;
+      PetscCall(MatPtAP(Sinv, obs_mat, MAT_INITIAL_MATRIX, PETSC_DEFAULT, &M));
+      PetscCall(MatAXPY(
+          M, 1., prior_precision_operator->mat, UNKNOWN_NONZERO_PATTERN));
+
       KSP ksp;
       PetscCall(KSPCreate(MPI_COMM_WORLD, &ksp));
+      PetscCall(KSPSetFromOptions(ksp));
+      PetscCall(KSPSetOperators(ksp, M, M));
+      PetscCall(KSPSolve(ksp, tmp, tmp));
+
+      PetscCall(KSPDestroy(&ksp));
+      PetscCall(MatDestroy(&M));
+    }
+
+    Vec z2;
+    { // z2 = S^-1 A * tmp
+      PetscCall(VecDuplicate(z1, &z2));
+      PetscCall(MatMult(obs_mat, tmp, z2));
+      PetscCall(VecPointwiseMult(z2, z2, noise_diag_inv));
+    }
+
+    { // z1 = S^-1 z1
+      PetscCall(VecPointwiseMult(z1, z1, noise_diag_inv));
+    }
+
+    { // z1 = z1 - z2
+      PetscCall(VecAXPY(z1, -1., z2));
+    }
+
+    { // exact_mean = C^-1 A^T z1
+      PetscCall(MatMultTranspose(obs_mat, z1, exact_mean));
+
+      KSP ksp;
+      PetscCall(KSPCreate(MPI_COMM_WORLD, &ksp));
+      PetscCall(KSPSetFromOptions(ksp));
       PetscCall(KSPSetOperators(
           ksp, prior_precision_operator->mat, prior_precision_operator->mat));
       PetscCall(KSPSolve(ksp, exact_mean, exact_mean));
+
       PetscCall(KSPDestroy(&ksp));
     }
 
-    PetscCall(VecAXPY(exact_mean, 1., prior_mean));
+    { // exact_mean += prior_mean
+      PetscCall(VecAXPY(exact_mean, 1., prior_mean));
+    }
 
-    // Cache exact_mean
-    PetscCall(VecDuplicate(exact_mean, &exact_mean_));
-    PetscCall(VecCopy(exact_mean, exact_mean_));
-    exact_mean_computed = true;
+    { // Cleanup
+      PetscCall(VecDestroy(&z2));
+      PetscCall(VecDestroy(&tmp));
+      PetscCall(MatDestroy(&AtSinv));
+      PetscCall(VecDestroy(&z1));
+    }
 
-    PetscCall(MatDestroy(&obs_noise_inv));
-    PetscCall(MatDestroy(&noise_inv));
-    PetscCall(MatDestroy(&Q_AtSA));
-    PetscCall(VecDestroy(&tmp1));
-    PetscCall(VecDestroy(&tmp2));
-    PetscCall(VecDestroy(&z));
+    { // Cache computed posterior mean
+      PetscCall(VecDuplicate(exact_mean, &exact_mean_));
+      PetscCall(VecCopy(exact_mean, exact_mean_));
+      exact_mean_computed = true;
+    }
 
     PetscFunctionReturn(PETSC_SUCCESS);
   }
@@ -239,7 +252,7 @@ public:
     VecDestroy(&noise_diag_inv);
     VecDestroy(&rhs);
     VecDestroy(&obs_values);
-    VecDestroy(&exact_mean_);
+    // VecDestroy(&exact_mean_);
     MatDestroy(&obs_mat);
   }
 
@@ -252,6 +265,37 @@ public:
         exact_mean_computed(other.exact_mean_computed) {}
 
 private:
+  PetscErrorCode
+  get_own_observations(const std::vector<Observation> &observations,
+                       std::vector<std::pair<PetscInt, PetscInt>> &own_obs) {
+    PetscFunctionBeginUser;
+
+    for (std::size_t i = 0; i < observations.size(); ++i) {
+      const auto &obs = observations[i];
+
+      PetscInt II, JJ;
+      PetscReal XX, YY;
+      PetscCall(DMDAGetLogicalCoordinate(prior_precision_operator->dm,
+                                         obs.coord.x,
+                                         obs.coord.y,
+                                         0,
+                                         &II,
+                                         &JJ,
+                                         NULL,
+                                         &XX,
+                                         &YY,
+                                         NULL));
+
+      if (II == -1 || JJ == -1) // point is not on current processor
+        continue;
+
+      const auto global_idx = II * prior_precision_operator->global_x + JJ;
+      own_obs.push_back({(PetscInt)i, global_idx});
+    }
+
+    PetscFunctionReturn(PETSC_SUCCESS);
+  }
+
   std::shared_ptr<GridOperator> prior_precision_operator;
   std::unique_ptr<SORSampler<Engine>> sampler;
 
