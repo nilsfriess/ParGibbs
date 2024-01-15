@@ -15,7 +15,7 @@ public:
   template <typename... Args>
   SampleChain(Args &&...sampler_args)
       : sampler(std::forward<Args>(sampler_args)...), n_samples{0},
-        save_samples{false}, est_mean_online{true} {}
+        save_samples{false}, est_mean_online{false} {}
 
   PetscErrorCode sample(Vec sample, Vec rhs, std::size_t n_steps = 1) {
     PetscFunctionBeginUser;
@@ -81,9 +81,15 @@ public:
   }
 
   ~SampleChain() {
-    VecDestroy(&mean_);
+    PetscFunctionBeginUser;
+
+    if (mean_)
+      PetscCallVoid(VecDestroy(&mean_));
+
     for (auto &s : samples)
-      VecDestroy(&s);
+      PetscCallVoid(VecDestroy(&s));
+
+    PetscFunctionReturnVoid();
   }
 
 private:
@@ -103,7 +109,7 @@ private:
     PetscFunctionReturn(PETSC_SUCCESS);
   }
 
-  Vec mean_;
+  Vec mean_ = nullptr;
 
   Sampler sampler;
 
