@@ -119,9 +119,12 @@ struct Coordinate {
   PetscReal y;
 };
 
-struct GridOperator {
-  enum COLORS : ISColoringValue { RED, BLACK };
+enum class ColoringType {
+  RedBlack,
+  PETSc
+};
 
+struct GridOperator {
   /* Constructs a GridOperator instance for a 2d structured grid of size
    * global_x*global_y and a matrix representing an operator defined on that
    * grid. The parameter mat_assembler must be a function with signature `void
@@ -131,10 +134,11 @@ struct GridOperator {
    */
   template <class MatAssembler>
   GridOperator(PetscInt global_x, PetscInt global_y, Coordinate lower_left,
-               Coordinate upper_right, MatAssembler &&mat_assembler)
+               Coordinate upper_right, ColoringType coloring_type, MatAssembler &&mat_assembler)
       : global_x{global_x}, global_y{global_y},
         meshwidth_x{(upper_right.x - lower_left.x) / (global_x - 1)},
-        meshwidth_y{(upper_right.y - lower_left.y) / (global_y - 1)} {
+        meshwidth_y{(upper_right.y - lower_left.y) / (global_y - 1)},
+        coloring_type{coloring_type} {
     const PetscInt dof_per_node = 1;
     const PetscInt stencil_width = 1;
 
@@ -163,7 +167,12 @@ struct GridOperator {
     PetscCallVoid(mat_assembler(mat, dm));
 
     // Create red/black coloring
-    PetscCallVoid(setup_coloring());
+    if (coloring_type == ColoringType::RedBlack)
+      PetscCallVoid(color_red_black());
+    else
+      PetscCallVoid(color_general());
+
+    PetscCallVoid(ISColoringViewFromOptions(coloring, NULL, "-mat_coloring_view"));
 
     MatType type;
     PetscCallVoid(MatGetType(mat, &type));
@@ -228,14 +237,15 @@ struct GridOperator {
   // VecScatter scatter_red = nullptr;
   VecScatter scatter = nullptr;
 
-  ISColoring coloring; // red-black coloring
+  ISColoring coloring;
+  ColoringType coloring_type;
 
   std::unique_ptr<LowrankUpdate<Vec>> lowrank_update;
 
   Vec sct_vec = nullptr;
 
 private:
-  PetscErrorCode setup_coloring() {
+  PetscErrorCode color_red_black() {
     PetscFunctionBeginUser;
 
     const PetscInt ncolors = 2;
@@ -255,9 +265,9 @@ private:
     std::vector<ISColoringValue> colors(indices.size());
     for (std::size_t i = 0; i < indices.size(); ++i) {
       if (indices[i] % 2 == 0)
-        colors[i] = RED;
+        colors[i] = 0; // red
       else
-        colors[i] = BLACK;
+        colors[i] = 1; // black
     }
 
     PetscCall(ISColoringCreate(MPI_COMM_WORLD,
@@ -266,8 +276,20 @@ private:
                                colors.data(),
                                PETSC_COPY_VALUES,
                                &coloring));
-    PetscCall(ISColoringViewFromOptions(coloring, NULL, "-rb_coloring_view"));
 
+    PetscFunctionReturn(PETSC_SUCCESS);
+  }
+
+  PetscErrorCode color_general() {
+    PetscFunctionBeginUser;
+
+    MatColoring mc;
+    PetscCall(MatColoringCreate(mat, &mc));
+    PetscCall(MatColoringSetDistance(mc, 1));
+    PetscCall(MatColoringSetType(mc, MATCOLORINGGREEDY));
+    PetscCall(MatColoringApply(mc, &coloring));
+    PetscCall(MatColoringDestroy(&mc));
+    
     PetscFunctionReturn(PETSC_SUCCESS);
   }
 

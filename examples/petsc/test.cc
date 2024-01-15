@@ -50,8 +50,11 @@ int main(int argc, char *argv[]) {
 
   Coordinate lower_left{0, 0};
   Coordinate upper_right{1, 1};
+
+  ColoringType coloring_type = ColoringType::PETSc;
+
   auto grid_operator = std::make_shared<GridOperator>(
-      n_vertices, n_vertices, lower_left, upper_right, assemble);
+      n_vertices, n_vertices, lower_left, upper_right, coloring_type, assemble);
 
   // Setup random number generator
   pcg32 engine;
@@ -95,7 +98,7 @@ int main(int argc, char *argv[]) {
   PetscReal omega = 1.; // SOR parameter
   PetscOptionsGetReal(NULL, NULL, "-omega", &omega, NULL);
 
-  GibbsSweepType sweep_type = GibbsSweepType::SYMMETRIC;  
+  GibbsSweepType sweep_type = GibbsSweepType::SYMMETRIC;
   std::vector<Chain> chains;
   chains.reserve(n_chains);
   for (PetscInt i = 0; i < n_chains; ++i)
