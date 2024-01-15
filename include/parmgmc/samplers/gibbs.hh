@@ -19,12 +19,15 @@
 #include <petscviewer.h>
 
 namespace parmgmc {
+enum class GibbsSweepType { FORWARD, BACKWARD, SYMMETRIC };
 
 template <class Engine> class GibbsSampler {
 public:
   GibbsSampler(std::shared_ptr<GridOperator> grid_operator, Engine *engine,
-               PetscReal omega = 1.)
-      : grid_operator{grid_operator}, engine{engine}, omega{omega} {
+               PetscReal omega = 1.,
+               GibbsSweepType sweep_type = GibbsSweepType::FORWARD)
+      : grid_operator{grid_operator}, engine{engine}, omega{omega},
+        sweep_type{sweep_type} {
     PetscFunctionBeginUser;
 
     PetscCallVoid(MatCreateVecs(grid_operator->mat, &rand_vec, NULL));
@@ -80,8 +83,6 @@ public:
                     MPI_COMM_WORLD,
                     PETSC_ERR_SUP,
                     "Diagonal elements of precision matrix cannot be zero");
-
-    PetscCallVoid(PetscLogEventRegister("MAT_SOR_RB", 123, &MAT_SOR_RB));
 
     PetscFunctionReturnVoid();
   }
@@ -180,17 +181,34 @@ private:
     PetscCall(ISColoringGetIS(
         grid_operator->coloring, PETSC_USE_POINTER, &n_colors, &is_colorings));
 
-    for (PetscInt color = 0; color < n_colors; ++color) {
-      PetscInt n_indices;
-      PetscCall(ISGetLocalSize(is_colorings[color], &n_indices));
+    if (sweep_type == GibbsSweepType::FORWARD ||
+        sweep_type == GibbsSweepType::SYMMETRIC) {
+      for (PetscInt color = 0; color < n_colors; ++color) {
+        PetscInt n_indices;
+        PetscCall(ISGetLocalSize(is_colorings[color], &n_indices));
 
-      const PetscInt *indices;
-      PetscCall(ISGetIndices(is_colorings[color], &indices));
+        const PetscInt *indices;
+        PetscCall(ISGetIndices(is_colorings[color], &indices));
 
-      for (PetscInt i = 0; i < n_indices; ++i)
-        gibbs_kernel(indices[i]);
+        for (PetscInt i = 0; i < n_indices; ++i)
+          gibbs_kernel(indices[i]);
 
-      PetscCall(ISRestoreIndices(is_colorings[color], &indices));
+        PetscCall(ISRestoreIndices(is_colorings[color], &indices));
+      }
+    } else if (sweep_type == GibbsSweepType::BACKWARD ||
+               sweep_type == GibbsSweepType::SYMMETRIC) {
+      for (PetscInt color = n_colors - 1; color >= 0; color--) {
+        PetscInt n_indices;
+        PetscCall(ISGetLocalSize(is_colorings[color], &n_indices));
+
+        const PetscInt *indices;
+        PetscCall(ISGetIndices(is_colorings[color], &indices));
+
+        for (PetscInt i = n_indices - 1; i >= 0; i--)
+          gibbs_kernel(indices[i]);
+
+        PetscCall(ISRestoreIndices(is_colorings[color], &indices));
+      }
     }
 
     PetscCall(ISColoringRestoreIS(
@@ -262,40 +280,77 @@ private:
     PetscCall(ISColoringGetIS(
         grid_operator->coloring, PETSC_USE_POINTER, &n_colors, &is_colorings));
 
-    for (PetscInt color = 0; color < n_colors; ++color) {
-      PetscCall(VecZeroEntries(ghost_vec));
-      PetscCall(VecScatterBegin(grid_operator->scatter,
+    if (sweep_type == GibbsSweepType::FORWARD ||
+        sweep_type == GibbsSweepType::SYMMETRIC) {
+      for (PetscInt color = 0; color < n_colors; ++color) {
+        PetscCall(VecZeroEntries(ghost_vec));
+        PetscCall(VecScatterBegin(grid_operator->scatter,
+                                  sample,
+                                  ghost_vec,
+                                  INSERT_VALUES,
+                                  SCATTER_FORWARD));
+
+        PetscInt n_indices;
+        PetscCall(ISGetLocalSize(is_colorings[color], &n_indices));
+
+        const PetscInt *indices;
+        PetscCall(ISGetIndices(is_colorings[color], &indices));
+
+        PetscCall(VecScatterEnd(grid_operator->scatter,
                                 sample,
                                 ghost_vec,
                                 INSERT_VALUES,
                                 SCATTER_FORWARD));
 
-      PetscInt n_indices;
-      PetscCall(ISGetLocalSize(is_colorings[color], &n_indices));
+        PetscCall(VecGetArray(sample, &sample_arr));
+        PetscCall(VecGetArrayRead(ghost_vec, &ghost_arr));
 
-      const PetscInt *indices;
-      PetscCall(ISGetIndices(is_colorings[color], &indices));
+        // PetscCall(PetscIntView(n_indices, indices,
+        // PETSC_VIEWER_STDOUT_WORLD));
 
-      PetscCall(VecScatterEnd(grid_operator->scatter,
-                              sample,
-                              ghost_vec,
-                              INSERT_VALUES,
-                              SCATTER_FORWARD));
+        for (PetscInt i = 0; i < n_indices; ++i) {
+          gibbs_kernel(indices[i] - first_row);
+        }
 
-      PetscCall(VecGetArray(sample, &sample_arr));
-      PetscCall(VecGetArrayRead(ghost_vec, &ghost_arr));
+        PetscCall(VecRestoreArrayRead(ghost_vec, &ghost_arr));
+        PetscCall(VecRestoreArray(sample, &sample_arr));
+        PetscCall(ISRestoreIndices(is_colorings[color], &indices));
 
-      // PetscCall(PetscIntView(n_indices, indices, PETSC_VIEWER_STDOUT_WORLD));
-
-      for (PetscInt i = 0; i < n_indices; ++i) {
-        gibbs_kernel(indices[i] - first_row);
+        // PetscCall(VecView(sample, PETSC_VIEWER_STDOUT_WORLD));
       }
+    } else if (sweep_type == GibbsSweepType::FORWARD ||
+               sweep_type == GibbsSweepType::SYMMETRIC) {
+      for (PetscInt color = n_colors - 1; color >= 0; color--) {
+        PetscCall(VecZeroEntries(ghost_vec));
+        PetscCall(VecScatterBegin(grid_operator->scatter,
+                                  sample,
+                                  ghost_vec,
+                                  INSERT_VALUES,
+                                  SCATTER_FORWARD));
 
-      PetscCall(VecRestoreArrayRead(ghost_vec, &ghost_arr));
-      PetscCall(VecRestoreArray(sample, &sample_arr));
-      PetscCall(ISRestoreIndices(is_colorings[color], &indices));
+        PetscInt n_indices;
+        PetscCall(ISGetLocalSize(is_colorings[color], &n_indices));
 
-      // PetscCall(VecView(sample, PETSC_VIEWER_STDOUT_WORLD));
+        const PetscInt *indices;
+        PetscCall(ISGetIndices(is_colorings[color], &indices));
+
+        PetscCall(VecScatterEnd(grid_operator->scatter,
+                                sample,
+                                ghost_vec,
+                                INSERT_VALUES,
+                                SCATTER_FORWARD));
+
+        PetscCall(VecGetArray(sample, &sample_arr));
+        PetscCall(VecGetArrayRead(ghost_vec, &ghost_arr));
+
+        for (PetscInt i = n_indices - 1; i >= 0; i--) {
+          gibbs_kernel(indices[i] - first_row);
+        }
+
+        PetscCall(VecRestoreArrayRead(ghost_vec, &ghost_arr));
+        PetscCall(VecRestoreArray(sample, &sample_arr));
+        PetscCall(ISRestoreIndices(is_colorings[color], &indices));
+      }
     }
 
     PetscCall(ISColoringRestoreIS(
@@ -317,7 +372,8 @@ private:
   Vec rand_vec;
   PetscInt rand_vec_size;
 
-  PetscLogEvent MAT_SOR_RB;
+  // PetscLogEvent GIBBS_RB;
+  GibbsSweepType sweep_type;
 
   /// Only used in parallel execution
   Vec ghost_vec = nullptr;
