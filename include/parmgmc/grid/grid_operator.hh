@@ -17,8 +17,6 @@
 #include <petscsystypes.h>
 #include <petscvec.h>
 
-#include "parmgmc/common/types.hh"
-
 namespace parmgmc {
 /* Represents a low rank matrix of the form A S A^T.
    The template parameter can either be Vec, if the matrix S is a diagonal
@@ -114,6 +112,11 @@ private:
   MiddleMat S_chol;
 
   Vec z; // work vector
+};
+
+struct Coordinate {
+  PetscReal x;
+  PetscReal y;
 };
 
 struct GridOperator {
