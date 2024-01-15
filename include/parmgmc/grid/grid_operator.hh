@@ -1,6 +1,14 @@
 #pragma once
 
+#include <cstring>
+#include <iostream>
 #include <memory>
+#include <numeric>
+#include <petscao.h>
+#include <petscis.h>
+#include <vector>
+
+#include <petscdm.h>
 #include <petscdmda.h>
 #include <petscdmdatypes.h>
 #include <petscdmtypes.h>
@@ -33,7 +41,21 @@ public:
     PetscFunctionReturnVoid();
   }
 
-  ~LowrankUpdate() { VecDestroy(&z); }
+  ~LowrankUpdate() {
+    PetscFunctionBeginUser;
+
+    PetscCallVoid(VecDestroy(&z));
+    PetscCallVoid(MatDestroy(&A));
+    if constexpr (std::is_same_v<MiddleMat, Vec>) {
+      PetscCallVoid(VecDestroy(&S));
+      PetscCallVoid(VecDestroy(&S_chol));
+    } else {
+      PetscCallVoid(MatDestroy(&S));
+      PetscCallVoid(MatDestroy(&S_chol));
+    }
+
+    PetscFunctionReturnVoid();
+  }
 
   PetscErrorCode apply(Vec xin, Vec xout) const {
     PetscFunctionBeginUser;
@@ -215,29 +237,32 @@ private:
 
     const PetscInt ncolors = 2;
 
-    PetscInt nnodes;
-    PetscCall(MatGetLocalSize(mat, &nnodes, NULL));
+    PetscInt start, end;
+    PetscCall(MatGetOwnershipRange(mat, &start, &end));
 
-    ISLocalToGlobalMapping ltog;
-    PetscCall(DMGetLocalToGlobalMapping(dm, &ltog));
+    // Global indices owned by current MPI rank
+    std::vector<PetscInt> indices(end - start);
+    std::iota(indices.begin(), indices.end(), start);
 
-    std::vector<ISColoringValue> colors(nnodes);
-    for (PetscInt i = 0; i < nnodes; ++i) {
-      PetscInt global_idx;
-      PetscCall(ISLocalToGlobalMappingApply(ltog, 1, &i, &global_idx));
-      if (global_idx % 2 == 0)
-        colors[i] = COLORS::RED;
+    // Convert to natural indices
+    AO ao;
+    PetscCall(DMDAGetAO(dm, &ao));
+    PetscCall(AOPetscToApplication(ao, indices.size(), indices.data()));
+
+    std::vector<ISColoringValue> colors(indices.size());
+    for (std::size_t i = 0; i < indices.size(); ++i) {
+      if (indices[i] % 2 == 0)
+        colors[i] = RED;
       else
-        colors[i] = COLORS::BLACK;
+        colors[i] = BLACK;
     }
 
     PetscCall(ISColoringCreate(MPI_COMM_WORLD,
                                ncolors,
-                               nnodes,
+                               colors.size(),
                                colors.data(),
                                PETSC_COPY_VALUES,
                                &coloring));
-    PetscCall(ISColoringSetType(coloring, IS_COLORING_LOCAL));
     PetscCall(ISColoringViewFromOptions(coloring, NULL, "-rb_coloring_view"));
 
     PetscFunctionReturn(PETSC_SUCCESS);
@@ -259,7 +284,7 @@ private:
     const PetscInt *Bi, *Bj;
     PetscCall(MatSeqAIJGetCSRAndMemType(B, &Bi, &Bj, NULL, NULL));
     PetscInt Brows;
-    PetscCall(MatGetLocalSize(B, &Brows, NULL));
+    PetscCall(MatGetSize(B, &Brows, NULL));
     PetscInt Acols;
     PetscCall(MatGetSize(mat, NULL, &Acols));
 
@@ -286,7 +311,7 @@ private:
          */
         if (!indices[colmap[Bj[k]]])
           nz_cols++;
-        indices[colmap[Bj[k]]] = first_row + row;
+        indices[colmap[Bj[k]]] = 1;
       }
     }
 
