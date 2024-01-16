@@ -119,12 +119,10 @@ struct Coordinate {
   PetscReal y;
 };
 
-enum class ColoringType {
-  RedBlack,
-  PETSc
-};
+enum class ColoringType { RedBlack, PETSc };
 
 struct GridOperator {
+  GridOperator() : externally_setup{true} {}
   /* Constructs a GridOperator instance for a 2d structured grid of size
    * global_x*global_y and a matrix representing an operator defined on that
    * grid. The parameter mat_assembler must be a function with signature `void
@@ -134,11 +132,12 @@ struct GridOperator {
    */
   template <class MatAssembler>
   GridOperator(PetscInt global_x, PetscInt global_y, Coordinate lower_left,
-               Coordinate upper_right, ColoringType coloring_type, MatAssembler &&mat_assembler)
+               Coordinate upper_right, ColoringType coloring_type,
+               MatAssembler &&mat_assembler)
       : global_x{global_x}, global_y{global_y},
         meshwidth_x{(upper_right.x - lower_left.x) / (global_x - 1)},
         meshwidth_y{(upper_right.y - lower_left.y) / (global_y - 1)},
-        coloring_type{coloring_type} {
+        coloring_type{coloring_type}, externally_setup{false} {
     const PetscInt dof_per_node = 1;
     const PetscInt stencil_width = 1;
 
@@ -172,7 +171,8 @@ struct GridOperator {
     else
       PetscCallVoid(color_general());
 
-    PetscCallVoid(ISColoringViewFromOptions(coloring, NULL, "-mat_coloring_view"));
+    PetscCallVoid(
+        ISColoringViewFromOptions(coloring, NULL, "-mat_coloring_view"));
 
     MatType type;
     PetscCallVoid(MatGetType(mat, &type));
@@ -185,8 +185,12 @@ struct GridOperator {
 
   ~GridOperator() {
     PetscFunctionBeginUser;
-    PetscCallVoid(MatDestroy(&mat));
-    PetscCallVoid(DMDestroy(&dm));
+
+    if (!externally_setup) {
+      PetscCallVoid(MatDestroy(&mat));
+      PetscCallVoid(DMDestroy(&dm));
+    }
+
     PetscCallVoid(ISColoringDestroy(&coloring));
 
     if (sct_vec)
@@ -244,7 +248,8 @@ struct GridOperator {
 
   Vec sct_vec = nullptr;
 
-private:
+  bool externally_setup;
+
   PetscErrorCode color_red_black() {
     PetscFunctionBeginUser;
 
@@ -289,7 +294,7 @@ private:
     PetscCall(MatColoringSetType(mc, MATCOLORINGGREEDY));
     PetscCall(MatColoringApply(mc, &coloring));
     PetscCall(MatColoringDestroy(&mc));
-    
+
     PetscFunctionReturn(PETSC_SUCCESS);
   }
 

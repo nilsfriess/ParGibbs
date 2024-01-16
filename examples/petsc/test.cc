@@ -30,6 +30,7 @@
 #include "parmgmc/gaussian_posterior.hh"
 #include "parmgmc/grid/grid_operator.hh"
 #include "parmgmc/samplers/gibbs.hh"
+#include "parmgmc/samplers/multigrid.hh"
 #include "parmgmc/samplers/sample_chain.hh"
 #include "parmgmc/samplers/sor.hh"
 
@@ -75,7 +76,7 @@ int main(int argc, char *argv[]) {
   PetscCall(MatCreateVecs(grid_operator->mat, NULL, &sample_rhs));
   PetscCall(fill_vec_rand(sample_rhs, engine));
   /* PetscCall(VecScale(sample_rhs, 0.1)); */
-  PetscCall(VecSet(sample_rhs, 1));
+  // PetscCall(VecSet(sample_rhs, 1));
 
   // Target mean ( = A^-1 * rhs)
   Vec tgt_mean;
@@ -91,18 +92,20 @@ int main(int argc, char *argv[]) {
   PetscCall(PetscPrintf(MPI_COMM_WORLD, "Target norm: %f\n", tgt_norm));
 
   // Setup sampling chains
-  using Chain = SampleChain<GibbsSampler<pcg32>>;
+  // using Chain = SampleChain<GibbsSampler<pcg32>>;
+  using Chain = SampleChain<MultigridSampler<pcg32>>;
   PetscInt n_chains = 1000;
   PetscOptionsGetInt(NULL, NULL, "-n_chains", &n_chains, NULL);
 
   PetscReal omega = 1.; // SOR parameter
   PetscOptionsGetReal(NULL, NULL, "-omega", &omega, NULL);
 
-  GibbsSweepType sweep_type = GibbsSweepType::SYMMETRIC;
+  // GibbsSweepType sweep_type = GibbsSweepType::FORWARD;
   std::vector<Chain> chains;
   chains.reserve(n_chains);
   for (PetscInt i = 0; i < n_chains; ++i)
-    chains.emplace_back(grid_operator, &engine, omega, sweep_type);
+    // chains.emplace_back(grid_operator, &engine, omega, sweep_type);
+    chains.emplace_back(grid_operator, &engine, 5);
 
   PetscInt n_samples = 100;
   PetscOptionsGetInt(NULL, NULL, "-n_samples", &n_samples, NULL);

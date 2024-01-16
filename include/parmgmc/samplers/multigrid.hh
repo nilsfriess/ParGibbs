@@ -1,11 +1,11 @@
 #pragma once
 
 #include "parmgmc/grid/grid_operator.hh"
-#include "parmgmc/samplers/sor.hh"
-#include "parmgmc/samplers/sor_preconditioner.hh"
+#include "parmgmc/samplers/gibbs.hh"
 
 #include <iostream>
 #include <memory>
+#include <petscerror.h>
 #include <random>
 
 #include <mpi.h>
@@ -24,84 +24,108 @@
 namespace parmgmc {
 template <class Engine> class MultigridSampler {
 public:
-  template <class MatAssembler>
   MultigridSampler(std::shared_ptr<GridOperator> grid_operator, Engine *engine,
-                   std::size_t n_levels, MatAssembler &&mat_assembler)
+                   std::size_t n_levels)
       : ops(n_levels) {
-    auto call = [&](auto err) { PetscCallAbort(MPI_COMM_WORLD, err); };
-
     PetscFunctionBeginUser;
 
-    /* As in the SORSampler, we create a full Krylov solver but set it to only
-     * run the (Multigrid) preconditioner. */
-    call(KSPCreate(MPI_COMM_WORLD, &ksp));
-    call(KSPSetType(ksp, KSPRICHARDSON));
-    call(KSPSetOperators(ksp, grid_operator->mat, grid_operator->mat));
-    call(KSPSetInitialGuessNonzero(ksp, PETSC_TRUE));
-    call(KSPSetTolerances(ksp, PETSC_DEFAULT, PETSC_DEFAULT, PETSC_DEFAULT, 1));
+    /* Create a full KSP solver but set it to only run the (Multigrid)
+     * preconditioner. */
+    PetscCallVoid(KSPCreate(MPI_COMM_WORLD, &ksp));
+    PetscCallVoid(KSPSetType(ksp, KSPRICHARDSON));
+    PetscCallVoid(KSPSetOperators(ksp, grid_operator->mat, grid_operator->mat));
+    PetscCallVoid(KSPSetInitialGuessNonzero(ksp, PETSC_TRUE));
+    PetscCallVoid(
+        KSPSetTolerances(ksp, PETSC_DEFAULT, PETSC_DEFAULT, PETSC_DEFAULT, 1));
 
     PC pc;
-    call(KSPGetPC(ksp, &pc));
-    call(PCSetType(pc, PCMG));
+    PetscCallVoid(KSPGetPC(ksp, &pc));
+    PetscCallVoid(PCSetType(pc, PCMG));
 
-    call(PCMGSetLevels(pc, n_levels, NULL));
+    PetscCallVoid(PCMGSetLevels(pc, n_levels, NULL));
 
-    // Don't coarsen operators using Galerkin product, but rediscretize (see
-    // below)
-    call(PCMGSetType(pc, PC_MG_MULTIPLICATIVE));
-    call(PCMGSetGalerkin(pc, PC_MG_GALERKIN_NONE));
-    call(PCMGSetCycleType(pc, PC_MG_CYCLE_V));
-    call(PCMGSetNumberSmooth(pc, 2));
+    // PetscCallVoid(PCMGSetType(pc, PC_MG_MULTIPLICATIVE));
+    PetscCallVoid(PCMGSetGalerkin(pc, PC_MG_GALERKIN_BOTH));
+    PetscCallVoid(PCMGSetCycleType(pc, PC_MG_CYCLE_V));
+    PetscCallVoid(PCMGSetNumberSmooth(pc, 2));
 
-    // Create hierachy of meshes and operators
-    for (std::size_t level = 0; level < n_levels - 1; ++level)
+    PetscCallVoid(PCSetDM(pc, grid_operator->dm));
+    PetscCallVoid(PCSetOperators(pc, grid_operator->mat, grid_operator->mat));
+    PetscCallVoid(PCSetUp(pc));
+
+    for (std::size_t level = 0; level < n_levels; ++level) {
+      KSP ksp_level;
+      PetscCallVoid(PCMGGetSmoother(pc, level, &ksp_level));
+
       ops[level] = std::make_shared<GridOperator>();
+      PetscCallVoid(KSPGetOperators(ksp_level, &ops[level]->mat, NULL));
+      PetscCallVoid(KSPGetDM(ksp_level, &ops[level]->dm));
 
-    ops[n_levels - 1] = grid_operator;
-
-    for (std::size_t level = n_levels - 1; level > 0; --level) {
-      call(DMCoarsen(ops[level]->dm, MPI_COMM_NULL, &(ops[level - 1]->dm)));
-
-      call(DMCreateMatrix(ops[level - 1]->dm, &(ops[level - 1]->mat)));
-      call(mat_assembler(ops[level - 1]->mat, ops[level - 1]->dm));
+      PetscCallVoid(ops[level]->color_general());
+      MatType type;
+      PetscCallVoid(MatGetType(ops[level]->mat, &type));
+      if (std::strcmp(type, MATMPIAIJ) == 0) {
+        PetscCallVoid(ops[level]->create_rb_scatter());
+      }
     }
 
-    // Setup multigrid sampler
+    smoothers.resize(n_levels);
     for (std::size_t level = 0; level < n_levels; ++level) {
       KSP ksp_level;
 
-      /* We configure the smoother on each level to be a preconditioned
-         Richardson smoother with a (stochastic) Gauss-Seidel preconditioner. */
-      call(PCMGGetSmoother(pc, level, &ksp_level));
-      call(KSPSetType(ksp_level, KSPRICHARDSON));
-      call(KSPSetOperators(ksp_level, ops[level]->mat, ops[level]->mat));
-      call(KSPSetInitialGuessNonzero(ksp_level, PETSC_TRUE));
+      { // Pre smoothers/samplers
+        PetscCallVoid(PCMGGetSmootherDown(pc, level, &ksp_level));
+        PetscCallVoid(KSPSetType(ksp_level, KSPRICHARDSON));
+        PetscCallVoid(KSPSetInitialGuessNonzero(ksp_level, PETSC_TRUE));
 
-      // Set preconditioner to be stochastic SOR
-      PC pc_level;
-      call(KSPGetPC(ksp_level, &pc_level));
-      call(PCSetType(pc_level, PCSHELL));
+        // Set preconditioner to be stochastic SOR
+        PC pc_level;
+        PetscCallVoid(KSPGetPC(ksp_level, &pc_level));
+        PetscCallVoid(PCSetType(pc_level, PCSHELL));
 
-      auto *context =
-          new SORRichardsonContext<Engine>(engine, ops[level]->mat, 1.);
+        smoothers[level].first = std::make_shared<GibbsSampler<Engine>>(
+            ops[level], engine, 1., GibbsSweepType::FORWARD);
 
-      call(PCShellSetContext(pc_level, context));
-      call(
-          PCShellSetApplyRichardson(pc_level, sor_pc_richardson_apply<Engine>));
-      call(PCShellSetDestroy(pc_level, sor_pc_richardson_destroy<Engine>));
+        PetscCallVoid(
+            PCShellSetContext(pc_level, smoothers[level].first.get()));
+        PetscCallVoid(
+            PCShellSetApplyRichardson(pc_level, PCShellCallback_Gibbs<Engine>));
+      }
+
+      if (level > 0) { // Post smoothers/samplers
+        PetscCallVoid(PCMGGetSmootherUp(pc, level, &ksp_level));
+        PetscCallVoid(KSPSetType(ksp_level, KSPRICHARDSON));
+        PetscCallVoid(
+            KSPSetOperators(ksp_level, ops[level]->mat, ops[level]->mat));
+        PetscCallVoid(KSPSetInitialGuessNonzero(ksp_level, PETSC_TRUE));
+        PetscCallVoid(KSPSetTolerances(
+            ksp_level, PETSC_DEFAULT, PETSC_DEFAULT, PETSC_DEFAULT, 1));
+
+        // Set preconditioner to be stochastic SOR
+        PC pc_level;
+        PetscCallVoid(KSPGetPC(ksp_level, &pc_level));
+        PetscCallVoid(PCSetType(pc_level, PCSHELL));
+
+        smoothers[level].second = std::make_shared<GibbsSampler<Engine>>(
+            ops[level], engine, 1., GibbsSweepType::BACKWARD);
+
+        PetscCallVoid(
+            PCShellSetContext(pc_level, smoothers[level].second.get()));
+        PetscCallVoid(
+            PCShellSetApplyRichardson(pc_level, PCShellCallback_Gibbs<Engine>));
+      }
 
       if (level > 0) {
         Mat grid_transfer;
         DM dm_fine = ops[level]->dm;
         DM dm_coarse = ops[level - 1]->dm;
 
-        call(DMCreateInterpolation(dm_coarse, dm_fine, &grid_transfer, NULL));
-        call(PCMGSetInterpolation(pc, level, grid_transfer));
-        call(MatDestroy(&grid_transfer));
+        PetscCallVoid(
+            DMCreateInterpolation(dm_coarse, dm_fine, &grid_transfer, NULL));
+        PetscCallVoid(PCMGSetInterpolation(pc, level, grid_transfer));
+        PetscCallVoid(MatDestroy(&grid_transfer));
       }
     }
-
-    call(PCSetFromOptions(pc));
 
     PetscFunctionReturnVoid();
   }
@@ -119,6 +143,9 @@ public:
 
 private:
   std::vector<std::shared_ptr<GridOperator>> ops;
+  std::vector<std::pair<std::shared_ptr<GibbsSampler<Engine>>,
+                        std::shared_ptr<GibbsSampler<Engine>>>>
+      smoothers;
 
   KSP ksp;
 };

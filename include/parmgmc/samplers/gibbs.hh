@@ -13,6 +13,7 @@
 #include <petscis.h>
 #include <petscistypes.h>
 #include <petscmat.h>
+#include <petscpctypes.h>
 #include <petscsftypes.h>
 #include <petscsystypes.h>
 #include <petscvec.h>
@@ -379,4 +380,37 @@ private:
   Vec ghost_vec = nullptr;
   std::vector<PetscInt> diag_ptrs; // Indices of the diagonal entries
 };
+
+template <class Engine>
+inline PetscErrorCode
+PCShellCallback_Gibbs(PC pc, Vec b, Vec x, Vec r, PetscReal rtol,
+                      PetscReal abstol, PetscReal dtol, PetscInt maxits,
+                      PetscBool zeroinitialguess, PetscInt *its,
+                      PCRichardsonConvergedReason *reason) {
+  /* We ignore all the provided tolerances since this is only supposed to be
+   * used within MGMC
+   */
+  (void)rtol;
+  (void)abstol;
+  (void)dtol;
+  (void)maxits;
+  (void)r;
+
+  // Assume for now that x is not zero
+  (void)zeroinitialguess;
+
+  // Always return one iteration
+  *its = 1;
+  *reason = PCRICHARDSON_CONVERGED_ITS;
+
+  PetscFunctionBeginUser;
+
+  GibbsSampler<Engine> *sampler;
+  PetscCall(PCShellGetContext(pc, &sampler));
+
+  PetscCall(sampler->sample(x, b));
+
+  PetscFunctionReturn(PETSC_SUCCESS);
+}
+
 } // namespace parmgmc
