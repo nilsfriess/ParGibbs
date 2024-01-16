@@ -114,17 +114,6 @@ public:
         PetscCallVoid(
             PCShellSetApplyRichardson(pc_level, PCShellCallback_Gibbs<Engine>));
       }
-
-      if (level > 0) {
-        Mat grid_transfer;
-        DM dm_fine = ops[level]->dm;
-        DM dm_coarse = ops[level - 1]->dm;
-
-        PetscCallVoid(
-            DMCreateInterpolation(dm_coarse, dm_fine, &grid_transfer, NULL));
-        PetscCallVoid(PCMGSetInterpolation(pc, level, grid_transfer));
-        PetscCallVoid(MatDestroy(&grid_transfer));
-      }
     }
 
     PetscFunctionReturnVoid();
