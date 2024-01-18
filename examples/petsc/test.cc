@@ -27,12 +27,11 @@
 
 #include "parmgmc/common/helpers.hh"
 #include "parmgmc/common/petsc_helper.hh"
-#include "parmgmc/gaussian_posterior.hh"
 #include "parmgmc/grid/grid_operator.hh"
 #include "parmgmc/samplers/gibbs.hh"
 #include "parmgmc/samplers/multigrid.hh"
+#include "parmgmc/samplers/mgmc.hh"
 #include "parmgmc/samplers/sample_chain.hh"
-#include "parmgmc/samplers/sor.hh"
 
 #include "mat.hh"
 
@@ -52,7 +51,7 @@ int main(int argc, char *argv[]) {
   Coordinate lower_left{0, 0};
   Coordinate upper_right{1, 1};
 
-  ColoringType coloring_type = ColoringType::PETSc;
+  ColoringType coloring_type = ColoringType::RedBlack;
 
   auto grid_operator = std::make_shared<GridOperator>(
       n_vertices, n_vertices, lower_left, upper_right, coloring_type, assemble);
@@ -75,8 +74,8 @@ int main(int argc, char *argv[]) {
   Vec sample_rhs;
   PetscCall(MatCreateVecs(grid_operator->mat, NULL, &sample_rhs));
   PetscCall(fill_vec_rand(sample_rhs, engine));
-  /* PetscCall(VecScale(sample_rhs, 0.1)); */
-  // PetscCall(VecSet(sample_rhs, 1));
+  PetscCall(VecNormalize(sample_rhs, NULL));
+  PetscCall(VecZeroEntries(sample_rhs));
 
   // Target mean ( = A^-1 * rhs)
   Vec tgt_mean;
@@ -91,21 +90,35 @@ int main(int argc, char *argv[]) {
   PetscCall(VecNorm(tgt_mean, NORM_2, &tgt_norm));
   PetscCall(PetscPrintf(MPI_COMM_WORLD, "Target norm: %f\n", tgt_norm));
 
-  // Setup sampling chains
-  // using Chain = SampleChain<GibbsSampler<pcg32>>;
-  using Chain = SampleChain<MultigridSampler<pcg32>>;
   PetscInt n_chains = 1000;
   PetscOptionsGetInt(NULL, NULL, "-n_chains", &n_chains, NULL);
+
+#if 1
+  using Chain = SampleChain<MultigridSampler<pcg32>>;
+
+  PetscInt n_levels = 3;
+  PetscOptionsGetInt(NULL, NULL, "-n_levels", &n_levels, NULL);
+
+  PetscInt n_smooth = 1;
+  PetscOptionsGetInt(NULL, NULL, "-n_smooth", &n_smooth, NULL);
+
+  std::vector<Chain> chains;
+  chains.reserve(n_chains);
+  for (PetscInt i = 0; i < n_chains; ++i)
+    chains.emplace_back(grid_operator, &engine, n_levels, n_smooth);
+#else
+  using Chain = SampleChain<GibbsSampler<pcg32>>;
 
   PetscReal omega = 1.; // SOR parameter
   PetscOptionsGetReal(NULL, NULL, "-omega", &omega, NULL);
 
-  // GibbsSweepType sweep_type = GibbsSweepType::FORWARD;
+  GibbsSweepType sweep_type = GibbsSweepType::SYMMETRIC;
+
   std::vector<Chain> chains;
   chains.reserve(n_chains);
   for (PetscInt i = 0; i < n_chains; ++i)
-    // chains.emplace_back(grid_operator, &engine, omega, sweep_type);
-    chains.emplace_back(grid_operator, &engine, 5);
+    chains.emplace_back(grid_operator, &engine, omega, sweep_type);
+#endif
 
   PetscInt n_samples = 100;
   PetscOptionsGetInt(NULL, NULL, "-n_samples", &n_samples, NULL);
@@ -131,8 +144,9 @@ int main(int argc, char *argv[]) {
     PetscReal err_norm;
     PetscCall(VecAXPY(mean, -1, tgt_mean));
     PetscCall(VecNorm(mean, NORM_2, &err_norm));
+    err_norm /= (tgt_norm < 1e-10 ? 1 : tgt_norm);
 
-    PetscCall(PetscPrintf(MPI_COMM_WORLD, "%f\n", err_norm / tgt_norm));
+    PetscCall(PetscPrintf(MPI_COMM_WORLD, "%f\n", err_norm));
   }
 
   for (auto v : samples)

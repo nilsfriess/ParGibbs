@@ -17,7 +17,7 @@ public:
       : sampler(std::forward<Args>(sampler_args)...), n_samples{0},
         save_samples{false}, est_mean_online{false} {}
 
-  PetscErrorCode sample(Vec sample, Vec rhs, std::size_t n_steps = 1) {
+  PetscErrorCode sample(Vec sample, const Vec rhs, std::size_t n_steps = 1) {
     PetscFunctionBeginUser;
 
     for (std::size_t n = 0; n < n_steps; ++n) {

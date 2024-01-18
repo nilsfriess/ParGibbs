@@ -6,6 +6,7 @@
 #include <numeric>
 #include <petscao.h>
 #include <petscis.h>
+#include <petscviewer.h>
 #include <vector>
 
 #include <petscdm.h>
@@ -119,7 +120,7 @@ struct Coordinate {
   PetscReal y;
 };
 
-enum class ColoringType { RedBlack, PETSc };
+enum class ColoringType { RedBlack, PETSc, None };
 
 struct GridOperator {
   GridOperator() : externally_setup{true} {}
@@ -134,9 +135,9 @@ struct GridOperator {
   GridOperator(PetscInt global_x, PetscInt global_y, Coordinate lower_left,
                Coordinate upper_right, ColoringType coloring_type,
                MatAssembler &&mat_assembler)
-      : global_x{global_x}, global_y{global_y},
-        meshwidth_x{(upper_right.x - lower_left.x) / (global_x - 1)},
-        meshwidth_y{(upper_right.y - lower_left.y) / (global_y - 1)},
+      : // global_x{global_x}, global_y{global_y},
+        // meshwidth_x{(upper_right.x - lower_left.x) / (global_x - 1)},
+        // meshwidth_y{(upper_right.y - lower_left.y) / (global_y - 1)},
         coloring_type{coloring_type}, externally_setup{false} {
     const PetscInt dof_per_node = 1;
     const PetscInt stencil_width = 1;
@@ -165,17 +166,42 @@ struct GridOperator {
     // Call provided assembly functor to fill matrix
     PetscCallVoid(mat_assembler(mat, dm));
 
+    MatType type;
+    PetscCallVoid(MatGetType(mat, &type));
+
     // Create red/black coloring
-    if (coloring_type == ColoringType::RedBlack)
+    switch (coloring_type) {
+    case ColoringType::RedBlack:
       PetscCallVoid(color_red_black());
-    else
+      break;
+    case ColoringType::PETSc:
       PetscCallVoid(color_general());
+      break;
+    case ColoringType::None:
+      PetscCheckAbort(std::strcmp(type, MATSEQAIJ) == 0,
+                      MPI_COMM_WORLD,
+                      PETSC_ERR_SUP,
+                      "No coloring only supported in sequential execution.");
+
+      // Global indices owned by current MPI rank
+      std::vector<PetscInt> indices(global_x * global_y);
+      std::iota(indices.begin(), indices.end(), 0);
+
+      std::vector<ISColoringValue> colors(indices.size(), 0);
+
+      PetscCallVoid(ISColoringCreate(MPI_COMM_WORLD,
+                                 1,
+                                 colors.size(),
+                                 colors.data(),
+                                 PETSC_COPY_VALUES,
+                                 &coloring));
+      PetscCallVoid(ISColoringSetType(coloring, IS_COLORING_LOCAL));
+      break;
+    }
 
     PetscCallVoid(
         ISColoringViewFromOptions(coloring, NULL, "-mat_coloring_view"));
 
-    MatType type;
-    PetscCallVoid(MatGetType(mat, &type));
     if (std::strcmp(type, MATMPIAIJ) == 0) {
       PetscCallVoid(create_rb_scatter());
     }
@@ -186,10 +212,10 @@ struct GridOperator {
   ~GridOperator() {
     PetscFunctionBeginUser;
 
-    if (!externally_setup) {
-      PetscCallVoid(MatDestroy(&mat));
-      PetscCallVoid(DMDestroy(&dm));
-    }
+    // if (!externally_setup) {
+    PetscCallVoid(MatDestroy(&mat));
+    PetscCallVoid(DMDestroy(&dm));
+    // }
 
     PetscCallVoid(ISColoringDestroy(&coloring));
 
@@ -228,11 +254,11 @@ struct GridOperator {
     PetscFunctionReturn(PETSC_SUCCESS);
   }
 
-  PetscInt global_x;
-  PetscInt global_y;
+  // PetscInt global_x;
+  // PetscInt global_y;
 
-  PetscReal meshwidth_x;
-  PetscReal meshwidth_y;
+  // PetscReal meshwidth_x;
+  // PetscReal meshwidth_y;
 
   DM dm;
   Mat mat;
@@ -281,6 +307,7 @@ struct GridOperator {
                                colors.data(),
                                PETSC_COPY_VALUES,
                                &coloring));
+    PetscCall(ISColoringSetType(coloring, IS_COLORING_LOCAL));
 
     PetscFunctionReturn(PETSC_SUCCESS);
   }
@@ -291,9 +318,11 @@ struct GridOperator {
     MatColoring mc;
     PetscCall(MatColoringCreate(mat, &mc));
     PetscCall(MatColoringSetDistance(mc, 1));
-    PetscCall(MatColoringSetType(mc, MATCOLORINGGREEDY));
+    PetscCall(MatColoringSetType(mc, MATCOLORINGJP));
     PetscCall(MatColoringApply(mc, &coloring));
     PetscCall(MatColoringDestroy(&mc));
+
+    PetscCall(ISColoringSetType(coloring, IS_COLORING_LOCAL));
 
     PetscFunctionReturn(PETSC_SUCCESS);
   }
