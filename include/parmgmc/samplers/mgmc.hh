@@ -13,11 +13,18 @@
 #include <petscvec.h>
 
 namespace parmgmc {
+enum class MGMCSmoothingType { ForwardBackward, Symmetric };
+enum class MGMCCycleType : unsigned int { V = 1, W = 2 };
+
 template <class Engine> class MultigridSampler {
 public:
-  MultigridSampler(std::shared_ptr<GridOperator> grid_operator, Engine *engine,
-                   std::size_t n_levels, std::size_t n_smooth = 2)
-      : n_levels{n_levels}, n_smooth{n_smooth} {
+  MultigridSampler(
+      std::shared_ptr<GridOperator> grid_operator, Engine *engine,
+      std::size_t n_levels, std::size_t n_smooth = 2,
+      MGMCCycleType cycle_type = MGMCCycleType::V,
+      MGMCSmoothingType smoothing_type = MGMCSmoothingType::ForwardBackward)
+      : n_levels{n_levels}, n_smooth{n_smooth}, smoothing_type{smoothing_type},
+        cycles{static_cast<unsigned int>(cycle_type)} {
     PetscFunctionBeginUser;
 
     ops.resize(n_levels);
@@ -63,6 +70,10 @@ public:
           std::make_shared<GibbsSampler<Engine>>(ops[level], engine));
     }
 
+    if (smoothing_type == MGMCSmoothingType::Symmetric)
+      for (auto &smoother : smoothers)
+        smoother->setSweepType(GibbsSweepType::Symmetric);
+
     PetscFunctionReturnVoid();
   }
 
@@ -98,7 +109,8 @@ private:
 
     if (level > 0) {
       // Pre smooth
-      smoothers[level]->setSweepType(GibbsSweepType::FORWARD);
+      if (smoothing_type != MGMCSmoothingType::Symmetric)
+        smoothers[level]->setSweepType(GibbsSweepType::Forward);
       PetscCall(smoothers[level]->sample(sample, rhs, n_smooth));
 
       // Restrict residual
@@ -108,18 +120,22 @@ private:
 
       // Recursive call to multigrid sampler
       PetscCall(VecZeroEntries(vs[level - 1]));
-      PetscCall(sample_impl(level - 1, vs[level - 1], xs[level - 1]));
+
+      for (std::size_t c = 0; c < cycles; ++c)
+        PetscCall(sample_impl(level - 1, vs[level - 1], xs[level - 1]));
 
       // Prolongate add result
       PetscCall(MatInterpolateAdd(
           interpolations[level - 1], xs[level - 1], sample, sample));
 
       // Post smooth
-      smoothers[level]->setSweepType(GibbsSweepType::BACKWARD);
+      if (smoothing_type != MGMCSmoothingType::Symmetric)
+        smoothers[level]->setSweepType(GibbsSweepType::Backward);
       PetscCall(smoothers[level]->sample(sample, rhs, n_smooth));
     } else {
       // Coarse level
-      smoothers[0]->setSweepType(GibbsSweepType::SYMMETRIC);
+      if (smoothing_type != MGMCSmoothingType::Symmetric)
+        smoothers[0]->setSweepType(GibbsSweepType::Symmetric);
       PetscCall(smoothers[0]->sample(sample, rhs, 2 * n_smooth));
     }
 
@@ -136,5 +152,8 @@ private:
 
   std::size_t n_levels;
   std::size_t n_smooth;
+
+  MGMCSmoothingType smoothing_type;
+  unsigned int cycles;
 };
 } // namespace parmgmc

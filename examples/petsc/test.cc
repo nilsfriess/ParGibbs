@@ -29,8 +29,8 @@
 #include "parmgmc/common/petsc_helper.hh"
 #include "parmgmc/grid/grid_operator.hh"
 #include "parmgmc/samplers/gibbs.hh"
-#include "parmgmc/samplers/multigrid.hh"
 #include "parmgmc/samplers/mgmc.hh"
+#include "parmgmc/samplers/multigrid.hh"
 #include "parmgmc/samplers/sample_chain.hh"
 
 #include "mat.hh"
@@ -51,7 +51,7 @@ int main(int argc, char *argv[]) {
   Coordinate lower_left{0, 0};
   Coordinate upper_right{1, 1};
 
-  ColoringType coloring_type = ColoringType::RedBlack;
+  ColoringType coloring_type = ColoringType::PETSc;
 
   auto grid_operator = std::make_shared<GridOperator>(
       n_vertices, n_vertices, lower_left, upper_right, coloring_type, assemble);
@@ -75,7 +75,7 @@ int main(int argc, char *argv[]) {
   PetscCall(MatCreateVecs(grid_operator->mat, NULL, &sample_rhs));
   PetscCall(fill_vec_rand(sample_rhs, engine));
   PetscCall(VecNormalize(sample_rhs, NULL));
-  PetscCall(VecZeroEntries(sample_rhs));
+  // PetscCall(VecZeroEntries(sample_rhs));
 
   // Target mean ( = A^-1 * rhs)
   Vec tgt_mean;
@@ -105,7 +105,12 @@ int main(int argc, char *argv[]) {
   std::vector<Chain> chains;
   chains.reserve(n_chains);
   for (PetscInt i = 0; i < n_chains; ++i)
-    chains.emplace_back(grid_operator, &engine, n_levels, n_smooth);
+    chains.emplace_back(grid_operator,
+                        &engine,
+                        n_levels,
+                        n_smooth,
+                        MGMCCycleType::W,
+                        MGMCSmoothingType::Symmetric);
 #else
   using Chain = SampleChain<GibbsSampler<pcg32>>;
 

@@ -20,13 +20,13 @@
 #include <petscviewer.h>
 
 namespace parmgmc {
-enum class GibbsSweepType { FORWARD, BACKWARD, SYMMETRIC };
+enum class GibbsSweepType { Forward, Backward, Symmetric };
 
 template <class Engine> class GibbsSampler {
 public:
   GibbsSampler(std::shared_ptr<GridOperator> grid_operator, Engine *engine,
                PetscReal omega = 1.,
-               GibbsSweepType sweep_type = GibbsSweepType::FORWARD)
+               GibbsSweepType sweep_type = GibbsSweepType::Forward)
       : grid_operator{grid_operator}, engine{engine}, omega{omega},
         sweep_type{sweep_type} {
     PetscFunctionBeginUser;
@@ -194,8 +194,8 @@ private:
     PetscCall(ISColoringGetIS(
         grid_operator->coloring, PETSC_USE_POINTER, &n_colors, &is_colorings));
 
-    if (sweep_type == GibbsSweepType::FORWARD ||
-        sweep_type == GibbsSweepType::SYMMETRIC) {
+    if (sweep_type == GibbsSweepType::Forward ||
+        sweep_type == GibbsSweepType::Symmetric) {
       for (PetscInt color = 0; color < n_colors; ++color) {
         PetscInt n_indices;
         PetscCall(ISGetLocalSize(is_colorings[color], &n_indices));
@@ -211,8 +211,8 @@ private:
       }
     }
 
-    if (sweep_type == GibbsSweepType::BACKWARD ||
-        sweep_type == GibbsSweepType::SYMMETRIC) {
+    if (sweep_type == GibbsSweepType::Backward ||
+        sweep_type == GibbsSweepType::Symmetric) {
       for (PetscInt color = n_colors - 1; color >= 0; color--) {
         PetscInt n_indices;
         PetscCall(ISGetLocalSize(is_colorings[color], &n_indices));
@@ -297,8 +297,8 @@ private:
     PetscCall(ISColoringGetIS(
         grid_operator->coloring, PETSC_USE_POINTER, &n_colors, &is_colorings));
 
-    if (sweep_type == GibbsSweepType::FORWARD ||
-        sweep_type == GibbsSweepType::SYMMETRIC) {
+    if (sweep_type == GibbsSweepType::Forward ||
+        sweep_type == GibbsSweepType::Symmetric) {
       for (PetscInt color = 0; color < n_colors; ++color) {
         PetscCall(VecZeroEntries(ghost_vec));
         PetscCall(VecScatterBegin(grid_operator->scatter,
@@ -337,8 +337,8 @@ private:
       }
     }
 
-    if (sweep_type == GibbsSweepType::BACKWARD ||
-        sweep_type == GibbsSweepType::SYMMETRIC) {
+    if (sweep_type == GibbsSweepType::Backward ||
+        sweep_type == GibbsSweepType::Symmetric) {
       for (PetscInt color = n_colors - 1; color >= 0; color--) {
         PetscCall(VecZeroEntries(ghost_vec));
         PetscCall(VecScatterBegin(grid_operator->scatter,
