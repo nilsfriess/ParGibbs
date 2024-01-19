@@ -6,7 +6,9 @@
 #include <numeric>
 #include <petscao.h>
 #include <petscis.h>
+#include <petscistypes.h>
 #include <petscviewer.h>
+#include <utility>
 #include <vector>
 
 #include <petscdm.h>
@@ -123,11 +125,10 @@ struct Coordinate {
 enum class ColoringType { RedBlack, PETSc, None };
 
 struct GridOperator {
-  GridOperator() : externally_setup{true} {}
   /* Constructs a GridOperator instance for a 2d structured grid of size
    * global_x*global_y and a matrix representing an operator defined on that
    * grid. The parameter mat_assembler must be a function with signature `void
-   * mat_assembler(Mat &, DM dm)` that assembles the matrix. Note that
+   * mat_assembler(Mat, DM dm)` that assembles the matrix. Note that
    * the nonzero pattern is alredy set before this function is called, so only
    * the values have to be set (e.g., using PETSc's MatSetValuesStencil).
    */
@@ -138,7 +139,8 @@ struct GridOperator {
       : // global_x{global_x}, global_y{global_y},
         // meshwidth_x{(upper_right.x - lower_left.x) / (global_x - 1)},
         // meshwidth_y{(upper_right.y - lower_left.y) / (global_y - 1)},
-        coloring_type{coloring_type}, externally_setup{false} {
+        coloring_type{coloring_type}, lower_left{lower_left},
+        upper_right{upper_right} {
     const PetscInt dof_per_node = 1;
     const PetscInt stencil_width = 1;
 
@@ -156,6 +158,7 @@ struct GridOperator {
                                NULL,
                                NULL,
                                &dm));
+
     PetscCallVoid(DMSetUp(dm));
     PetscCallVoid(DMDASetUniformCoordinates(
         dm, lower_left.x, upper_right.x, lower_left.y, upper_right.y, 0, 0));
@@ -166,56 +169,44 @@ struct GridOperator {
     // Call provided assembly functor to fill matrix
     PetscCallVoid(mat_assembler(mat, dm));
 
-    MatType type;
-    PetscCallVoid(MatGetType(mat, &type));
-
-    // Create red/black coloring
-    switch (coloring_type) {
-    case ColoringType::RedBlack:
-      PetscCallVoid(color_red_black());
-      break;
-    case ColoringType::PETSc:
-      PetscCallVoid(color_general());
-      break;
-    case ColoringType::None:
-      PetscCheckAbort(std::strcmp(type, MATSEQAIJ) == 0,
-                      MPI_COMM_WORLD,
-                      PETSC_ERR_SUP,
-                      "No coloring only supported in sequential execution.");
-
-      // Global indices owned by current MPI rank
-      std::vector<PetscInt> indices(global_x * global_y);
-      std::iota(indices.begin(), indices.end(), 0);
-
-      std::vector<ISColoringValue> colors(indices.size(), 0);
-
-      PetscCallVoid(ISColoringCreate(MPI_COMM_WORLD,
-                                 1,
-                                 colors.size(),
-                                 colors.data(),
-                                 PETSC_COPY_VALUES,
-                                 &coloring));
-      PetscCallVoid(ISColoringSetType(coloring, IS_COLORING_LOCAL));
-      break;
-    }
-
-    PetscCallVoid(
-        ISColoringViewFromOptions(coloring, NULL, "-mat_coloring_view"));
-
-    if (std::strcmp(type, MATMPIAIJ) == 0) {
-      PetscCallVoid(create_rb_scatter());
-    }
+    PetscCallVoid(init_coloring());
 
     PetscFunctionReturnVoid();
   }
 
+  /* Constructs a GridOperator from a given DM and a matrix corresponding to a
+   * DM. This is used, for instance, in the MGMC sampler where the DM and matrix
+   * are created by coarsening and Galerkin projection, respectively, of the
+   * finer problem. */
+  GridOperator(DM dm, Mat mat, Coordinate lower_left, Coordinate upper_right,
+               ColoringType coloring_type)
+      : dm{dm}, mat{mat}, coloring_type{coloring_type}, lower_left{lower_left},
+        upper_right{upper_right} {
+    PetscFunctionBeginUser;
+
+    PetscCallVoid(DMDASetUniformCoordinates(
+        dm, lower_left.x, upper_right.x, lower_left.y, upper_right.y, 0, 0));
+
+    PetscCallVoid(init_coloring());
+
+    PetscFunctionReturnVoid();
+  }
+
+  std::pair<Coordinate, Coordinate> corners() const {
+    return std::make_pair(lower_left, upper_right);
+  }
+
+  DM get_dm() const { return dm; }
+
+  Mat get_mat() const { return mat; }
+
+  ISColoring get_coloring() const { return coloring; }
+
   ~GridOperator() {
     PetscFunctionBeginUser;
 
-    // if (!externally_setup) {
     PetscCallVoid(MatDestroy(&mat));
     PetscCallVoid(DMDestroy(&dm));
-    // }
 
     PetscCallVoid(ISColoringDestroy(&coloring));
 
@@ -260,21 +251,60 @@ struct GridOperator {
   // PetscReal meshwidth_x;
   // PetscReal meshwidth_y;
 
-  DM dm;
-  Mat mat;
-
   // VecScatter scatter_black = nullptr;
   // VecScatter scatter_red = nullptr;
   VecScatter scatter = nullptr;
-
-  ISColoring coloring;
-  ColoringType coloring_type;
+  Vec sct_vec = nullptr;
 
   std::unique_ptr<LowrankUpdate<Vec>> lowrank_update;
 
-  Vec sct_vec = nullptr;
+private:
+  PetscErrorCode init_coloring() {
+    PetscFunctionBeginUser;
 
-  bool externally_setup;
+    MatType type;
+    PetscCall(MatGetType(mat, &type));
+
+    // Create red/black coloring
+    switch (coloring_type) {
+    case ColoringType::RedBlack:
+      PetscCall(color_red_black());
+      break;
+    case ColoringType::PETSc:
+      PetscCall(color_general());
+      break;
+    case ColoringType::None:
+      PetscCheckAbort(std::strcmp(type, MATSEQAIJ) == 0,
+                      MPI_COMM_WORLD,
+                      PETSC_ERR_SUP,
+                      "No coloring only supported in sequential execution.");
+
+      // Global indices owned by current MPI rank
+      PetscInt size;
+      PetscCall(MatGetLocalSize(mat, &size, NULL));
+      std::vector<PetscInt> indices(size);
+      std::iota(indices.begin(), indices.end(), 0);
+
+      std::vector<ISColoringValue> colors(indices.size(), 0);
+
+      PetscCall(ISColoringCreate(MPI_COMM_WORLD,
+                                 1,
+                                 colors.size(),
+                                 colors.data(),
+                                 PETSC_COPY_VALUES,
+                                 &coloring));
+      PetscCall(ISColoringSetType(coloring, IS_COLORING_LOCAL));
+      break;
+    }
+
+    PetscCall(ISColoringViewFromOptions(coloring, NULL, "-mat_coloring_view"));
+
+    if (std::strcmp(type, MATMPIAIJ) == 0) {
+      PetscCall(create_rb_scatter());
+    }
+
+    PetscFunctionReturn(PETSC_SUCCESS);
+  }
 
   PetscErrorCode color_red_black() {
     PetscFunctionBeginUser;
@@ -318,7 +348,7 @@ struct GridOperator {
     MatColoring mc;
     PetscCall(MatColoringCreate(mat, &mc));
     PetscCall(MatColoringSetDistance(mc, 1));
-    PetscCall(MatColoringSetType(mc, MATCOLORINGJP));
+    PetscCall(MatColoringSetType(mc, MATCOLORINGGREEDY));
     PetscCall(MatColoringApply(mc, &coloring));
     PetscCall(MatColoringDestroy(&mc));
 
@@ -467,5 +497,14 @@ struct GridOperator {
 
     PetscFunctionReturn(PETSC_SUCCESS);
   }
+
+  DM dm;
+  Mat mat;
+
+  ISColoring coloring;
+  ColoringType coloring_type;
+
+  Coordinate lower_left;
+  Coordinate upper_right;
 };
 } // namespace parmgmc

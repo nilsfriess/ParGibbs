@@ -31,12 +31,12 @@ public:
         sweep_type{sweep_type} {
     PetscFunctionBeginUser;
 
-    PetscCallVoid(MatCreateVecs(grid_operator->mat, &rand_vec, NULL));
+    PetscCallVoid(MatCreateVecs(grid_operator->get_mat(), &rand_vec, NULL));
     PetscCallVoid(VecGetLocalSize(rand_vec, &rand_vec_size));
 
     // Inverse diagonal
-    PetscCallVoid(MatCreateVecs(grid_operator->mat, &inv_diag, NULL));
-    PetscCallVoid(MatGetDiagonal(grid_operator->mat, inv_diag));
+    PetscCallVoid(MatCreateVecs(grid_operator->get_mat(), &inv_diag, NULL));
+    PetscCallVoid(MatGetDiagonal(grid_operator->get_mat(), inv_diag));
     PetscCallVoid(VecReciprocal(inv_diag));
 
     // sqrt((2-w)*w) * square root of inverse diagonal
@@ -47,13 +47,14 @@ public:
         VecScale(inv_sqrt_diag_omega, std::sqrt((2 - omega) * omega)));
 
     MatType type;
-    PetscCallVoid(MatGetType(grid_operator->mat, &type));
+    PetscCallVoid(MatGetType(grid_operator->get_mat(), &type));
 
     Mat Ad = nullptr;
     if (std::strcmp(type, MATMPIAIJ) == 0) {
-      PetscCallVoid(MatMPIAIJGetSeqAIJ(grid_operator->mat, &Ad, NULL, NULL));
+      PetscCallVoid(
+          MatMPIAIJGetSeqAIJ(grid_operator->get_mat(), &Ad, NULL, NULL));
     } else if (std::strcmp(type, MATSEQAIJ) == 0) {
-      Ad = grid_operator->mat;
+      Ad = grid_operator->get_mat();
     } else {
       PetscCheckAbort(false,
                       MPI_COMM_WORLD,
@@ -96,12 +97,13 @@ public:
     // PetscCall(VecAXPY(rand_vec, 1., rhs));
 
     MatType type;
-    PetscCall(MatGetType(grid_operator->mat, &type));
+    PetscCall(MatGetType(grid_operator->get_mat(), &type));
 
     if (std::strcmp(type, MATMPIAIJ) == 0) {
       if (!ghost_vec) {
         Mat Ao;
-        PetscCall(MatMPIAIJGetSeqAIJ(grid_operator->mat, NULL, &Ao, NULL));
+        PetscCall(
+            MatMPIAIJGetSeqAIJ(grid_operator->get_mat(), NULL, &Ao, NULL));
         PetscCall(MatCreateVecs(Ao, &ghost_vec, NULL));
       }
 
@@ -140,7 +142,7 @@ private:
     PetscCall(VecPointwiseMult(rand_vec, rand_vec, inv_sqrt_diag_omega));
     PetscCall(VecAXPY(rand_vec, 1., rhs));
 
-    // PetscCall(MatSOR(grid_operator->mat,
+    // PetscCall(MatSOR(grid_operator->get_mat(),
     //                  rand_vec,
     //                  omega,
     //                  SOR_SYMMETRIC_SWEEP,
@@ -159,10 +161,10 @@ private:
     PetscReal *matvals;
 
     PetscCall(MatSeqAIJGetCSRAndMemType(
-        grid_operator->mat, &rowptr, &colptr, &matvals, NULL));
+        grid_operator->get_mat(), &rowptr, &colptr, &matvals, NULL));
 
     PetscInt rows;
-    PetscCall(MatGetSize(grid_operator->mat, &rows, NULL));
+    PetscCall(MatGetSize(grid_operator->get_mat(), &rows, NULL));
 
     const PetscScalar *inv_diag_arr;
     PetscCall(VecGetArrayRead(inv_diag, &inv_diag_arr));
@@ -191,8 +193,10 @@ private:
 
     IS *is_colorings;
     PetscInt n_colors;
-    PetscCall(ISColoringGetIS(
-        grid_operator->coloring, PETSC_USE_POINTER, &n_colors, &is_colorings));
+    PetscCall(ISColoringGetIS(grid_operator->get_coloring(),
+                              PETSC_USE_POINTER,
+                              &n_colors,
+                              &is_colorings));
 
     if (sweep_type == GibbsSweepType::Forward ||
         sweep_type == GibbsSweepType::Symmetric) {
@@ -229,7 +233,7 @@ private:
     }
 
     PetscCall(ISColoringRestoreIS(
-        grid_operator->coloring, PETSC_USE_POINTER, &is_colorings));
+                                  grid_operator->get_coloring(), PETSC_USE_POINTER, &is_colorings));
 
     PetscCall(VecRestoreArrayRead(inv_diag, &inv_diag_arr));
     PetscCall(VecRestoreArray(sample, &sample_arr));
@@ -246,7 +250,7 @@ private:
     PetscCall(VecAXPY(rand_vec, 1., rhs));
 
     Mat Ad, Ao;
-    PetscCall(MatMPIAIJGetSeqAIJ(grid_operator->mat, &Ad, &Ao, NULL));
+    PetscCall(MatMPIAIJGetSeqAIJ(grid_operator->get_mat(), &Ad, &Ao, NULL));
 
     const PetscInt *rowptr, *colptr;
     PetscReal *matvals;
@@ -290,12 +294,12 @@ private:
     };
 
     PetscInt first_row;
-    PetscCall(MatGetOwnershipRange(grid_operator->mat, &first_row, NULL));
+    PetscCall(MatGetOwnershipRange(grid_operator->get_mat(), &first_row, NULL));
 
     IS *is_colorings;
     PetscInt n_colors;
     PetscCall(ISColoringGetIS(
-        grid_operator->coloring, PETSC_USE_POINTER, &n_colors, &is_colorings));
+                              grid_operator->get_coloring(), PETSC_USE_POINTER, &n_colors, &is_colorings));
 
     if (sweep_type == GibbsSweepType::Forward ||
         sweep_type == GibbsSweepType::Symmetric) {
@@ -373,7 +377,7 @@ private:
     }
 
     PetscCall(ISColoringRestoreIS(
-        grid_operator->coloring, PETSC_USE_POINTER, &is_colorings));
+                                  grid_operator->get_coloring(), PETSC_USE_POINTER, &is_colorings));
 
     PetscCall(VecRestoreArrayRead(rand_vec, &rand_arr));
     PetscCall(VecRestoreArrayRead(inv_diag, &inv_diag_arr));
