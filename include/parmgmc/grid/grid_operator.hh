@@ -202,6 +202,8 @@ struct GridOperator {
 
   ISColoring get_coloring() const { return coloring; }
 
+  ColoringType get_coloring_type() const { return coloring_type; }
+
   ~GridOperator() {
     PetscFunctionBeginUser;
 
@@ -274,10 +276,10 @@ private:
       PetscCall(color_general());
       break;
     case ColoringType::None:
-      PetscCheckAbort(std::strcmp(type, MATSEQAIJ) == 0,
-                      MPI_COMM_WORLD,
-                      PETSC_ERR_SUP,
-                      "No coloring only supported in sequential execution.");
+      // PetscCheckAbort(std::strcmp(type, MATSEQAIJ) == 0,
+      //                 MPI_COMM_WORLD,
+      //                 PETSC_ERR_SUP,
+      //                 "No coloring only supported in sequential execution.");
 
       // Global indices owned by current MPI rank
       PetscInt size;

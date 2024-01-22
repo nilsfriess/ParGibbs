@@ -60,12 +60,12 @@ public:
                             PETSC_DEFAULT,
                             &coarse_mat));
 
-      ops[level - 1] =
-          std::make_shared<GridOperator>(coarse_dm,
-                                         coarse_mat,
-                                         ops[level]->corners().first,
-                                         ops[level]->corners().second,
-                                         ColoringType::PETSc);
+      ops[level - 1] = std::make_shared<GridOperator>(
+          coarse_dm,
+          coarse_mat,
+          ops[level]->corners().first,
+          ops[level]->corners().second,
+          ops[n_levels - 1]->get_coloring_type());
     }
 
     // Create work vectors and smoothers
@@ -89,13 +89,14 @@ public:
     PetscFunctionReturnVoid();
   }
 
-  PetscErrorCode sample(Vec sample, const Vec rhs) {
+  PetscErrorCode sample(Vec sample, const Vec rhs, std::size_t n_samples) {
     PetscFunctionBeginUser;
 
     PetscCall(VecCopy(rhs, bs[n_levels - 1]));
     PetscCall(VecCopy(sample, xs[n_levels - 1]));
 
-    PetscCall(sample_impl(n_levels - 1));
+    for (std::size_t n = 0; n < n_samples; ++n)
+      PetscCall(sample_impl(n_levels - 1));
 
     PetscCall(VecCopy(xs[n_levels - 1], sample));
 
