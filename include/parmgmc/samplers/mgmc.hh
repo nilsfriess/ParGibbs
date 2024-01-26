@@ -1,7 +1,6 @@
 #pragma once
 
 #include "parmgmc/dm_hierarchy.hh"
-#include "parmgmc/grid/grid_operator.hh"
 #include "parmgmc/linear_operator.hh"
 #include "parmgmc/samplers/gibbs.hh"
 

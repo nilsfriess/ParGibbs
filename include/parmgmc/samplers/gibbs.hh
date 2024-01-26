@@ -2,7 +2,6 @@
 
 #include "parmgmc/common/helpers.hh"
 #include "parmgmc/linear_operator.hh"
-// #include "parmgmc/grid/grid_operator.hh"
 
 #include <cassert>
 #include <cstring>
