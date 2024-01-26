@@ -1,9 +1,9 @@
 #include "mat.hh"
-#include "parmgmc/dm_hierarchy.hh"
 #include "qoi.hh"
 
 #include "parmgmc/common/helpers.hh"
 #include "parmgmc/common/petsc_helper.hh"
+#include "parmgmc/dm_hierarchy.hh"
 #include "parmgmc/linear_operator.hh"
 #include "parmgmc/samplers/mgmc.hh"
 #include "parmgmc/samplers/sample_chain.hh"
@@ -44,6 +44,11 @@ inline PetscErrorCode mc_error(const std::string &name, Chain &chain,
 
   PetscFunctionReturn(PETSC_SUCCESS);
 }
+
+struct Coordinate {
+  PetscReal x;
+  PetscReal y;
+};
 
 int main(int argc, char *argv[]) {
   PetscHelper helper(&argc, &argv);
