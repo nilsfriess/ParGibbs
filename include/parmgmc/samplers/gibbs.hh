@@ -1,7 +1,8 @@
 #pragma once
 
 #include "parmgmc/common/helpers.hh"
-#include "parmgmc/grid/grid_operator.hh"
+#include "parmgmc/linear_operator.hh"
+// #include "parmgmc/grid/grid_operator.hh"
 
 #include <cassert>
 #include <cstring>
@@ -24,19 +25,19 @@ enum class GibbsSweepType { Forward, Backward, Symmetric };
 
 template <class Engine> class GibbsSampler {
 public:
-  GibbsSampler(std::shared_ptr<GridOperator> grid_operator, Engine *engine,
+  GibbsSampler(std::shared_ptr<LinearOperator> linear_operator, Engine *engine,
                PetscReal omega = 1.,
                GibbsSweepType sweep_type = GibbsSweepType::Forward)
-      : grid_operator{grid_operator}, engine{engine}, omega{omega},
+      : linear_operator{linear_operator}, engine{engine}, omega{omega},
         sweep_type{sweep_type} {
     PetscFunctionBeginUser;
 
-    PetscCallVoid(MatCreateVecs(grid_operator->get_mat(), &rand_vec, NULL));
+    PetscCallVoid(MatCreateVecs(linear_operator->get_mat(), &rand_vec, NULL));
     PetscCallVoid(VecGetLocalSize(rand_vec, &rand_vec_size));
 
     // Inverse diagonal
-    PetscCallVoid(MatCreateVecs(grid_operator->get_mat(), &inv_diag, NULL));
-    PetscCallVoid(MatGetDiagonal(grid_operator->get_mat(), inv_diag));
+    PetscCallVoid(MatCreateVecs(linear_operator->get_mat(), &inv_diag, NULL));
+    PetscCallVoid(MatGetDiagonal(linear_operator->get_mat(), inv_diag));    
     PetscCallVoid(VecReciprocal(inv_diag));
 
     // sqrt((2-w)*w) * square root of inverse diagonal
@@ -46,15 +47,20 @@ public:
     PetscCallVoid(
         VecScale(inv_sqrt_diag_omega, std::sqrt((2 - omega) * omega)));
 
+    // const PetscScalar *val;
+    // PetscCallVoid(VecGetArrayRead(inv_sqrt_diag_omega, &val));
+    // PetscCallVoid(PetscPrintf(MPI_COMM_WORLD, "id = %f\n", val[0]));
+    // PetscCallVoid(VecRestoreArrayRead(inv_sqrt_diag_omega, &val));
+
     MatType type;
-    PetscCallVoid(MatGetType(grid_operator->get_mat(), &type));
+    PetscCallVoid(MatGetType(linear_operator->get_mat(), &type));
 
     Mat Ad = nullptr;
     if (std::strcmp(type, MATMPIAIJ) == 0) {
       PetscCallVoid(
-          MatMPIAIJGetSeqAIJ(grid_operator->get_mat(), &Ad, NULL, NULL));
+          MatMPIAIJGetSeqAIJ(linear_operator->get_mat(), &Ad, NULL, NULL));
     } else if (std::strcmp(type, MATSEQAIJ) == 0) {
-      Ad = grid_operator->get_mat();
+      Ad = linear_operator->get_mat();
     } else {
       PetscCheckAbort(false,
                       MPI_COMM_WORLD,
@@ -97,13 +103,13 @@ public:
     // PetscCall(VecAXPY(rand_vec, 1., rhs));
 
     MatType type;
-    PetscCall(MatGetType(grid_operator->get_mat(), &type));
+    PetscCall(MatGetType(linear_operator->get_mat(), &type));
 
     if (std::strcmp(type, MATMPIAIJ) == 0) {
       if (!ghost_vec) {
         Mat Ao;
         PetscCall(
-            MatMPIAIJGetSeqAIJ(grid_operator->get_mat(), NULL, &Ao, NULL));
+            MatMPIAIJGetSeqAIJ(linear_operator->get_mat(), NULL, &Ao, NULL));
         PetscCall(MatCreateVecs(Ao, &ghost_vec, NULL));
       }
 
@@ -134,22 +140,26 @@ public:
   }
 
 private:
+  // private:
   // TODO: Add FLOP logging
   PetscErrorCode gibbs_rb_seq(Vec sample, Vec rhs) {
     PetscFunctionBeginUser;
 
-    PetscCall(fill_vec_rand(rand_vec, rand_vec_size, *engine));
-    PetscCall(VecPointwiseMult(rand_vec, rand_vec, inv_sqrt_diag_omega));
-    PetscCall(VecAXPY(rand_vec, 1., rhs));
-
-    // PetscCall(MatSOR(grid_operator->get_mat(),
-    //                  rand_vec,
-    //                  omega,
+    // PetscCall(MatSOR(linear_operator->get_mat(),
+    //                  rhs,
+    //                  1.,
     //                  SOR_SYMMETRIC_SWEEP,
-    //                  0,
+    //                  0.,
     //                  1,
     //                  1,
     //                  sample));
+    // PetscFunctionReturn(PETSC_SUCCESS);
+
+    PetscCall(fill_vec_rand(rand_vec, rand_vec_size, *engine));
+    PetscCall(VecPointwiseMult(rand_vec, rand_vec, inv_sqrt_diag_omega));
+    PetscCall(VecAXPY(rand_vec, 1., rhs));
+    // PetscCall(VecCopy(rhs, rand_vec));
+    // PetscCall(VecPointwiseMult(rand_vec, rand_vec, inv_diag));
 
     PetscReal *sample_arr;
     const PetscReal *rand_arr;
@@ -161,10 +171,10 @@ private:
     PetscReal *matvals;
 
     PetscCall(MatSeqAIJGetCSRAndMemType(
-        grid_operator->get_mat(), &rowptr, &colptr, &matvals, NULL));
+        linear_operator->get_mat(), &rowptr, &colptr, &matvals, NULL));
 
     PetscInt rows;
-    PetscCall(MatGetSize(grid_operator->get_mat(), &rows, NULL));
+    PetscCall(MatGetSize(linear_operator->get_mat(), &rows, NULL));
 
     const PetscScalar *inv_diag_arr;
     PetscCall(VecGetArrayRead(inv_diag, &inv_diag_arr));
@@ -191,49 +201,64 @@ private:
                         omega * inv_diag_arr[row] * sum;
     };
 
-    IS *is_colorings;
+    IS *is_colorings = nullptr;
     PetscInt n_colors;
-    PetscCall(ISColoringGetIS(grid_operator->get_coloring(),
-                              PETSC_USE_POINTER,
-                              &n_colors,
-                              &is_colorings));
+    if (linear_operator->has_coloring()) {
+      PetscCall(ISColoringGetIS(linear_operator->get_coloring(),
+                                PETSC_USE_POINTER,
+                                &n_colors,
+                                &is_colorings));
+    }
 
     if (sweep_type == GibbsSweepType::Forward ||
         sweep_type == GibbsSweepType::Symmetric) {
-      for (PetscInt color = 0; color < n_colors; ++color) {
-        PetscInt n_indices;
-        PetscCall(ISGetLocalSize(is_colorings[color], &n_indices));
+      if (linear_operator->has_coloring()) {
+        for (PetscInt color = 0; color < n_colors; ++color) {
+          PetscInt n_indices;
+          PetscCall(ISGetLocalSize(is_colorings[color], &n_indices));
 
-        const PetscInt *indices;
-        PetscCall(ISGetIndices(is_colorings[color], &indices));
+          const PetscInt *indices;
+          PetscCall(ISGetIndices(is_colorings[color], &indices));
 
-        for (PetscInt i = 0; i < n_indices; ++i) {
-          gibbs_kernel(indices[i]);
+          for (PetscInt i = 0; i < n_indices; ++i) {
+            gibbs_kernel(indices[i]);
+          }
+
+          PetscCall(ISRestoreIndices(is_colorings[color], &indices));
         }
-
-        PetscCall(ISRestoreIndices(is_colorings[color], &indices));
+      } else {
+        for (PetscInt i = 0; i < rows; ++i) {
+          gibbs_kernel(i);
+        }
       }
     }
 
     if (sweep_type == GibbsSweepType::Backward ||
         sweep_type == GibbsSweepType::Symmetric) {
-      for (PetscInt color = n_colors - 1; color >= 0; color--) {
-        PetscInt n_indices;
-        PetscCall(ISGetLocalSize(is_colorings[color], &n_indices));
+      if (linear_operator->has_coloring()) {
+        for (PetscInt color = n_colors - 1; color >= 0; color--) {
+          PetscInt n_indices;
+          PetscCall(ISGetLocalSize(is_colorings[color], &n_indices));
 
-        const PetscInt *indices;
-        PetscCall(ISGetIndices(is_colorings[color], &indices));
+          const PetscInt *indices;
+          PetscCall(ISGetIndices(is_colorings[color], &indices));
 
-        for (PetscInt i = n_indices - 1; i >= 0; i--) {
-          gibbs_kernel(indices[i]);
+          for (PetscInt i = n_indices - 1; i >= 0; i--) {
+            gibbs_kernel(indices[i]);
+          }
+
+          PetscCall(ISRestoreIndices(is_colorings[color], &indices));
         }
-
-        PetscCall(ISRestoreIndices(is_colorings[color], &indices));
+      } else {
+        for (PetscInt i = rows - 1; i >= 0; --i) {
+          gibbs_kernel(i);
+        }
       }
     }
 
-    PetscCall(ISColoringRestoreIS(
-        grid_operator->get_coloring(), PETSC_USE_POINTER, &is_colorings));
+    if (linear_operator->has_coloring())
+      PetscCall(ISColoringRestoreIS(
+          linear_operator->get_coloring(), PETSC_USE_POINTER, &is_colorings));
 
     PetscCall(VecRestoreArrayRead(inv_diag, &inv_diag_arr));
     PetscCall(VecRestoreArray(sample, &sample_arr));
@@ -246,11 +271,13 @@ private:
     PetscFunctionBeginUser;
 
     PetscCall(fill_vec_rand(rand_vec, rand_vec_size, *engine));
-    PetscCall(VecPointwiseMult(rand_vec, rand_vec, inv_sqrt_diag_omega));
+    PetscCall(VecPointwiseMult(rand_vec, rand_vec, inv_diag));
     PetscCall(VecAXPY(rand_vec, 1., rhs));
+    // PetscCall(VecCopy(rhs, rand_vec));
+    // PetscCall(VecPointwiseMult(rand_vec, rand_vec, inv_diag));
 
     Mat Ad, Ao;
-    PetscCall(MatMPIAIJGetSeqAIJ(grid_operator->get_mat(), &Ad, &Ao, NULL));
+    PetscCall(MatMPIAIJGetSeqAIJ(linear_operator->get_mat(), &Ad, &Ao, NULL));
 
     const PetscInt *rowptr, *colptr;
     PetscReal *matvals;
@@ -294,13 +321,13 @@ private:
     };
 
     PetscInt first_row, last_row;
-    PetscCall(
-        MatGetOwnershipRange(grid_operator->get_mat(), &first_row, &last_row));
+    PetscCall(MatGetOwnershipRange(
+        linear_operator->get_mat(), &first_row, &last_row));
 
-    if (grid_operator->get_coloring_type() != ColoringType::None) {
+    if (linear_operator->has_coloring()) {
       IS *is_colorings;
       PetscInt n_colors;
-      PetscCall(ISColoringGetIS(grid_operator->get_coloring(),
+      PetscCall(ISColoringGetIS(linear_operator->get_coloring(),
                                 PETSC_USE_POINTER,
                                 &n_colors,
                                 &is_colorings));
@@ -309,7 +336,7 @@ private:
           sweep_type == GibbsSweepType::Symmetric) {
         for (PetscInt color = 0; color < n_colors; ++color) {
           PetscCall(VecZeroEntries(ghost_vec));
-          PetscCall(VecScatterBegin(grid_operator->scatter,
+          PetscCall(VecScatterBegin(linear_operator->get_scatter(),
                                     sample,
                                     ghost_vec,
                                     INSERT_VALUES,
@@ -321,7 +348,7 @@ private:
           const PetscInt *indices;
           PetscCall(ISGetIndices(is_colorings[color], &indices));
 
-          PetscCall(VecScatterEnd(grid_operator->scatter,
+          PetscCall(VecScatterEnd(linear_operator->get_scatter(),
                                   sample,
                                   ghost_vec,
                                   INSERT_VALUES,
@@ -349,7 +376,7 @@ private:
           sweep_type == GibbsSweepType::Symmetric) {
         for (PetscInt color = n_colors - 1; color >= 0; color--) {
           PetscCall(VecZeroEntries(ghost_vec));
-          PetscCall(VecScatterBegin(grid_operator->scatter,
+          PetscCall(VecScatterBegin(linear_operator->get_scatter(),
                                     sample,
                                     ghost_vec,
                                     INSERT_VALUES,
@@ -361,7 +388,7 @@ private:
           const PetscInt *indices;
           PetscCall(ISGetIndices(is_colorings[color], &indices));
 
-          PetscCall(VecScatterEnd(grid_operator->scatter,
+          PetscCall(VecScatterEnd(linear_operator->get_scatter(),
                                   sample,
                                   ghost_vec,
                                   INSERT_VALUES,
@@ -380,39 +407,41 @@ private:
         }
 
         PetscCall(ISColoringRestoreIS(
-            grid_operator->get_coloring(), PETSC_USE_POINTER, &is_colorings));
+            linear_operator->get_coloring(), PETSC_USE_POINTER, &is_colorings));
       }
-    } else { // coloring_type == ColoringType::None
-      PetscCall(VecZeroEntries(ghost_vec));
-      PetscCall(VecScatterBegin(grid_operator->scatter,
-                                sample,
-                                ghost_vec,
-                                INSERT_VALUES,
-                                SCATTER_FORWARD));
-      PetscCall(VecScatterEnd(grid_operator->scatter,
-                              sample,
-                              ghost_vec,
-                              INSERT_VALUES,
-                              SCATTER_FORWARD));
+    } else {
+      assert(false && "Not implemented");
+    } // { // coloring_type == ColoringType::None
+    //   PetscCall(VecZeroEntries(ghost_vec));
+    //   PetscCall(VecScatterBegin(grid_operator->scatter,
+    //                             sample,
+    //                             ghost_vec,
+    //                             INSERT_VALUES,
+    //                             SCATTER_FORWARD));
+    //   PetscCall(VecScatterEnd(grid_operator->scatter,
+    //                           sample,
+    //                           ghost_vec,
+    //                           INSERT_VALUES,
+    //                           SCATTER_FORWARD));
 
-      PetscCall(VecGetArray(sample, &sample_arr));
-      PetscCall(VecGetArrayRead(ghost_vec, &ghost_arr));
+    //   PetscCall(VecGetArray(sample, &sample_arr));
+    //   PetscCall(VecGetArrayRead(ghost_vec, &ghost_arr));
 
-      if (sweep_type == GibbsSweepType::Forward ||
-          sweep_type == GibbsSweepType::Symmetric) {
-        for (PetscInt i = 0; i < last_row - first_row; ++i)
-          gibbs_kernel(i);
-      }
+    //   if (sweep_type == GibbsSweepType::Forward ||
+    //       sweep_type == GibbsSweepType::Symmetric) {
+    //     for (PetscInt i = 0; i < last_row - first_row; ++i)
+    //       gibbs_kernel(i);
+    //   }
 
-      if (sweep_type == GibbsSweepType::Backward ||
-          sweep_type == GibbsSweepType::Symmetric) {
-        for (PetscInt i = last_row - first_row - 1; i >= 0; i--)
-          gibbs_kernel(i);
-      }
+    //   if (sweep_type == GibbsSweepType::Backward ||
+    //       sweep_type == GibbsSweepType::Symmetric) {
+    //     for (PetscInt i = last_row - first_row - 1; i >= 0; i--)
+    //       gibbs_kernel(i);
+    //   }
 
-      PetscCall(VecRestoreArrayRead(ghost_vec, &ghost_arr));
-      PetscCall(VecRestoreArray(sample, &sample_arr));
-    }
+    //   PetscCall(VecRestoreArrayRead(ghost_vec, &ghost_arr));
+    //   PetscCall(VecRestoreArray(sample, &sample_arr));
+    // }
 
     PetscCall(VecRestoreArrayRead(rand_vec, &rand_arr));
     PetscCall(VecRestoreArrayRead(inv_diag, &inv_diag_arr));
@@ -420,7 +449,8 @@ private:
     PetscFunctionReturn(PETSC_SUCCESS);
   }
 
-  std::shared_ptr<GridOperator> grid_operator;
+  std::shared_ptr<LinearOperator> linear_operator;
+
   Engine *engine;
   PetscReal omega;
 
@@ -437,37 +467,5 @@ private:
   Vec ghost_vec = nullptr;
   std::vector<PetscInt> diag_ptrs; // Indices of the diagonal entries
 };
-
-template <class Engine>
-inline PetscErrorCode
-PCShellCallback_Gibbs(PC pc, Vec b, Vec x, Vec r, PetscReal rtol,
-                      PetscReal abstol, PetscReal dtol, PetscInt maxits,
-                      PetscBool zeroinitialguess, PetscInt *its,
-                      PCRichardsonConvergedReason *reason) {
-  /* We ignore all the provided tolerances since this is only supposed to be
-   * used within MGMC
-   */
-  (void)rtol;
-  (void)abstol;
-  (void)dtol;
-  (void)maxits;
-  (void)r;
-
-  // Assume for now that x is not zero
-  (void)zeroinitialguess;
-
-  // Always return one iteration
-  *its = 1;
-  *reason = PCRICHARDSON_CONVERGED_ITS;
-
-  PetscFunctionBeginUser;
-
-  GibbsSampler<Engine> *sampler;
-  PetscCall(PCShellGetContext(pc, &sampler));
-
-  PetscCall(sampler->sample(x, b));
-
-  PetscFunctionReturn(PETSC_SUCCESS);
-}
 
 } // namespace parmgmc

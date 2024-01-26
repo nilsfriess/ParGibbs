@@ -19,7 +19,7 @@ template <class Sampler, class QOI> class SampleChain {
 public:
   template <typename... Args>
   SampleChain(QOI qoi, std::size_t n_chains, Vec ex_sample,
-d              Args &&...sampler_args)
+              Args &&...sampler_args)
       : qoi{qoi}, curr_samples(n_chains, nullptr), samples(n_chains),
         means(n_chains, 0), square_diffs(n_chains, 0) {
     PetscFunctionBeginUser;
