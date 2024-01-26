@@ -30,7 +30,7 @@ inline PetscErrorCode mc_error(const std::string &name, Chain &chain,
   Vec initial_sample;
   PetscCall(VecDuplicate(sample_rhs, &initial_sample));
 
-  PetscInt max_samples = 10;
+  PetscInt max_samples = 100;
   PetscOptionsGetInt(NULL, NULL, "-max_samples", &max_samples, NULL);
   chain.set_sample(initial_sample);
   PetscCall(VecDestroy(&initial_sample));
