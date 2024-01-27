@@ -36,7 +36,7 @@ public:
 
     // Inverse diagonal
     PetscCallVoid(MatCreateVecs(linear_operator->get_mat(), &inv_diag, NULL));
-    PetscCallVoid(MatGetDiagonal(linear_operator->get_mat(), inv_diag));    
+    PetscCallVoid(MatGetDiagonal(linear_operator->get_mat(), inv_diag));
     PetscCallVoid(VecReciprocal(inv_diag));
 
     // sqrt((2-w)*w) * square root of inverse diagonal
@@ -144,21 +144,9 @@ private:
   PetscErrorCode gibbs_rb_seq(Vec sample, Vec rhs) {
     PetscFunctionBeginUser;
 
-    // PetscCall(MatSOR(linear_operator->get_mat(),
-    //                  rhs,
-    //                  1.,
-    //                  SOR_SYMMETRIC_SWEEP,
-    //                  0.,
-    //                  1,
-    //                  1,
-    //                  sample));
-    // PetscFunctionReturn(PETSC_SUCCESS);
-
     PetscCall(fill_vec_rand(rand_vec, rand_vec_size, *engine));
     PetscCall(VecPointwiseMult(rand_vec, rand_vec, inv_sqrt_diag_omega));
     PetscCall(VecAXPY(rand_vec, 1., rhs));
-    // PetscCall(VecCopy(rhs, rand_vec));
-    // PetscCall(VecPointwiseMult(rand_vec, rand_vec, inv_diag));
 
     PetscReal *sample_arr;
     const PetscReal *rand_arr;
@@ -270,7 +258,7 @@ private:
     PetscFunctionBeginUser;
 
     PetscCall(fill_vec_rand(rand_vec, rand_vec_size, *engine));
-    PetscCall(VecPointwiseMult(rand_vec, rand_vec, inv_diag));
+    PetscCall(VecPointwiseMult(rand_vec, rand_vec, inv_sqrt_diag_omega));
     PetscCall(VecAXPY(rand_vec, 1., rhs));
     // PetscCall(VecCopy(rhs, rand_vec));
     // PetscCall(VecPointwiseMult(rand_vec, rand_vec, inv_diag));
