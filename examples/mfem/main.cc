@@ -4,6 +4,7 @@
 
 #include <mfem.hpp>
 
+#include <mfem/fem/pgridfunc.hpp>
 #include <mpi.h>
 #include <petscmat.h>
 #include <petscsys.h>
@@ -114,7 +115,8 @@ int main(int argc, char *argv[]) {
   pmesh.UniformRefinement();
   pmesh.UniformRefinement();
 
-  mfem::H1_FECollection fec(1, dim);
+  const int order = 1;
+  mfem::H1_FECollection fec(order, dim);
   mfem::ParFiniteElementSpace coarse_fespace(&pmesh, &fec);
 
   mfem::ParFiniteElementSpaceHierarchy fespaces(
@@ -148,9 +150,9 @@ int main(int argc, char *argv[]) {
   }
 
   parmgmc::MGMCParameters params;
-  params.n_smooth = 2;
+  params.n_smooth = 1;
   params.cycle_type = parmgmc::MGMCCycleType::V;
-  params.smoothing_type = parmgmc::MGMCSmoothingType::ForwardBackward;
+  params.smoothing_type = parmgmc::MGMCSmoothingType::Symmetric;
 
   ShiftedLaplaceMGMC sampler(fespaces, ess_bdr, &engine, params, kappainv);
 
@@ -161,7 +163,7 @@ int main(int argc, char *argv[]) {
   // tgt_mean.Randomize();
   tgt_mean = 0;
 
-  sample = 0;
+  sample = 10;
 
   MatMult(sampler.get_operator(fespaces.GetFinestLevelIndex())->get_mat(),
           tgt_mean,
@@ -172,12 +174,20 @@ int main(int argc, char *argv[]) {
 
   mfem::PetscParVector err(mean);
 
+  const int n_save_samples = 5;
+  std::vector<mfem::ParGridFunction> save_samples;
+
   for (int n = 0; n < n_samples; ++n) {
     sampler.sample(sample, rhs, 1);
 
     mean.Add(1. / n_samples, sample);
 
     VecWAXPY(err, -1, mean, tgt_mean);
+
+    if (n_samples - n <= n_save_samples) {
+      save_samples.emplace_back(&fespaces.GetFinestFESpace());
+      save_samples.back().SetFromTrueDofs(sample);
+    }
 
     PetscPrintf(MPI_COMM_WORLD, "%f\n", err.Normlinf());
   }
@@ -186,16 +196,17 @@ int main(int argc, char *argv[]) {
     // auto &fespace = fespaces.GetFESpaceAtLevel(2);
     auto &fespace = fespaces.GetFinestFESpace();
 
-    mfem::ParGridFunction xsample(&fespace);
-    xsample.SetFromTrueDofs(sample);
     mfem::ParGridFunction xmean(&fespace);
     xmean.SetFromTrueDofs(mean);
 
     mfem::ParaViewDataCollection pd("Star", fespace.GetParMesh());
     pd.SetPrefixPath("ParaView");
-    pd.RegisterField("Sample", &xsample);
+
+    for (std::size_t i = 0; i < save_samples.size(); ++i)
+      pd.RegisterField("Sample " + std::to_string(i), &save_samples[i]);
+
     pd.RegisterField("Mean", &xmean);
-    pd.SetLevelsOfDetail(1);
+    pd.SetLevelsOfDetail(order);
     pd.SetDataFormat(mfem::VTKFormat::BINARY);
     pd.SetHighOrderOutput(true);
     pd.SetCycle(0);
