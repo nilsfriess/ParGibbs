@@ -23,24 +23,36 @@
 using namespace parmgmc;
 
 template <class Chain>
-inline PetscErrorCode mc_error(const std::string &name, Chain &chain,
-                               Vec sample_rhs) {
+inline PetscErrorCode iact(const std::string &name, Chain &chain,
+                           Vec sample_rhs) {
   PetscFunctionBeginUser;
 
   Vec initial_sample;
   PetscCall(VecDuplicate(sample_rhs, &initial_sample));
 
-  PetscInt max_samples = 100;
-  PetscOptionsGetInt(NULL, NULL, "-max_samples", &max_samples, NULL);
-  chain.set_sample(initial_sample);
+  for (std::size_t n = 0; n < chain.get_n_chains(); ++n) {
+    PetscCall(VecSet(initial_sample, (n + 1) * 100));
+    chain.set_sample(initial_sample, n);
+  }
   PetscCall(VecDestroy(&initial_sample));
 
-  PetscCall(chain.sample(sample_rhs, max_samples));
+  PetscInt n_burnin = 100;
+  PetscOptionsGetInt(NULL, NULL, "-n_burnin", &n_burnin, NULL);
+
+  PetscCall(chain.sample(sample_rhs, n_burnin));
+  chain.reset();
+
+  PetscInt n_samples = 100;
+  PetscOptionsGetInt(NULL, NULL, "-n_samples", &n_samples, NULL);
+
+  PetscCall(chain.sample(sample_rhs, n_samples));
 
   PetscCall(PetscPrintf(MPI_COMM_WORLD,
-                        "%s IACT: %zu\n",
+                        "%s IACT: %zu (has %sconverged, R = %f)\n",
                         name.c_str(),
-                        chain.integrated_autocorr_time()));
+                        chain.integrated_autocorr_time(),
+                        chain.converged() ? "" : "not ",
+                        chain.gelman_rubin()));
 
   PetscFunctionReturn(PETSC_SUCCESS);
 }
@@ -96,6 +108,8 @@ int main(int argc, char *argv[]) {
     // PetscCall(dm_hierarchy->print_info());
   }
 
+  const int n_chains = 8;
+
   // Setup random number generator
   pcg32 engine;
   {
@@ -114,7 +128,7 @@ int main(int argc, char *argv[]) {
   // RHS used in samplers
   Vec sample_rhs;
   PetscCall(DMCreateGlobalVector(dm_hierarchy->get_fine(), &sample_rhs));
-  // PetscCall(fill_vec_rand(sample_rhs, engine));
+  PetscCall(fill_vec_rand(sample_rhs, engine));
 
   NormQOI qoi;
 
@@ -133,11 +147,12 @@ int main(int argc, char *argv[]) {
                     "Setting up multigrid sampler with rediscretisation..."));
 
     using Chain = SampleChain<MultigridSampler<pcg32>, NormQOI>;
-    Chain chain(qoi, 1, sample_rhs, dm_hierarchy, assemble, &engine, params);
+    Chain chain(
+        qoi, n_chains, sample_rhs, dm_hierarchy, assemble, &engine, params);
 
     PetscCall(PetscPrintf(MPI_COMM_WORLD, "done.\n"));
 
-    PetscCall(mc_error("MGMC (Rediscretisation)", chain, sample_rhs));
+    PetscCall(iact("MGMC (Rediscretisation)", chain, sample_rhs));
   }
 
   // Setup Multigrid sampler (using Galerkin product for coarse operators)
@@ -152,12 +167,17 @@ int main(int argc, char *argv[]) {
     auto linear_operator = std::make_shared<LinearOperator>(mat);
 
     using Chain = SampleChain<MultigridSampler<pcg32>, NormQOI>;
-    Chain chain(
-        qoi, 1, sample_rhs, linear_operator, dm_hierarchy, &engine, params);
+    Chain chain(qoi,
+                n_chains,
+                sample_rhs,
+                linear_operator,
+                dm_hierarchy,
+                &engine,
+                params);
 
     PetscCall(PetscPrintf(MPI_COMM_WORLD, "done.\n"));
 
-    PetscCall(mc_error("MGMC (Galerkin)", chain, sample_rhs));
+    PetscCall(iact("MGMC (Galerkin)", chain, sample_rhs));
   }
 
   // Setup Gibbs sampler
@@ -174,7 +194,7 @@ int main(int argc, char *argv[]) {
 
     using Chain = SampleChain<GibbsSampler<pcg32>, NormQOI>;
     Chain chain(qoi,
-                1,
+                n_chains,
                 sample_rhs,
                 linear_operator,
                 &engine,
@@ -182,7 +202,7 @@ int main(int argc, char *argv[]) {
                 GibbsSweepType::Symmetric);
     PetscCall(PetscPrintf(MPI_COMM_WORLD, "done.\n"));
 
-    PetscCall(mc_error("Gibbs", chain, sample_rhs));
+    PetscCall(iact("Gibbs", chain, sample_rhs));
   }
 
   PetscCall(VecDestroy(&sample_rhs));
