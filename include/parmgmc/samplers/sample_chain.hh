@@ -25,11 +25,11 @@ public:
     PetscFunctionBeginUser;
 
     samplers.reserve(n_chains);
-    for (std::size_t n = 0; n < n_chains; ++n)
+    for (std::size_t n = 0; n < n_chains; ++n) {
       samplers.emplace_back(std::forward<Args>(sampler_args)...);
 
-    for (auto &sample : curr_samples)
-      PetscCallVoid(VecDuplicate(ex_sample, &sample));
+      PetscCallVoid(VecDuplicate(ex_sample, &curr_samples[n]));
+    }
 
     PetscFunctionReturnVoid();
   }
@@ -115,7 +115,7 @@ public:
   }
 
   std::size_t integrated_autocorr_time(std::size_t n_chain = 0,
-                                       std::size_t window_size = 30) const {
+                                       std::size_t window_size = 20) const {
     const auto total_samples = samples[n_chain].size();
     if (window_size > total_samples)
       return total_samples;

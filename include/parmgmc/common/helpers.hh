@@ -69,7 +69,7 @@ inline PetscErrorCode ISColoring_for_Mat(Mat m, ISColoring *coloring) {
 }
 
 inline PetscErrorCode VecScatter_for_Mat(Mat m, VecScatter *scatter,
-                                         Vec *sct_vec = nullptr) {
+                                         Vec sct_vec = nullptr) {
   PetscFunctionBeginUser;
 
   PetscInt first_row;
@@ -141,7 +141,7 @@ inline PetscErrorCode VecScatter_for_Mat(Mat m, VecScatter *scatter,
   PetscCall(VecScatterCreate(gvec, from, lvec, nullptr, scatter));
 
   if (return_sct_vec)
-    sct_vec = &lvec;
+    sct_vec = lvec;
   else
     PetscCall(VecDestroy(&lvec));
 

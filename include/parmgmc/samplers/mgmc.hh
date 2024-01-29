@@ -34,7 +34,7 @@ public:
    * function should be `PetscErrorCode assembler(DM, Mat*)`. The Mat must
    * be created (e.g. using DMCreateMatrix) by the assembly function. */
   template <class Assembler>
-  MultigridSampler(std::shared_ptr<DMHierarchy> dm_hierarchy,
+  MultigridSampler(const std::shared_ptr<DMHierarchy> &dm_hierarchy,
                    Assembler &&assembler, Engine *engine,
                    const MGMCParameters &params)
       : dm_hierarchy{dm_hierarchy}, engine{engine},
@@ -56,12 +56,12 @@ public:
   }
 
   /* Construct a Multigrid sampler using a given linear operator and a hierarchy
-   * of DMs. The operators must be an operator on the finest DM in the
+   * of DMs. The operator must be an operator on the finest DM in the
    * hierarchy, the remaining operators are created by Galerkin projection
    * A_coarse = P^T A_fine P. */
-  MultigridSampler(std::shared_ptr<LinearOperator> fine_operator,
-                   std::shared_ptr<DMHierarchy> dm_hierarchy, Engine *engine,
-                   const MGMCParameters &params)
+  MultigridSampler(const std::shared_ptr<LinearOperator> &fine_operator,
+                   const std::shared_ptr<DMHierarchy> &dm_hierarchy,
+                   Engine *engine, const MGMCParameters &params)
       : dm_hierarchy{dm_hierarchy}, engine{engine},
         n_levels{dm_hierarchy->num_levels()}, n_smooth{params.n_smooth},
         smoothing_type{params.smoothing_type},

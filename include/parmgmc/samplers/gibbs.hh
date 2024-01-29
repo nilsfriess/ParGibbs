@@ -24,8 +24,8 @@ enum class GibbsSweepType { Forward, Backward, Symmetric };
 
 template <class Engine> class GibbsSampler {
 public:
-  GibbsSampler(std::shared_ptr<LinearOperator> linear_operator, Engine *engine,
-               PetscReal omega = 1.,
+  GibbsSampler(const std::shared_ptr<LinearOperator> &linear_operator,
+               Engine *engine, PetscReal omega = 1.,
                GibbsSweepType sweep_type = GibbsSweepType::Forward)
       : linear_operator{linear_operator}, engine{engine}, omega{omega},
         sweep_type{sweep_type} {
@@ -279,6 +279,8 @@ private:
     PetscCall(MatGetSize(Ad, &rows, NULL));
 
     PetscReal *sample_arr;
+    PetscCall(VecGetArray(sample, &sample_arr));
+
     const PetscReal *rand_arr, *inv_diag_arr, *ghost_arr;
 
     PetscCall(VecGetArrayRead(inv_diag, &inv_diag_arr));
@@ -341,7 +343,6 @@ private:
                                   INSERT_VALUES,
                                   SCATTER_FORWARD));
 
-          PetscCall(VecGetArray(sample, &sample_arr));
           PetscCall(VecGetArrayRead(ghost_vec, &ghost_arr));
 
           // PetscCall(PetscIntView(n_indices, indices,
