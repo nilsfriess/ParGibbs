@@ -12,7 +12,7 @@
 namespace parmgmc {
 class LinearOperator {
 public:
-  LinearOperator(Mat mat, bool transfer_ownership = true)
+  explicit LinearOperator(Mat mat, bool transfer_ownership = true)
       : mat{mat}, should_delete{transfer_ownership} {
     PetscFunctionBeginUser;
 
