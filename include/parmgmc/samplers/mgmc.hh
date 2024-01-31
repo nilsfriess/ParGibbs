@@ -23,6 +23,14 @@ struct MGMCParameters {
   std::size_t n_smooth;
   MGMCSmoothingType smoothing_type;
   MGMCCycleType cycle_type;
+
+  static MGMCParameters Default() {
+    MGMCParameters params;
+    params.n_smooth = 1;
+    params.smoothing_type = MGMCSmoothingType::Symmetric;
+    params.cycle_type = MGMCCycleType::V;
+    return params;
+  }
 };
 
 template <class Engine> class MultigridSampler {
