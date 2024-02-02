@@ -2,7 +2,7 @@
 
 #include "parmgmc/dm_hierarchy.hh"
 #include "parmgmc/linear_operator.hh"
-#include "parmgmc/samplers/gibbs.hh"
+#include "parmgmc/samplers/multicolor_gibbs.hh"
 
 #include <iostream>
 #include <memory>
@@ -33,14 +33,15 @@ struct MGMCParameters {
   }
 };
 
-template <class Engine> class MultigridSampler {
+template <class Engine, class Smoother = MulticolorGibbsSampler<Engine>>
+class MultigridSampler {
 public:
-  /* Construct a Multigrid sampler using a given hierarchy of DMs and a matrix
-   * assembly routine. For each level (the number of levels is determined by the
-   * number of DMs in the `dm_hierarchy`) the assembly routine is called with
-   * the corresponding DM as its argument. The signature of the assembly
-   * function should be `PetscErrorCode assembler(DM, Mat*)`. The Mat must
-   * be created (e.g. using DMCreateMatrix) by the assembly function. */
+  /** Construct a Multigrid sampler using a given hierarchy of DMs and a matrix
+   *  assembly routine. For each level (the number of levels is determined by the
+   *  number of DMs in the `dm_hierarchy`) the assembly routine is called with
+   *  the corresponding DM as its argument. The signature of the assembly
+   *  function should be `PetscErrorCode assembler(DM, Mat*)`. The Mat must
+   *  be created (e.g. using DMCreateMatrix) by the assembly function. */
   template <class Assembler>
   MultigridSampler(const std::shared_ptr<DMHierarchy> &dm_hierarchy,
                    Assembler &&assembler, Engine *engine,
@@ -159,7 +160,7 @@ private:
       PetscCall(VecZeroEntries(rs[level]));
 
       smoothers.push_back(
-          std::make_shared<GibbsSampler<Engine>>(ops[level], engine));
+          std::make_shared<Smoother>(ops[level], engine));
     }
 
     if (smoothing_type == MGMCSmoothingType::Symmetric)
@@ -210,7 +211,7 @@ private:
   bool init_done = false;
 
   std::shared_ptr<DMHierarchy> dm_hierarchy;
-  std::vector<std::shared_ptr<GibbsSampler<Engine>>> smoothers;
+  std::vector<std::shared_ptr<Smoother>> smoothers;
 
   Engine *engine;
 

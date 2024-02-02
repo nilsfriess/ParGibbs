@@ -1,5 +1,7 @@
 #include "parmgmc/common/petsc_helper.hh"
 #include "parmgmc/linear_operator.hh"
+#include "parmgmc/samplers/multicolor_gibbs.hh"
+#include "parmgmc/samplers/hogwild.hh"
 #include "parmgmc/samplers/mgmc.hh"
 
 #include <mfem.hpp>
@@ -20,13 +22,14 @@
 #include <string>
 
 template <class Engine>
-class ShiftedLaplaceMGMC : public parmgmc::MultigridSampler<Engine> {
+using MGMC = parmgmc::MultigridSampler<Engine, parmgmc::MulticolorGibbsSampler<Engine>>;
+
+template <class Engine> class ShiftedLaplaceMGMC : public MGMC<Engine> {
 public:
   ShiftedLaplaceMGMC(mfem::ParFiniteElementSpaceHierarchy &fespaces,
                      const mfem::Array<int> &ess_bdr, Engine *engine,
                      const parmgmc::MGMCParameters &params, double kappainv)
-      : parmgmc::MultigridSampler<Engine>(params, fespaces.GetNumLevels(),
-                                          engine),
+      : MGMC<Engine>(params, fespaces.GetNumLevels(), engine),
         fespaces{fespaces} {
     this->ops.resize(fespaces.GetNumLevels());
 
@@ -106,7 +109,7 @@ int main(int argc, char *argv[]) {
   /* Refine the serial mesh such that the refined mesh has at most 1000
    * elements. */
   int ref_levels =
-      std::floor(std::log(100. / mesh.GetNE()) / std::log(2) / dim);
+      std::floor(std::log(1000. / mesh.GetNE()) / std::log(2) / dim);
   for (int l = 0; l < ref_levels; l++)
     mesh.UniformRefinement();
 
@@ -163,7 +166,7 @@ int main(int argc, char *argv[]) {
   // tgt_mean.Randomize();
   tgt_mean = 0;
 
-  sample = 10;
+  sample = 0;
 
   MatMult(sampler.get_operator(fespaces.GetFinestLevelIndex())->get_mat(),
           tgt_mean,

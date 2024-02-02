@@ -22,9 +22,9 @@
 namespace parmgmc {
 enum class GibbsSweepType { Forward, Backward, Symmetric };
 
-template <class Engine> class GibbsSampler {
+template <class Engine> class MulticolorGibbsSampler {
 public:
-  GibbsSampler(const std::shared_ptr<LinearOperator> &linear_operator,
+  MulticolorGibbsSampler(const std::shared_ptr<LinearOperator> &linear_operator,
                Engine *engine, PetscReal omega = 1.,
                GibbsSweepType sweep_type = GibbsSweepType::Forward)
       : linear_operator{linear_operator}, engine{engine}, omega{omega},
@@ -127,7 +127,7 @@ public:
     PetscFunctionReturn(PETSC_SUCCESS);
   }
 
-  ~GibbsSampler() {
+  ~MulticolorGibbsSampler() {
     PetscFunctionBeginUser;
 
     PetscCallVoid(VecDestroy(&rand_vec));
@@ -279,7 +279,6 @@ private:
     PetscCall(MatGetSize(Ad, &rows, NULL));
 
     PetscReal *sample_arr;
-    PetscCall(VecGetArray(sample, &sample_arr));
 
     const PetscReal *rand_arr, *inv_diag_arr, *ghost_arr;
 
@@ -343,6 +342,7 @@ private:
                                   INSERT_VALUES,
                                   SCATTER_FORWARD));
 
+          PetscCall(VecGetArray(sample, &sample_arr));
           PetscCall(VecGetArrayRead(ghost_vec, &ghost_arr));
 
           // PetscCall(PetscIntView(n_indices, indices,
