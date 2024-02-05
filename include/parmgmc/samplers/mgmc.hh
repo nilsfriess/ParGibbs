@@ -1,5 +1,7 @@
 #pragma once
 
+#include "parmgmc/common/log.hh"
+#include "parmgmc/common/timer.hh"
 #include "parmgmc/dm_hierarchy.hh"
 #include "parmgmc/linear_operator.hh"
 #include "parmgmc/samplers/multicolor_gibbs.hh"
@@ -36,33 +38,36 @@ struct MGMCParameters {
 template <class Engine, class Smoother = MulticolorGibbsSampler<Engine>>
 class MultigridSampler {
 public:
-  /** Construct a Multigrid sampler using a given hierarchy of DMs and a matrix
-   *  assembly routine. For each level (the number of levels is determined by the
-   *  number of DMs in the `dm_hierarchy`) the assembly routine is called with
-   *  the corresponding DM as its argument. The signature of the assembly
-   *  function should be `PetscErrorCode assembler(DM, Mat*)`. The Mat must
-   *  be created (e.g. using DMCreateMatrix) by the assembly function. */
-  template <class Assembler>
-  MultigridSampler(const std::shared_ptr<DMHierarchy> &dm_hierarchy,
-                   Assembler &&assembler, Engine *engine,
-                   const MGMCParameters &params)
-      : dm_hierarchy{dm_hierarchy}, engine{engine},
-        n_levels{dm_hierarchy->num_levels()}, n_smooth{params.n_smooth},
-        smoothing_type{params.smoothing_type},
-        cycles{static_cast<unsigned int>(params.cycle_type)} {
-    PetscFunctionBeginUser;
+  // /** Construct a Multigrid sampler using a given hierarchy of DMs and a
+  // matrix
+  //  *  assembly routine. For each level (the number of levels is determined by
+  //  the
+  //  *  number of DMs in the `dm_hierarchy`) the assembly routine is called
+  //  with
+  //  *  the corresponding DM as its argument. The signature of the assembly
+  //  *  function should be `PetscErrorCode assembler(DM, Mat*)`. The Mat must
+  //  *  be created (e.g. using DMCreateMatrix) by the assembly function. */
+  // template <class Assembler>
+  // MultigridSampler(const std::shared_ptr<DMHierarchy> &dm_hierarchy,
+  //                  Assembler &&assembler, Engine *engine,
+  //                  const MGMCParameters &params)
+  //     : dm_hierarchy{dm_hierarchy}, engine{engine},
+  //       n_levels{dm_hierarchy->num_levels()}, n_smooth{params.n_smooth},
+  //       smoothing_type{params.smoothing_type},
+  //       cycles{static_cast<unsigned int>(params.cycle_type)} {
+  //   PetscFunctionBeginUser;
 
-    ops.resize(n_levels);
-    for (std::size_t level = 0; level < n_levels; level++) {
-      Mat mat;
-      PetscCallVoid(assembler(dm_hierarchy->get_dm(level), &mat));
-      ops[level] = std::make_shared<LinearOperator>(mat);
-    }
+  //   ops.resize(n_levels);
+  //   for (std::size_t level = 0; level < n_levels; level++) {
+  //     Mat mat;
+  //     PetscCallVoid(assembler(dm_hierarchy->get_dm(level), &mat));
+  //     ops[level] = std::make_shared<LinearOperator>(mat);
+  //   }
 
-    PetscCallVoid(init_vecs_and_smoothers(engine));
+  //   PetscCallVoid(init_vecs_and_smoothers(engine));
 
-    PetscFunctionReturnVoid();
-  }
+  //   PetscFunctionReturnVoid();
+  // }
 
   /* Construct a Multigrid sampler using a given linear operator and a hierarchy
    * of DMs. The operator must be an operator on the finest DM in the
@@ -77,8 +82,22 @@ public:
         cycles{static_cast<unsigned int>(params.cycle_type)} {
     PetscFunctionBeginUser;
 
+    PARMGMC_INFO << "Start setting up Multigrid sampler using DM hierarchy ("
+                  << dm_hierarchy->num_levels() << " levels).\n";
+    Timer timer;
+
     ops.resize(n_levels);
     ops[n_levels - 1] = fine_operator;
+
+    MatType type;
+    PetscCallVoid(MatGetType(fine_operator->get_mat(), &type));
+
+    bool is_parallel = false;
+    if (std::strcmp(type, MATMPIAIJ) == 0)
+      is_parallel = true;
+
+    if (is_parallel && !fine_operator->has_coloring())
+      PetscCallVoid(fine_operator->color_matrix(dm_hierarchy->get_fine()));
 
     for (int level = n_levels - 1; level > 0; --level) {
       // Create fine matrix using Galerkin projection
@@ -89,9 +108,16 @@ public:
                             PETSC_DEFAULT,
                             &coarse_mat));
       ops[level - 1] = std::make_shared<LinearOperator>(coarse_mat);
+
+      if (is_parallel)
+        PetscCallVoid(ops[level - 1]->color_matrix(dm_hierarchy->get_dm(level)));
     }
 
     PetscCallVoid(init_vecs_and_smoothers(engine));
+
+    auto elapsed = timer.elapsed();
+    PARMGMC_INFO << "Done setting up Multigrid sampler (took " << elapsed
+                  << " seconds).\n";
 
     PetscFunctionReturnVoid();
   }
@@ -159,8 +185,7 @@ private:
       PetscCall(VecZeroEntries(xs[level]));
       PetscCall(VecZeroEntries(rs[level]));
 
-      smoothers.push_back(
-          std::make_shared<Smoother>(ops[level], engine));
+      smoothers.push_back(std::make_shared<Smoother>(ops[level], engine));
     }
 
     if (smoothing_type == MGMCSmoothingType::Symmetric)

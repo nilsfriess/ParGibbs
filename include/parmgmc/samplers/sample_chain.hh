@@ -150,6 +150,12 @@ public:
 
   std::size_t get_n_chains() const { return samplers.size(); }
 
+  const Sampler &get_sampler(std::size_t n_chain = 0) const {
+    return samplers[n_chain];
+  }
+
+  Sampler &get_sampler(std::size_t n_chain = 0) { return samplers[n_chain]; }
+
   ~SampleChain() {
     PetscFunctionBeginUser;
     for (auto &v : curr_samples)

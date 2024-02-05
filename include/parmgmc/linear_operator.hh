@@ -8,6 +8,8 @@
 #include <petscmat.h>
 
 #include "parmgmc/common/helpers.hh"
+#include "parmgmc/common/log.hh"
+#include "petscsystypes.h"
 
 namespace parmgmc {
 class LinearOperator {
@@ -19,12 +21,26 @@ public:
     MatType type;
     PetscCallVoid(MatGetType(mat, &type));
 
-    if (std::strcmp(type, MATMPIAIJ) == 0) {
-      PetscCallVoid(ISColoring_for_Mat(mat, &coloring));
+    if (std::strcmp(type, MATMPIAIJ) == 0)
       PetscCallVoid(VecScatter_for_Mat(mat, &scatter));
-    }
 
     PetscFunctionReturnVoid();
+  }
+
+  PetscErrorCode color_matrix(DM dm = nullptr) {
+    PetscFunctionBeginUser;
+
+    if (!dm)
+      PetscCall(ISColoring_for_Mat(mat, &coloring));
+    else
+      PetscCall(ISColoring_for_Mat(mat, dm, &coloring));
+
+    PetscInt ncolors;
+    PetscCall(ISColoringGetColors(coloring, nullptr, &ncolors, nullptr));
+
+    PARMGMC_DEBUG << "Matrix coloring required " << ncolors << " colors\n";
+
+    PetscFunctionReturn(PETSC_SUCCESS);
   }
 
   Mat get_mat() const { return mat; }
@@ -49,8 +65,9 @@ private:
   Mat mat = nullptr;
 
   // Only set in parallel execution (i.e. when type of mat == MATMPIAIJ)
-  ISColoring coloring = nullptr;
   VecScatter scatter = nullptr;
+
+  ISColoring coloring = nullptr;
 
   bool should_delete;
 };

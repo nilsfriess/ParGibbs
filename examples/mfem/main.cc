@@ -53,6 +53,7 @@ public:
       auto *A = new mfem::PetscParMatrix;
       forms[l]->FormSystemMatrix(ess_tdofs, *A);
       this->ops[l] = std::make_shared<parmgmc::LinearOperator>(*A, false);
+      this->ops[l]->color_matrix();
     }
   }
 
