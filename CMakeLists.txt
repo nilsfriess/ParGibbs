@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(ParMGMC LANGUAGES CXX)
+project(ParMGMC LANGUAGES CXX C)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
