@@ -1,5 +1,4 @@
 name: ubuntu
-run-name: Run serial and parallel tests on Ubuntu
 on: [push]
 jobs:
   run-tests:
@@ -9,9 +8,9 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt update
-          sudo apt install -y cmake mpich petsc-dev 
+          sudo apt install -y cmake petsc-dev 
       - name: Build ParMGMC
         run: |
           mkdir build && cd build
-          cmake .. -DCMAKE_C_COMPILER=mpicc -DCMAKE_CXX_COMPILER=mpic++
+          cmake .. -DCMAKE_C_COMPILER=mpicc -DCMAKE_CXX_COMPILER=mpic++ -DPETSC_DIR=/usr/lib/petsc
   
