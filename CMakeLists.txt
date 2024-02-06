@@ -10,7 +10,7 @@ find_package(MPI REQUIRED)
 set(MPI_TARGET MPI::MPI_CXX)
 
 find_package(PkgConfig REQUIRED)
-pkg_search_module(PETSC PETSc IMPORTED_TARGET REQUIRED)
+pkg_search_module(PETSC PETSc>=3.17 IMPORTED_TARGET REQUIRED)
 
 if (${PETSC_FOUND})
   message(STATUS "Found PETSc version ${PETSC_VERSION}")
