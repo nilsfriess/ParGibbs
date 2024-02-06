@@ -14,12 +14,14 @@ pkg_search_module(PETSC PETSc IMPORTED_TARGET REQUIRED)
 
 if (${PETSC_FOUND})
   message(STATUS "Found PETSc version ${PETSC_VERSION}")
+  pkg_get_variable(PETSC_INCLUDES PETSc includedir)
+  message(STATUS "${PETSC_INCLUDES}")
 endif()
 
 add_library(parmgmc INTERFACE)
 target_include_directories(parmgmc INTERFACE "${CMAKE_SOURCE_DIR}/include" ${PETSC_INCLUDES})
 target_compile_options(parmgmc INTERFACE -Wall -Wextra -Wpedantic -Wnon-virtual-dtor)
-target_link_libraries(parmgmc INTERFACE ${PETSC_LIBRARIES} ${MPI_TARGET})
+target_link_libraries(parmgmc INTERFACE PkgConfig::PETSC ${MPI_TARGET})
 
 add_subdirectory(examples)
 
