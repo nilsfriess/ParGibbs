@@ -32,5 +32,5 @@ jobs:
           make
 
       - name: Run tests
-        run: ./tests/tests
+        run: ${GITHUB_WORKSPACE}/build/tests/tests
   
