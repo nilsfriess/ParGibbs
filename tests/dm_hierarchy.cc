@@ -1,15 +1,18 @@
 #include "parmgmc/dm_hierarchy.hh"
 #include "test_helpers.hh"
 
+#include <algorithm>
 #include <cmath>
 #include <petscdm.h>
 #include <petscdmda.h>
 #include <petscerror.h>
+#include <petscmat.h>
 #include <petscsys.h>
 
 #include <catch2/catch_get_random_seed.hpp>
 #include <catch2/catch_test_macros.hpp>
 
+#include <petscvec.h>
 #include <random>
 
 int DMGetVertices(DM dm) {
@@ -85,3 +88,34 @@ TEST_CASE("DMHierarchy fine grid has correct number of vertices") {
           n_levels - 1);
 }
 
+TEST_CASE(
+    "DMHierarchy.get_interpolation returns correct interpolation operator") {
+  auto coarse_dm = create_test_dm(5);
+
+  const auto n_levels = 5;
+  parmgmc::DMHierarchy dh(coarse_dm, n_levels);
+
+  Vec vc, vf;
+
+  DMCreateGlobalVector(dh.get_dm(1), &vc);
+  DMCreateGlobalVector(dh.get_dm(2), &vf);
+
+  // We interpolate a constant vector which should result in a constant vector
+  PetscScalar val = 1;
+
+  VecSet(vc, val);
+  MatInterpolate(dh.get_interpolation(1), vc, vf);
+
+  PetscInt size;
+  VecGetLocalSize(vf, &size);
+
+  const PetscScalar *data;
+  VecGetArrayRead(vf, &data);
+
+  REQUIRE(std::all_of(data, data + size, [val](auto v) { return v == val; }));
+
+  VecRestoreArrayRead(vf, &data);
+
+  VecDestroy(&vc);
+  VecDestroy(&vf);
+}
