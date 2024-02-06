@@ -21,3 +21,11 @@ target_compile_options(parmgmc INTERFACE -Wall -Wextra -Wpedantic -Wnon-virtual-
 target_link_libraries(parmgmc INTERFACE ${PETSC_LIBRARIES} ${MPI_TARGET})
 
 add_subdirectory(examples)
+
+if(NOT DEFINED PARMGMC_ENABLE_TESTS)
+  set(PARMGMC_ENABLE_TESTS TRUE)
+endif()
+
+if(${PARMGMC_ENABLE_TESTS})
+  add_subdirectory(tests)
+endif()
