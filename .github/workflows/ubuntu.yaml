@@ -13,4 +13,7 @@ jobs:
         run: |
           mkdir build && cd build
           cmake .. -DCMAKE_C_COMPILER=mpicc -DCMAKE_CXX_COMPILER=mpic++ -DCMAKE_PREFIX_PATH=/usr/lib/petsc
+          make
+      - name: Run tests
+        run: ./tests/tests
   
