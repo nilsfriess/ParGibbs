@@ -9,8 +9,9 @@ set(CMAKE_COLOR_DIAGNOSTICS ON)
 find_package(MPI REQUIRED)
 set(MPI_TARGET MPI::MPI_CXX)
 
-set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake")
-find_package(PETSc REQUIRED)
+find_package(PkgConfig REQUIRED)
+pkg_search_module(PETSC PETSc IMPORTED_TARGET REQUIRED)
+
 if (${PETSC_FOUND})
   message(STATUS "Found PETSc version ${PETSC_VERSION}")
 endif()
