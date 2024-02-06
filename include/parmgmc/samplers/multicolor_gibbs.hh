@@ -25,8 +25,8 @@ enum class GibbsSweepType { Forward, Backward, Symmetric };
 template <class Engine> class MulticolorGibbsSampler {
 public:
   MulticolorGibbsSampler(const std::shared_ptr<LinearOperator> &linear_operator,
-               Engine *engine, PetscReal omega = 1.,
-               GibbsSweepType sweep_type = GibbsSweepType::Forward)
+                         Engine *engine, PetscReal omega = 1.,
+                         GibbsSweepType sweep_type = GibbsSweepType::Forward)
       : linear_operator{linear_operator}, engine{engine}, omega{omega},
         sweep_type{sweep_type} {
     PetscFunctionBeginUser;
@@ -218,6 +218,12 @@ private:
           gibbs_kernel(i);
         }
       }
+    }
+
+    if (sweep_type == GibbsSweepType::Symmetric) {
+      PetscCall(fill_vec_rand(rand_vec, rand_vec_size, *engine));
+      PetscCall(VecPointwiseMult(rand_vec, rand_vec, inv_sqrt_diag_omega));
+      PetscCall(VecAXPY(rand_vec, 1., rhs));
     }
 
     if (sweep_type == GibbsSweepType::Backward ||

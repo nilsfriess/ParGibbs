@@ -13,6 +13,7 @@ include(Catch)
 
 add_executable(tests 
   test.cc 
+  multicolor_gibbs.cc
   helpers.cc
   dm_hierarchy.cc
   linear_operator.cc)
