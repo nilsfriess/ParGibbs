@@ -106,3 +106,21 @@ TEST_CASE(
   // Red-black coloring should return exactly two colors
   REQUIRE(ncolors == 2);
 }
+
+TEST_CASE(
+    "LinearOperator.has_coloring() returns false if operator has no coloring") {
+  auto mat = create_test_mat(25);
+  parmgmc::LinearOperator op(mat);
+
+  REQUIRE(op.has_coloring() == false);
+}
+
+TEST_CASE(
+    "LinearOperator.has_coloring() returns true if operator has coloring") {
+  auto mat = create_test_mat(25);
+  parmgmc::LinearOperator op(mat);
+
+  op.color_matrix();
+
+  REQUIRE(op.has_coloring() == true);
+}
