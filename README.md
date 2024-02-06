@@ -13,12 +13,12 @@ $ cd ParMGMC
 $ mkdir build && cd build
 $ cmake .. -DCMAKE_PREFIX_PATH=/path/to/petsc
 ```
-To specify a custom compiler (e.g., a MPI compiler wrapper) add `-DCMAKE_CXX_COMPILER=mpic++`. To add custom compiler flags, use `-DCMAKE_CXX_FLAGS="-O3 -march=native`.
+To specify a custom compiler (e.g., a MPI compiler wrapper) add `-DCMAKE_CXX_COMPILER=mpic++"`. To add custom compiler flags, use `-DCMAKE_CXX_FLAGS="-O3 -march=native`.
 If the CMake configuartion finished successfully, compile the tests using 
 ```bash
 $ make tests
 ```
-The execute 
+Then execute 
 ```bash
 $ ./tests/tests
 ```
