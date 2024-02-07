@@ -366,6 +366,12 @@ private:
         }
       }
 
+      if (sweep_type == GibbsSweepType::Symmetric) {
+        PetscCall(fill_vec_rand(rand_vec, rand_vec_size, *engine));
+        PetscCall(VecPointwiseMult(rand_vec, rand_vec, inv_sqrt_diag_omega));
+        PetscCall(VecAXPY(rand_vec, 1., rhs));
+      }
+
       if (sweep_type == GibbsSweepType::Backward ||
           sweep_type == GibbsSweepType::Symmetric) {
         for (PetscInt color = n_colors - 1; color >= 0; color--) {

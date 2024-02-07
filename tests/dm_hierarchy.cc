@@ -45,7 +45,7 @@ int DMGetVertices(DM dm) {
   return num_vertices(dim, M, N, P);
 }
 
-TEST_CASE("DMHierarchy creates correct number of levels") {
+TEST_CASE("DMHierarchy creates correct number of levels", "[.][seq][mpi]") {
   auto coarse_dm = create_test_dm(5);
 
   const auto n_levels = 5;
@@ -55,7 +55,7 @@ TEST_CASE("DMHierarchy creates correct number of levels") {
   REQUIRE(dh.num_levels() == n_levels);
 }
 
-TEST_CASE("DMHierarchy returns correct coarse space") {
+TEST_CASE("DMHierarchy returns correct coarse space", "[.][seq][mpi]") {
   auto coarse_dm = create_test_dm(5);
 
   const auto n_levels = 5;
@@ -64,7 +64,7 @@ TEST_CASE("DMHierarchy returns correct coarse space") {
   REQUIRE(dh.get_coarse() == coarse_dm);
 }
 
-TEST_CASE("DMHierarchy fine grid has correct number of vertices") {
+TEST_CASE("DMHierarchy fine grid has correct number of vertices", "[.][seq]") {
   auto coarse_dm = create_test_dm(5);
 
   std::mt19937 engine(Catch::getSeed());
@@ -89,7 +89,8 @@ TEST_CASE("DMHierarchy fine grid has correct number of vertices") {
 }
 
 TEST_CASE(
-    "DMHierarchy.get_interpolation returns correct interpolation operator") {
+    "DMHierarchy.get_interpolation returns correct interpolation operator",
+    "[.][seq][mpi]") {
   auto coarse_dm = create_test_dm(5);
 
   const auto n_levels = 5;

@@ -31,6 +31,10 @@ jobs:
           cmake .. -DCMAKE_C_COMPILER=mpicc -DCMAKE_CXX_COMPILER=mpic++ -DCMAKE_PREFIX_PATH=${GITHUB_WORKSPACE}/petsc/arch-linux-c-opt
           make
 
-      - name: Run tests
-        run: ${GITHUB_WORKSPACE}/build/tests/tests
+      - name: Run serial tests
+        run: ${GITHUB_WORKSPACE}/build/tests/tests [seq]
+
+      - name: Run parallel tests
+        run: mpirun -np 4 ${GITHUB_WORKSPACE}/build/tests/tests [mpi]
+        
   

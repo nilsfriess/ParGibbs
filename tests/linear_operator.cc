@@ -59,12 +59,7 @@ bool verify_coloring(Mat mat, ISColoring coloring) {
   return success;
 }
 
-TEST_CASE("LinearOperator can be constructed in sequential", "[seq]") {
-  auto mat = create_test_mat(25);
-  parmgmc::LinearOperator op(mat);
-}
-
-TEST_CASE("LinearOperator can be constructed in parallel", "[.][mpi]") {
+TEST_CASE("LinearOperator can be constructed", "[.][seq][mpi]") {
   auto mat = create_test_mat(25);
   parmgmc::LinearOperator op(mat);
 }
@@ -75,7 +70,9 @@ TEST_CASE("LinearOperator works with matrix that has no off-processor entries",
   parmgmc::LinearOperator op(mat);
 }
 
-TEST_CASE("LinearOperator.color_matrix() returns proper coloring", "[col]") {
+// TODO: The verify_coloring function currently does not work in parallel
+TEST_CASE("LinearOperator.color_matrix() returns proper coloring",
+          "[.][seq]") {
   auto mat = create_test_mat(25);
   parmgmc::LinearOperator op(mat);
 
@@ -86,9 +83,10 @@ TEST_CASE("LinearOperator.color_matrix() returns proper coloring", "[col]") {
   REQUIRE(verify_coloring(mat, coloring));
 }
 
+// TODO: The verify_coloring function currently does not work in parallel
 TEST_CASE(
     "LinearOperator.color_matrix() returns red/black coloring when given DM",
-    "[col]") {
+    "[.][seq]") {
   auto dm = create_test_dm(5);
   Mat mat;
   DMCreateMatrix(dm, &mat);
@@ -108,15 +106,16 @@ TEST_CASE(
 }
 
 TEST_CASE(
-    "LinearOperator.has_coloring() returns false if operator has no coloring") {
+    "LinearOperator.has_coloring() returns false if operator has no coloring",
+    "[.][seq][mpi]") {
   auto mat = create_test_mat(25);
   parmgmc::LinearOperator op(mat);
 
   REQUIRE(op.has_coloring() == false);
 }
 
-TEST_CASE(
-    "LinearOperator.has_coloring() returns true if operator has coloring") {
+TEST_CASE("LinearOperator.has_coloring() returns true if operator has coloring",
+          "[.][seq][mpi]") {
   auto mat = create_test_mat(25);
   parmgmc::LinearOperator op(mat);
 

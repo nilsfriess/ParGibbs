@@ -13,11 +13,12 @@
 
 using namespace Catch::Matchers;
 
-TEST_CASE("Symmetric sweep is the same as forward+backward sweep") {
+TEST_CASE("Symmetric sweep is the same as forward+backward sweep", "[.][seq][mpi]") {
   std::mt19937_64 engine(Catch::getSeed());
 
   auto mat = create_test_mat(81);
   auto op = std::make_shared<parmgmc::LinearOperator>(mat);
+  op->color_matrix();
 
   parmgmc::MulticolorGibbsSampler sampler(op, &engine);
 
