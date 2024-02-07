@@ -6,14 +6,14 @@ ParMGMC is a header-only library and as such requires no installation. If you wa
 - An MPI installation (e.g., [OpenMPI](https://www.open-mpi.org/) or [MPICH](https://www.mpich.org/))
 - [PETSc](https://petsc.org/)  (version >= 3.17)
 
-To compile and run the tests and/or the examples, you need CMake. To compile and run the tests first clone the repository and configure the build with
+To compile and run the tests and/or the examples, you need CMake. Clone the repository and configure the build with
 ```bash
 $ git clone https://github.com/nilsfriess/ParMGMC.git
 $ cd ParMGMC
 $ mkdir build && cd build
 $ cmake .. -DCMAKE_PREFIX_PATH=/path/to/petsc
 ```
-To specify a custom compiler (e.g., a MPI compiler wrapper) add `-DCMAKE_CXX_COMPILER=mpic++"`. To add custom compiler flags, use `-DCMAKE_CXX_FLAGS="-O3 -march=native`.
+To specify a custom compiler (e.g., a MPI compiler wrapper) add `-DCMAKE_CXX_COMPILER=mpic++`. To add custom compiler flags, add, e.g., `-DCMAKE_CXX_FLAGS="-O3 -march=native"`.
 If the CMake configuartion finished successfully, compile the tests using 
 ```bash
 $ make tests
