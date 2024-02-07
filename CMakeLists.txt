@@ -19,7 +19,7 @@ if (${PETSC_FOUND})
 endif()
 
 add_library(parmgmc INTERFACE)
-target_include_directories(parmgmc INTERFACE "${CMAKE_SOURCE_DIR}/include" ${PETSC_INCLUDES})
+target_include_directories(parmgmc INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/include" ${PETSC_INCLUDES})
 target_compile_options(parmgmc INTERFACE -Wall -Wextra -Wpedantic -Wnon-virtual-dtor)
 target_link_libraries(parmgmc INTERFACE PkgConfig::PETSC ${MPI_TARGET})
 
