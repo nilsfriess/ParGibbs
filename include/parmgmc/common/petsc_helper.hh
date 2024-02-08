@@ -28,6 +28,23 @@ struct PetscHelper {
     PetscFunctionReturn(PETSC_SUCCESS);
   }
 
+  static PetscErrorCode get_gibbs_event(PetscLogEvent *evt) {
+    static PetscLogEvent gibbs_event;
+
+    PetscFunctionBeginUser;
+    if (!gibbs_event_registered) {
+      PetscClassId classid;
+      PetscCall(PetscClassIdRegister("ParMGMC", &classid));
+      PetscCall(PetscLogEventRegister("Gibbs", classid, &gibbs_event));
+
+      gibbs_event_registered = true;
+    }
+
+    *evt = gibbs_event;
+
+    PetscFunctionReturn(PETSC_SUCCESS);
+  }
+
   ~PetscHelper() { PetscFinalize(); }
 
 private:
@@ -38,6 +55,8 @@ private:
 
     PetscFunctionReturnVoid();
   }
+
   inline static bool rng_event_registered = false;
+  inline static bool gibbs_event_registered = false;
 };
 } // namespace parmgmc

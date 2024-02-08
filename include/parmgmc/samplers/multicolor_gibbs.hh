@@ -144,6 +144,11 @@ private:
   PetscErrorCode gibbs_rb_seq(Vec sample, Vec rhs) {
     PetscFunctionBeginUser;
 
+    PetscLogEvent gibbs_event;
+    PetscCall(PetscHelper::get_gibbs_event(&gibbs_event));
+    PetscCall(
+        PetscLogEventBegin(gibbs_event, nullptr, nullptr, nullptr, nullptr));
+
     PetscCall(fill_vec_rand(rand_vec, rand_vec_size, *engine));
     PetscCall(VecPointwiseMult(rand_vec, rand_vec, inv_sqrt_diag_omega));
     PetscCall(VecAXPY(rand_vec, 1., rhs));
@@ -165,6 +170,9 @@ private:
 
     const PetscScalar *inv_diag_arr;
     PetscCall(VecGetArrayRead(inv_diag, &inv_diag_arr));
+
+    MatInfo matinfo;
+    PetscCall(MatGetInfo(linear_operator->get_mat(), MAT_LOCAL, &matinfo));
 
     const auto gibbs_kernel = [&](PetscInt row) {
       const auto row_start = rowptr[row];
@@ -199,6 +207,8 @@ private:
 
     if (sweep_type == GibbsSweepType::Forward ||
         sweep_type == GibbsSweepType::Symmetric) {
+      PetscCall(PetscLogFlops(2.0 * matinfo.nz_used));
+
       if (linear_operator->has_coloring()) {
         for (PetscInt color = 0; color < n_colors; ++color) {
           PetscInt n_indices;
@@ -207,9 +217,8 @@ private:
           const PetscInt *indices;
           PetscCall(ISGetIndices(is_colorings[color], &indices));
 
-          for (PetscInt i = 0; i < n_indices; ++i) {
+          for (PetscInt i = 0; i < n_indices; ++i)
             gibbs_kernel(indices[i]);
-          }
 
           PetscCall(ISRestoreIndices(is_colorings[color], &indices));
         }
@@ -228,6 +237,8 @@ private:
 
     if (sweep_type == GibbsSweepType::Backward ||
         sweep_type == GibbsSweepType::Symmetric) {
+      PetscCall(PetscLogFlops(2.0 * matinfo.nz_used));
+
       if (linear_operator->has_coloring()) {
         for (PetscInt color = n_colors - 1; color >= 0; color--) {
           PetscInt n_indices;
@@ -236,9 +247,8 @@ private:
           const PetscInt *indices;
           PetscCall(ISGetIndices(is_colorings[color], &indices));
 
-          for (PetscInt i = n_indices - 1; i >= 0; i--) {
+          for (PetscInt i = n_indices - 1; i >= 0; i--)
             gibbs_kernel(indices[i]);
-          }
 
           PetscCall(ISRestoreIndices(is_colorings[color], &indices));
         }
@@ -248,6 +258,9 @@ private:
         }
       }
     }
+
+    PetscCall(
+        PetscLogEventEnd(gibbs_event, nullptr, nullptr, nullptr, nullptr));
 
     if (linear_operator->has_coloring())
       PetscCall(ISColoringRestoreIS(
@@ -263,11 +276,14 @@ private:
   PetscErrorCode gibbs_rb_mpi(Vec sample, Vec rhs) {
     PetscFunctionBeginUser;
 
+    PetscLogEvent gibbs_event;
+    PetscCall(PetscHelper::get_gibbs_event(&gibbs_event));
+    PetscCall(
+        PetscLogEventBegin(gibbs_event, nullptr, nullptr, nullptr, nullptr));
+
     PetscCall(fill_vec_rand(rand_vec, rand_vec_size, *engine));
     PetscCall(VecPointwiseMult(rand_vec, rand_vec, inv_sqrt_diag_omega));
     PetscCall(VecAXPY(rand_vec, 1., rhs));
-    // PetscCall(VecCopy(rhs, rand_vec));
-    // PetscCall(VecPointwiseMult(rand_vec, rand_vec, inv_diag));
 
     Mat Ad, Ao;
     PetscCall(MatMPIAIJGetSeqAIJ(linear_operator->get_mat(), &Ad, &Ao, NULL));
@@ -290,6 +306,9 @@ private:
 
     PetscCall(VecGetArrayRead(inv_diag, &inv_diag_arr));
     PetscCall(VecGetArrayRead(rand_vec, &rand_arr));
+
+    MatInfo matinfo;
+    PetscCall(MatGetInfo(linear_operator->get_mat(), MAT_LOCAL, &matinfo));
 
     const auto gibbs_kernel = [&](PetscInt row) {
       const auto row_start = rowptr[row];
@@ -328,6 +347,8 @@ private:
 
       if (sweep_type == GibbsSweepType::Forward ||
           sweep_type == GibbsSweepType::Symmetric) {
+        PetscCall(PetscLogFlops(2.0 * matinfo.nz_used));
+
         for (PetscInt color = 0; color < n_colors; ++color) {
           PetscCall(VecZeroEntries(ghost_vec));
           PetscCall(VecScatterBegin(linear_operator->get_scatter(),
@@ -351,9 +372,6 @@ private:
           PetscCall(VecGetArray(sample, &sample_arr));
           PetscCall(VecGetArrayRead(ghost_vec, &ghost_arr));
 
-          // PetscCall(PetscIntView(n_indices, indices,
-          // PETSC_VIEWER_STDOUT_WORLD));
-
           for (PetscInt i = 0; i < n_indices; ++i) {
             gibbs_kernel(indices[i]);
           }
@@ -361,8 +379,6 @@ private:
           PetscCall(VecRestoreArrayRead(ghost_vec, &ghost_arr));
           PetscCall(VecRestoreArray(sample, &sample_arr));
           PetscCall(ISRestoreIndices(is_colorings[color], &indices));
-
-          // PetscCall(VecView(sample, PETSC_VIEWER_STDOUT_WORLD));
         }
       }
 
@@ -374,6 +390,8 @@ private:
 
       if (sweep_type == GibbsSweepType::Backward ||
           sweep_type == GibbsSweepType::Symmetric) {
+        PetscCall(PetscLogFlops(2.0 * matinfo.nz_used));
+
         for (PetscInt color = n_colors - 1; color >= 0; color--) {
           PetscCall(VecZeroEntries(ghost_vec));
           PetscCall(VecScatterBegin(linear_operator->get_scatter(),
@@ -445,6 +463,9 @@ private:
 
     PetscCall(VecRestoreArrayRead(rand_vec, &rand_arr));
     PetscCall(VecRestoreArrayRead(inv_diag, &inv_diag_arr));
+
+    PetscCall(
+        PetscLogEventEnd(gibbs_event, nullptr, nullptr, nullptr, nullptr));
 
     PetscFunctionReturn(PETSC_SUCCESS);
   }
