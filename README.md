@@ -37,9 +37,9 @@ $ make tests
 ```
 Then execute 
 ```bash
-$ ./tests/tests
+$ ./tests/tests [seq]
 ```
-to run the serial tests and
+to run the sequential tests and
 ```bash
 $ mpirun -np 4 ./tests/tests [mpi]
 ```
