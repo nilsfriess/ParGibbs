@@ -6,8 +6,9 @@
 
 namespace parmgmc {
 struct PetscHelper {
-  PetscHelper(int *argc, char ***argv) {
-    PetscInitialize(argc, argv, NULL, NULL);
+  static void init(int &argc, char **&argv, const char *file = nullptr,
+                   const char *help = nullptr) {
+    static PetscHelper helper(&argc, &argv, file, help);
   }
 
   static PetscErrorCode get_rng_event(PetscLogEvent *evt) {
@@ -30,6 +31,13 @@ struct PetscHelper {
   ~PetscHelper() { PetscFinalize(); }
 
 private:
+  PetscHelper(int *argc, char ***argv, const char *file, const char *help) {
+    PetscFunctionBeginUser;
+
+    PetscCallVoid(PetscInitialize(argc, argv, file, help));
+
+    PetscFunctionReturnVoid();
+  }
   inline static bool rng_event_registered = false;
 };
 } // namespace parmgmc

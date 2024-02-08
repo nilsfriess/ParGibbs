@@ -80,7 +80,7 @@ struct Coordinate {
 };
 
 int main(int argc, char *argv[]) {
-  PetscHelper helper(&argc, &argv);
+  PetscHelper::init(argc, argv);
 
   PetscFunctionBeginUser;
 

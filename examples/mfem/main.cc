@@ -1,8 +1,8 @@
 #include "parmgmc/common/petsc_helper.hh"
 #include "parmgmc/linear_operator.hh"
-#include "parmgmc/samplers/multicolor_gibbs.hh"
 #include "parmgmc/samplers/hogwild.hh"
 #include "parmgmc/samplers/mgmc.hh"
+#include "parmgmc/samplers/multicolor_gibbs.hh"
 
 #include <mfem.hpp>
 
@@ -22,7 +22,8 @@
 #include <string>
 
 template <class Engine>
-using MGMC = parmgmc::MultigridSampler<Engine, parmgmc::MulticolorGibbsSampler<Engine>>;
+using MGMC =
+    parmgmc::MultigridSampler<Engine, parmgmc::MulticolorGibbsSampler<Engine>>;
 
 template <class Engine> class ShiftedLaplaceMGMC : public MGMC<Engine> {
 public:
@@ -82,7 +83,7 @@ private:
 };
 
 int main(int argc, char *argv[]) {
-  parmgmc::PetscHelper helper(&argc, &argv);
+  parmgmc::PetscHelper::init(argc, argv);
 
   std::string mesh_file("../data/star.mesh");
 
