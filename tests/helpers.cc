@@ -60,7 +60,8 @@ TEST_CASE("fill_vec_rand fills vector with N(0,1) samples", "[.][long]") {
   }
 }
 
-TEST_CASE("make_topmidbot_partition makes correct top and bot partition") {
+TEST_CASE("make_topmidbot_partition makes correct top and bot partition",
+          "[mpi]") {
   auto dm = create_test_dm(5);
   Mat mat;
   DMCreateMatrix(dm, &mat);
@@ -116,7 +117,8 @@ TEST_CASE("make_topmidbot_partition makes correct top and bot partition") {
   }
 }
 
-TEST_CASE("make_topmidbot_partition makes correct interior partition") {
+TEST_CASE("make_topmidbot_partition makes correct interior partition",
+          "[mpi]") {
   auto dm = create_test_dm(5);
   Mat mat;
   DMCreateMatrix(dm, &mat);
@@ -169,7 +171,7 @@ TEST_CASE("make_topmidbot_partition makes correct interior partition") {
   }
 }
 
-TEST_CASE("make_topmidbot_partition partitions cost properly") {
+TEST_CASE("make_topmidbot_partition partitions cost properly", "[mpi]") {
   auto dm = create_test_dm(65);
   Mat mat;
   DMCreateMatrix(dm, &mat);
@@ -204,7 +206,8 @@ TEST_CASE("make_topmidbot_partition partitions cost properly") {
 }
 
 TEST_CASE("make_topmidbot_partition creates correct high_to_low/low_to_high "
-          "scatters") {
+          "scatters",
+          "[mpi]") {
   auto dm = create_test_dm(5);
   Mat mat;
   DMCreateMatrix(dm, &mat);
