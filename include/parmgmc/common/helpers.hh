@@ -48,8 +48,7 @@ inline PetscErrorCode fill_vec_rand(Vec vec, PetscInt size, Engine &engine) {
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
-template <class Engine>
-inline PetscErrorCode fill_vec_rand(Vec vec, Engine &engine) {
+template <class Engine> inline PetscErrorCode fill_vec_rand(Vec vec, Engine &engine) {
   PetscFunctionBeginUser;
 
   PetscInt size;
@@ -100,19 +99,14 @@ inline PetscErrorCode ISColoring_for_Mat(Mat mat, DM dm, ISColoring *coloring) {
       colors[i] = 1; // black
   }
 
-  PetscCall(ISColoringCreate(MPI_COMM_WORLD,
-                             ncolors,
-                             colors.size(),
-                             colors.data(),
-                             PETSC_COPY_VALUES,
-                             coloring));
+  PetscCall(ISColoringCreate(
+      MPI_COMM_WORLD, ncolors, colors.size(), colors.data(), PETSC_COPY_VALUES, coloring));
   PetscCall(ISColoringSetType(*coloring, IS_COLORING_LOCAL));
 
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
-inline PetscErrorCode VecScatter_for_Mat(Mat m, VecScatter *scatter,
-                                         Vec sct_vec = nullptr) {
+inline PetscErrorCode VecScatter_for_Mat(Mat m, VecScatter *scatter, Vec sct_vec = nullptr) {
   PetscFunctionBeginUser;
 
   Mat B;
@@ -161,11 +155,8 @@ inline PetscErrorCode VecScatter_for_Mat(Mat m, VecScatter *scatter,
       ghost_arr[cnt++] = i;
 
   IS from;
-  PetscCall(ISCreateGeneral(MPI_COMM_WORLD,
-                            ghost_arr.size(),
-                            ghost_arr.data(),
-                            PETSC_COPY_VALUES,
-                            &from));
+  PetscCall(ISCreateGeneral(
+      MPI_COMM_WORLD, ghost_arr.size(), ghost_arr.data(), PETSC_COPY_VALUES, &from));
 
   bool return_sct_vec = true;
   if (sct_vec == nullptr)
@@ -175,8 +166,7 @@ inline PetscErrorCode VecScatter_for_Mat(Mat m, VecScatter *scatter,
 
   PetscCall(MatCreateVecs(B, &lvec, NULL));
   // Create global vec without allocating actualy memory
-  PetscCall(VecCreateMPIWithArray(
-      MPI_COMM_WORLD, 1, local_rows, global_rows, nullptr, &gvec));
+  PetscCall(VecCreateMPIWithArray(MPI_COMM_WORLD, 1, local_rows, global_rows, nullptr, &gvec));
 
   PetscCall(VecScatterCreate(gvec, from, lvec, nullptr, scatter));
 
@@ -191,8 +181,7 @@ inline PetscErrorCode VecScatter_for_Mat(Mat m, VecScatter *scatter,
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
-inline PetscErrorCode make_botmidtop_partition(Mat mat,
-                                               BotMidTopPartition &partition) {
+inline PetscErrorCode make_botmidtop_partition(Mat mat, BotMidTopPartition &partition) {
   PetscFunctionBeginUser;
 
   // Get the column layout of the matrix, i.e., the mapping from column ->
@@ -215,66 +204,53 @@ inline PetscErrorCode make_botmidtop_partition(Mat mat,
   PetscCall(MatGetLocalSize(mat, &local_rows, nullptr));
 
   ////////////////////////////////////////////////////////////////////////
-  //// STEP 1. Create top, bot and interior sets                      ////
+  //// STEP 1. Create top, bot, mid and interior sets                 ////
   ////////////////////////////////////////////////////////////////////////
-  enum class NodeType { None, Top, Bot, Mid, Int };
-  std::vector<NodeType> node_types(local_rows, NodeType::None);
-
-  // The work done in steps 2,3,etc. could essentially be already prepared in
-  // this loop, i.e., we do some additional unnecessary work. But this makes
-  // everything a bit easier to understand and is only called once per
-  // application run, so let's keep it this way for now.
+  partition.clear();
+  std::vector<RemoteNode> curr_neighbors;
   for (PetscInt row = 0; row < local_rows; ++row) {
-    bool top = false;
-    bool bot = false;
+    curr_neighbors.clear();
 
-    // Loop over the off-processor entries in row i and find out which MPI
-    // process owns the respective vertex to decide if the current row
-    // corresponds to a top, bot or mid vertex.
     for (PetscInt colptr = Bi[row]; colptr < Bi[row + 1]; ++colptr) {
       auto col = colmap[Bj[colptr]];
 
       PetscMPIInt owner;
       PetscCall(PetscLayoutFindOwner(layout, col, &owner));
 
-      if (owner > rank)
-        bot = true;
-      if (owner < rank)
-        top = true;
+      curr_neighbors.emplace_back(col, owner);
     }
 
-    if (bot and not top)
-      node_types[row] = NodeType::Bot;
-    else if (top and not bot)
-      node_types[row] = NodeType::Top;
-    else if (top and bot)
-      node_types[row] = NodeType::Mid;
-    else
-      node_types[row] = NodeType::Int;
-  }
-
-  // Populate partition arrays depending on node type
-  partition.bot.clear();
-  partition.top.clear();
-  std::vector<PetscInt> mid;
-  std::vector<PetscInt> interior;
-
-  for (PetscInt i = 0; i < local_rows; ++i) {
-    switch (node_types[i]) {
-    case NodeType::Bot:
-      partition.bot.push_back(i);
-      break;
-    case NodeType::Top:
-      partition.top.push_back(i);
-      break;
-    case NodeType::Mid:
-      mid.push_back(i);
-      break;
-    case NodeType::Int:
-      interior.push_back(i);
-      break;
-    default:
-      break;
+    if (curr_neighbors.size() == 0) {
+      // No neighbors => interior node
+      partition.interior1.push_back(row); // Splitting into int1 and int2 is done below
+    } else {
+      // At least one neighbor => boundary node
+      if (std::all_of(curr_neighbors.begin(), curr_neighbors.end(), [&](const auto &nb) {
+            return nb.owner > rank;
+          })) {
+        // If all neighbors live on higher ranks, then this is a bot node
+        for (const auto &nb : curr_neighbors) {
+          BoundaryNode node;
+          node.index = row;
+          node.neighbor = nb;
+          partition.bot.push_back(node);
+        }
+      } else if (std::all_of(curr_neighbors.begin(), curr_neighbors.end(), [&](const auto &nb) {
+                   return nb.owner < rank;
+                 })) {
+        // If all neighbors live on lower ranks, then this is a top node
+        for (const auto &nb : curr_neighbors) {
+          BoundaryNode node;
+          node.index = row;
+          node.neighbor = nb;
+          partition.top.push_back(node);
+        }
+      } else {
+        // Some neighbors are one higher ranks, some on lower => mid node
+        MidNode node;
+        node.index = row;
+        node.neighbors = std::move(curr_neighbors);
+      }
     }
   }
 
@@ -283,115 +259,123 @@ inline PetscErrorCode make_botmidtop_partition(Mat mat,
   ////////////////////////////////////////////////////////////////////////
   const PetscInt *Ai;
   PetscBool done;
-  PetscCall(MatGetRowIJ(
-      mat, 0, PETSC_FALSE, PETSC_FALSE, nullptr, &Ai, nullptr, &done));
+  PetscCall(MatGetRowIJ(mat, 0, PETSC_FALSE, PETSC_FALSE, nullptr, &Ai, nullptr, &done));
   assert(done);
 
   // Estimate cost of set of vertices by summing number of neighbors of each
   // index
-  const auto cost = [&](const std::vector<PetscInt> &indices) {
-    PetscInt c = 0;
-    for (auto i : indices)
-      c += Ai[i + 1] - Ai[i]; // number of
-    return c;
-  };
+  PetscInt total_int_cost = 0;
+  for (auto i : partition.interior1) // Before partitioning, all interior nodes are in interior1
+    total_int_cost += Ai[i + 1] - Ai[i];
+
+  PetscInt bot_cost = 0;
+  for (auto i : partition.bot)
+    bot_cost += Ai[i.index + 1] - Ai[i.index];
+
+  PetscInt top_cost = 0;
+  for (auto i : partition.top)
+    top_cost += Ai[i.index + 1] - Ai[i.index];
 
   // We want to approximately achieve cost(int1) + cost(top) = cost(int2) +
-  // cost(bot). We have cost(int1) = (cost(int) + cost(bot) - cost(top)) / 2.
-  const auto tgt_int1_cost =
-      (cost(interior) + cost(partition.bot) - cost(partition.top)) / 2;
+  // cost(bot). We have cost(int1) = (cost(int) + cost(bot) - cost(top)) / 2, where cost(int) is
+  // the total cost of all interior nodes.
+  const auto tgt_int1_cost = (total_int_cost + bot_cost - top_cost) / 2.;
 
   int curr_int1_cost = 0;
-  for (auto i : interior) {
-    if (curr_int1_cost < tgt_int1_cost) {
-      partition.interior1.push_back(i);
-      curr_int1_cost += Ai[i + 1] - Ai[i];
-    } else
-      partition.interior2.push_back(i);
+  std::size_t i;
+  for (i = 0; i < partition.interior1.size(); ++i) {
+    const auto int_idx = partition.interior1[i];
+    curr_int1_cost += Ai[int_idx + 1] - Ai[int_idx];
+
+    if (curr_int1_cost > tgt_int1_cost)
+      break;
   }
 
-  PetscCall(MatRestoreRowIJ(
-      mat, 0, PETSC_FALSE, PETSC_FALSE, nullptr, &Ai, nullptr, &done));
+  // Split partition.interior1 at index 1 and move rest to partition.interior2
+  partition.interior2.insert(
+      partition.interior2.end(), partition.interior1.begin() + i, partition.interior1.end());
+  partition.interior1.resize(i);
+
+  PetscCall(MatRestoreRowIJ(mat, 0, PETSC_FALSE, PETSC_FALSE, nullptr, &Ai, nullptr, &done));
 
   ////////////////////////////////////////////////////////////////////////
   //// STEP 3. Create VecScatters for top and bot communication       ////
   ////////////////////////////////////////////////////////////////////////
-  // Create high_to_low
-  std::vector<PetscInt> ghost_indices;
-  for (auto row : partition.bot) {
-    for (PetscInt colptr = Bi[row]; colptr < Bi[row + 1]; ++colptr) {
-      auto col = colmap[Bj[colptr]];
-      ghost_indices.push_back(col);
-    }
-  }
 
-  for (auto row : mid) {
-    for (PetscInt colptr = Bi[row]; colptr < Bi[row + 1]; ++colptr) {
-      auto col = colmap[Bj[colptr]];
+  // // Create high_to_low
+  // std::vector<PetscInt> ghost_indices;
+  // for (auto row : partition.bot) {
+  //   for (PetscInt colptr = Bi[row]; colptr < Bi[row + 1]; ++colptr) {
+  //     auto col = colmap[Bj[colptr]];
+  //     ghost_indices.push_back(col);
+  //   }
+  // }
 
-      PetscMPIInt owner;
-      PetscCall(PetscLayoutFindOwner(layout, col, &owner));
+  // for (auto row : mid) {
+  //   for (PetscInt colptr = Bi[row]; colptr < Bi[row + 1]; ++colptr) {
+  //     auto col = colmap[Bj[colptr]];
 
-      if (owner > rank)
-        ghost_indices.push_back(col);
-    }
-  }
+  //     PetscMPIInt owner;
+  //     PetscCall(PetscLayoutFindOwner(layout, col, &owner));
 
-  // The scatters scatter into a vector with indices 0,1,...,n (where n is the
-  // number of ghost indices). That is, we don't store the "target indices" of
-  // the the ghost values.
-  IS from;
-  PetscCall(ISCreateGeneral(MPI_COMM_WORLD,
-                            ghost_indices.size(),
-                            ghost_indices.data(),
-                            PETSC_COPY_VALUES,
-                            &from));
+  //     if (owner > rank)
+  //       ghost_indices.push_back(col);
+  //   }
+  // }
 
-  Vec from_vec, to_vec;
-  PetscCall(MatCreateVecs(mat, &from_vec, nullptr));
-  PetscCall(VecCreateSeq(MPI_COMM_SELF, ghost_indices.size(), &to_vec));
+  // // The scatters scatter into a vector with indices 0,1,...,n (where n is the
+  // // number of ghost indices). That is, we don't store the "target indices" of
+  // // the the ghost values.
+  // IS from;
+  // PetscCall(ISCreateGeneral(
+  //     MPI_COMM_WORLD, ghost_indices.size(), ghost_indices.data(), PETSC_COPY_VALUES, &from));
 
-  PetscCall(VecScatterCreate(
-      from_vec, from, to_vec, nullptr, &partition.high_to_low));
+  // Vec from_vec, to_vec;
+  // PetscCall(MatCreateVecs(mat, &from_vec, nullptr));
+  // PetscCall(VecCreateSeq(MPI_COMM_SELF, ghost_indices.size(), &to_vec));
 
-  PetscCall(VecDestroy(&to_vec));
-  PetscCall(ISDestroy(&from));
+  // PetscCall(VecScatterCreate(from_vec, from, to_vec, nullptr, &partition.high_to_low));
 
-  // Create low_to_high
-  ghost_indices.clear();
-  for (auto row : partition.top) {
-    for (PetscInt colptr = Bi[row]; colptr < Bi[row + 1]; ++colptr) {
-      auto col = colmap[Bj[colptr]];
-      ghost_indices.push_back(col);
-    }
-  }
+  // PetscCall(VecDestroy(&to_vec));
+  // PetscCall(ISDestroy(&from));
 
-  for (auto row : mid) {
-    for (PetscInt colptr = Bi[row]; colptr < Bi[row + 1]; ++colptr) {
-      auto col = colmap[Bj[colptr]];
+  // // Create low_to_high
+  // ghost_indices.clear();
+  // for (auto row : partition.top) {
+  //   for (PetscInt colptr = Bi[row]; colptr < Bi[row + 1]; ++colptr) {
+  //     auto col = colmap[Bj[colptr]];
+  //     ghost_indices.push_back(col);
+  //   }
+  // }
 
-      PetscMPIInt owner;
-      PetscCall(PetscLayoutFindOwner(layout, col, &owner));
+  // for (auto row : mid) {
+  //   for (PetscInt colptr = Bi[row]; colptr < Bi[row + 1]; ++colptr) {
+  //     auto col = colmap[Bj[colptr]];
 
-      if (owner < rank)
-        ghost_indices.push_back(col);
-    }
-  }
+  //     PetscMPIInt owner;
+  //     PetscCall(PetscLayoutFindOwner(layout, col, &owner));
 
-  PetscCall(ISCreateGeneral(MPI_COMM_WORLD,
-                            ghost_indices.size(),
-                            ghost_indices.data(),
-                            PETSC_COPY_VALUES,
-                            &from));
+  //     if (owner < rank)
+  //       ghost_indices.push_back(col);
+  //   }
+  // }
 
-  PetscCall(VecCreateSeq(MPI_COMM_SELF, ghost_indices.size(), &to_vec));
+  // PetscCall(ISCreateGeneral(
+  //     MPI_COMM_WORLD, ghost_indices.size(), ghost_indices.data(), PETSC_COPY_VALUES, &from));
 
-  PetscCall(VecScatterCreate(
-      from_vec, from, to_vec, nullptr, &partition.low_to_high));
+  // PetscCall(VecCreateSeq(MPI_COMM_SELF, ghost_indices.size(), &to_vec));
 
-  PetscCall(VecDestroy(&from_vec));
-  PetscCall(VecDestroy(&to_vec));
-  PetscCall(ISDestroy(&from));
+  // PetscCall(VecScatterCreate(from_vec, from, to_vec, nullptr, &partition.low_to_high));
+
+  // PetscCall(VecDestroy(&from_vec));
+  // PetscCall(VecDestroy(&to_vec));
+  // PetscCall(ISDestroy(&from));
+
+  ////////////////////////////////////////////////////////////////////////
+  //// STEP 4. Populate partition.mid nodes                           ////
+  ////////////////////////////////////////////////////////////////////////
+
+  // Send our top nodes to the MPI rank that needs them
 
   PetscFunctionReturn(PETSC_SUCCESS);
 }
