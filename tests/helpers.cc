@@ -62,7 +62,7 @@ TEST_CASE("fill_vec_rand fills vector with N(0,1) samples", "[.][long]") {
   }
 }
 
-TEST_CASE("make_topmidbot_partition makes correct top and bot partition", "[topmid]") {
+TEST_CASE("make_topmidbot_partition makes correct top and bot partition", "[mpi]") {
   auto dm = create_test_dm(5);
   Mat mat;
   DMCreateMatrix(dm, &mat);
@@ -148,7 +148,7 @@ TEST_CASE("make_topmidbot_partition makes correct top and bot partition", "[topm
   }
 }
 
-TEST_CASE("make_topmidbot_partition makes correct interior partition", "[topmid]") {
+TEST_CASE("make_topmidbot_partition makes correct interior partition", "[mpi]") {
   auto dm = create_test_dm(5);
   Mat mat;
   DMCreateMatrix(dm, &mat);
@@ -199,7 +199,7 @@ TEST_CASE("make_topmidbot_partition makes correct interior partition", "[topmid]
   }
 }
 
-TEST_CASE("make_topmidbot_partition partitions cost properly", "[topmid]") {
+TEST_CASE("make_topmidbot_partition partitions cost properly", "[mpi]") {
   auto dm = create_test_dm(65);
   Mat mat;
   DMCreateMatrix(dm, &mat);
@@ -244,9 +244,7 @@ TEST_CASE("make_topmidbot_partition partitions cost properly", "[topmid]") {
                Catch::Matchers::WithinRel(bot_cost + interior2_cost, 0.01));
 }
 
-TEST_CASE("make_topmidbot_partition creates correct high_to_low/low_to_high "
-          "scatters",
-          "[mpi]") {
+TEST_CASE("make_topmidbot_partition computes correct mid dependents", "[mpi]") {
   auto dm = create_test_dm(5);
   Mat mat;
   DMCreateMatrix(dm, &mat);
@@ -254,7 +252,19 @@ TEST_CASE("make_topmidbot_partition creates correct high_to_low/low_to_high "
   auto op = pm::LinearOperator(mat);
 
   pm::BotMidTopPartition partition;
-  pm::make_botmidtop_partition(mat, partition);
+  pm::make_botmidtop_partition(mat, partition, [](PetscMPIInt rank) {
+    switch (rank) {
+    case 0:
+    case 1:
+      return rank;
+    case 2:
+      return 3;
+    case 3:
+      return 2;
+    default:
+      return rank;
+    }
+  });
 
   int rank, size;
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
@@ -264,64 +274,112 @@ TEST_CASE("make_topmidbot_partition creates correct high_to_low/low_to_high "
     SKIP("This test case expects exactly 4 MPI ranks");
   }
 
-  PetscInt nroots;
-  PetscInt nleaves;
-  const PetscInt *ilocal;
-  const PetscSFNode *iremote;
-
-  PetscSFGetGraph(partition.high_to_low, &nroots, &nleaves, &ilocal, &iremote);
-  CHECK(ilocal == nullptr); // ilocal == nullptr means values are scattered into
-                            // contiguous memory
-
-  // Check if iremote has correct values
-  std::vector<PetscSFNode> exp_iremote;
-
   switch (rank) {
-  case 0:
-    exp_iremote = {{1, 0}, {1, 2}, {2, 0}, {2, 1}, {1, 4}, {2, 2}};
-    break;
-  case 1:
-    exp_iremote = {{3, 1}, {3, 0}};
-    break;
-  case 2:
-    exp_iremote = {{3, 2}, {3, 0}};
-    break;
-  case 3:
-  // No higher processors
+  case 0: {
+    REQUIRE(partition.mid.size() == 0);
+  } break;
+
+  case 1: {
+    REQUIRE(partition.mid.size() == 1);
+
+    REQUIRE(partition.mid[0].lower_dependents.size() == 0);
+    REQUIRE(partition.mid[0].higher_dependents == std::vector<PetscMPIInt>{21});
+  } break;
+
+  case 2: {
+    REQUIRE(partition.mid.size() == 0);
+  } break;
+
+  case 3: {
+    REQUIRE(partition.mid.size() == 1);
+
+    REQUIRE(partition.mid[0].lower_dependents == std::vector<PetscMPIInt>{13});
+    REQUIRE(partition.mid[0].higher_dependents.size() == 0);
+  } break;
+
   default:
-    break;
-  }
-
-  REQUIRE(exp_iremote.size() == static_cast<std::size_t>(nleaves));
-  for (std::size_t i = 0; i < exp_iremote.size(); ++i) {
-    CHECK(exp_iremote[i].index == iremote[i].index);
-    CHECK(exp_iremote[i].rank == iremote[i].rank);
-  }
-
-  // Do the same thing for low_to_high
-  PetscSFGetGraph(partition.low_to_high, &nroots, &nleaves, &ilocal, &iremote);
-  CHECK(ilocal == nullptr);
-
-  switch (rank) {
-  case 0:
-    exp_iremote = {};
-    break;
-  case 1:
-    exp_iremote = {{0, 2}, {0, 5}, {0, 8}};
-    break;
-  case 2:
-    exp_iremote = {{0, 6}, {0, 7}, {0, 8}};
-    break;
-  case 3:
-    exp_iremote = {{1, 4}, {2, 2}, {1, 5}, {2, 5}};
-    break;
-  default:
-    break;
-  }
-
-  REQUIRE(exp_iremote.size() == static_cast<std::size_t>(nleaves));
-  for (std::size_t i = 0; i < exp_iremote.size(); ++i) {
-    CHECK(exp_iremote[i].index == iremote[i].index);
-    CHECK(exp_iremote[i].rank == iremote[i].rank);
+    assert(false && "Unreachable");
   }
 }
+
+// TEST_CASE("make_topmidbot_partition creates correct high_to_low/low_to_high "
+//           "scatters",
+//           "[mpi]") {
+//   auto dm = create_test_dm(5);
+//   Mat mat;
+//   DMCreateMatrix(dm, &mat);
+//   MatSetUp(mat);
+//   auto op = pm::LinearOperator(mat);
+
+//   pm::BotMidTopPartition partition;
+//   pm::make_botmidtop_partition(mat, partition);
+
+//   int rank, size;
+//   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+//   MPI_Comm_size(MPI_COMM_WORLD, &size);
+
+//   if (size != 4) {
+//     SKIP("This test case expects exactly 4 MPI ranks");
+//   }
+
+//   PetscInt nroots;
+//   PetscInt nleaves;
+//   const PetscInt *ilocal;
+//   const PetscSFNode *iremote;
+
+//   PetscSFGetGraph(partition.high_to_low, &nroots, &nleaves, &ilocal, &iremote);
+//   CHECK(ilocal == nullptr); // ilocal == nullptr means values are scattered into
+//                             // contiguous memory
+
+//   // Check if iremote has correct values
+//   std::vector<PetscSFNode> exp_iremote;
+
+//   switch (rank) {
+//   case 0:
+//     exp_iremote = {{1, 0}, {1, 2}, {2, 0}, {2, 1}, {1, 4}, {2, 2}};
+//     break;
+//   case 1:
+//     exp_iremote = {{3, 1}, {3, 0}};
+//     break;
+//   case 2:
+//     exp_iremote = {{3, 2}, {3, 0}};
+//     break;
+//   case 3:
+//   // No higher processors
+//   default:
+//     break;
+//   }
+
+//   REQUIRE(exp_iremote.size() == static_cast<std::size_t>(nleaves));
+//   for (std::size_t i = 0; i < exp_iremote.size(); ++i) {
+//     CHECK(exp_iremote[i].index == iremote[i].index);
+//     CHECK(exp_iremote[i].rank == iremote[i].rank);
+//   }
+
+//   // Do the same thing for low_to_high
+//   PetscSFGetGraph(partition.low_to_high, &nroots, &nleaves, &ilocal, &iremote);
+//   CHECK(ilocal == nullptr);
+
+//   switch (rank) {
+//   case 0:
+//     exp_iremote = {};
+//     break;
+//   case 1:
+//     exp_iremote = {{0, 2}, {0, 5}, {0, 8}};
+//     break;
+//   case 2:
+//     exp_iremote = {{0, 6}, {0, 7}, {0, 8}};
+//     break;
+//   case 3:
+//     exp_iremote = {{1, 4}, {2, 2}, {1, 5}, {2, 5}};
+//     break;
+//   default:
+//     break;
+//   }
+
+//   REQUIRE(exp_iremote.size() == static_cast<std::size_t>(nleaves));
+//   for (std::size_t i = 0; i < exp_iremote.size(); ++i) {
+//     CHECK(exp_iremote[i].index == iremote[i].index);
+//     CHECK(exp_iremote[i].rank == iremote[i].rank);
+//   }
+// }

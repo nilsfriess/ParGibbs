@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <map>
 #include <memory>
 #include <petscis.h>
 #include <petscistypes.h>
@@ -181,7 +182,9 @@ inline PetscErrorCode VecScatter_for_Mat(Mat m, VecScatter *scatter, Vec sct_vec
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
-inline PetscErrorCode make_botmidtop_partition(Mat mat, BotMidTopPartition &partition) {
+template <typename ColorRankMap>
+inline PetscErrorCode make_botmidtop_partition(Mat mat, BotMidTopPartition &partition,
+                                               ColorRankMap &&crm) {
   PetscFunctionBeginUser;
 
   // Get the column layout of the matrix, i.e., the mapping from column ->
@@ -203,6 +206,9 @@ inline PetscErrorCode make_botmidtop_partition(Mat mat, BotMidTopPartition &part
   PetscCall(MatGetSize(mat, &global_rows, nullptr));
   PetscCall(MatGetLocalSize(mat, &local_rows, nullptr));
 
+  // Used in Step 3
+  std::set<PetscMPIInt> all_neighbors;
+
   ////////////////////////////////////////////////////////////////////////
   //// STEP 1. Create top, bot, mid and interior sets                 ////
   ////////////////////////////////////////////////////////////////////////
@@ -218,6 +224,7 @@ inline PetscErrorCode make_botmidtop_partition(Mat mat, BotMidTopPartition &part
       PetscCall(PetscLayoutFindOwner(layout, col, &owner));
 
       curr_neighbors.emplace_back(col, owner);
+      all_neighbors.insert(owner);
     }
 
     if (curr_neighbors.size() == 0) {
@@ -226,7 +233,7 @@ inline PetscErrorCode make_botmidtop_partition(Mat mat, BotMidTopPartition &part
     } else {
       // At least one neighbor => boundary node
       if (std::all_of(curr_neighbors.begin(), curr_neighbors.end(), [&](const auto &nb) {
-            return nb.owner > rank;
+            return crm(nb.owner) > crm(rank);
           })) {
         // If all neighbors live on higher ranks, then this is a bot node
         for (const auto &nb : curr_neighbors) {
@@ -236,7 +243,7 @@ inline PetscErrorCode make_botmidtop_partition(Mat mat, BotMidTopPartition &part
           partition.bot.push_back(node);
         }
       } else if (std::all_of(curr_neighbors.begin(), curr_neighbors.end(), [&](const auto &nb) {
-                   return nb.owner < rank;
+                   return crm(nb.owner) < crm(rank);
                  })) {
         // If all neighbors live on lower ranks, then this is a top node
         for (const auto &nb : curr_neighbors) {
@@ -250,6 +257,7 @@ inline PetscErrorCode make_botmidtop_partition(Mat mat, BotMidTopPartition &part
         MidNode node;
         node.index = row;
         node.neighbors = std::move(curr_neighbors);
+        partition.mid.push_back(node);
       }
     }
   }
@@ -299,85 +307,77 @@ inline PetscErrorCode make_botmidtop_partition(Mat mat, BotMidTopPartition &part
   PetscCall(MatRestoreRowIJ(mat, 0, PETSC_FALSE, PETSC_FALSE, nullptr, &Ai, nullptr, &done));
 
   ////////////////////////////////////////////////////////////////////////
-  //// STEP 3. Create VecScatters for top and bot communication       ////
+  //// STEP 3. Create {higher, lower}_dependents sets for mid nodes   ////
   ////////////////////////////////////////////////////////////////////////
 
-  // // Create high_to_low
-  // std::vector<PetscInt> ghost_indices;
-  // for (auto row : partition.bot) {
-  //   for (PetscInt colptr = Bi[row]; colptr < Bi[row + 1]; ++colptr) {
-  //     auto col = colmap[Bj[colptr]];
-  //     ghost_indices.push_back(col);
-  //   }
-  // }
+  // Send the number of our mid nodes to all neighbors
+  std::map<PetscMPIInt, PetscInt> recv_counts;
+  for (auto nb : all_neighbors) {
+    const auto midcount = partition.mid.size();
+    PetscCallMPI(MPI_Sendrecv(&midcount,
+                              1,
+                              MPIU_INT,
+                              nb,
+                              0,
+                              &recv_counts[nb],
+                              1,
+                              MPIU_INT,
+                              nb,
+                              0,
+                              MPI_COMM_WORLD,
+                              MPI_STATUS_IGNORE));
+  }
 
-  // for (auto row : mid) {
-  //   for (PetscInt colptr = Bi[row]; colptr < Bi[row + 1]; ++colptr) {
-  //     auto col = colmap[Bj[colptr]];
+  // Send our mid nodes to the respective neighbors
+  std::map<PetscMPIInt, std::vector<PetscInt>> send_remote_mid_nodes;
+  PetscInt row_start;
+  PetscCall(MatGetOwnershipRange(mat, &row_start, nullptr));
+  for (auto &node : partition.mid) {
+    for (auto &nb : node.neighbors) {
+      send_remote_mid_nodes[nb.owner].push_back(row_start + node.index);
+    }
+  }
 
-  //     PetscMPIInt owner;
-  //     PetscCall(PetscLayoutFindOwner(layout, col, &owner));
+  for (auto &[remoterank, nodes] : send_remote_mid_nodes) {
+    assert(nodes.size() != 0);
+    PetscCallMPI(MPI_Send(nodes.data(), nodes.size(), MPIU_INT, remoterank, 0, MPI_COMM_WORLD));
+  }
 
-  //     if (owner > rank)
-  //       ghost_indices.push_back(col);
-  //   }
-  // }
+  std::map<PetscMPIInt, std::vector<PetscInt>> recv_remote_mid_nodes;
+  for (auto &[remoterank, nmid] : recv_counts) {
+    if (nmid == 0)
+      continue;
 
-  // // The scatters scatter into a vector with indices 0,1,...,n (where n is the
-  // // number of ghost indices). That is, we don't store the "target indices" of
-  // // the the ghost values.
-  // IS from;
-  // PetscCall(ISCreateGeneral(
-  //     MPI_COMM_WORLD, ghost_indices.size(), ghost_indices.data(), PETSC_COPY_VALUES, &from));
+    recv_remote_mid_nodes[remoterank].resize(nmid);
+    PetscCallMPI(MPI_Recv(recv_remote_mid_nodes[remoterank].data(),
+                          nmid,
+                          MPI_INT,
+                          remoterank,
+                          0,
+                          MPI_COMM_WORLD,
+                          MPI_STATUS_IGNORE));
 
-  // Vec from_vec, to_vec;
-  // PetscCall(MatCreateVecs(mat, &from_vec, nullptr));
-  // PetscCall(VecCreateSeq(MPI_COMM_SELF, ghost_indices.size(), &to_vec));
-
-  // PetscCall(VecScatterCreate(from_vec, from, to_vec, nullptr, &partition.high_to_low));
-
-  // PetscCall(VecDestroy(&to_vec));
-  // PetscCall(ISDestroy(&from));
-
-  // // Create low_to_high
-  // ghost_indices.clear();
-  // for (auto row : partition.top) {
-  //   for (PetscInt colptr = Bi[row]; colptr < Bi[row + 1]; ++colptr) {
-  //     auto col = colmap[Bj[colptr]];
-  //     ghost_indices.push_back(col);
-  //   }
-  // }
-
-  // for (auto row : mid) {
-  //   for (PetscInt colptr = Bi[row]; colptr < Bi[row + 1]; ++colptr) {
-  //     auto col = colmap[Bj[colptr]];
-
-  //     PetscMPIInt owner;
-  //     PetscCall(PetscLayoutFindOwner(layout, col, &owner));
-
-  //     if (owner < rank)
-  //       ghost_indices.push_back(col);
-  //   }
-  // }
-
-  // PetscCall(ISCreateGeneral(
-  //     MPI_COMM_WORLD, ghost_indices.size(), ghost_indices.data(), PETSC_COPY_VALUES, &from));
-
-  // PetscCall(VecCreateSeq(MPI_COMM_SELF, ghost_indices.size(), &to_vec));
-
-  // PetscCall(VecScatterCreate(from_vec, from, to_vec, nullptr, &partition.low_to_high));
-
-  // PetscCall(VecDestroy(&from_vec));
-  // PetscCall(VecDestroy(&to_vec));
-  // PetscCall(ISDestroy(&from));
-
-  ////////////////////////////////////////////////////////////////////////
-  //// STEP 4. Populate partition.mid nodes                           ////
-  ////////////////////////////////////////////////////////////////////////
-
-  // Send our top nodes to the MPI rank that needs them
+    // Now that we have the neighbor's mid node, we can check if this is a dependent of one of our
+    // mid nodes
+    for (auto &node : partition.mid) {
+      for (auto &nb : node.neighbors) {
+        for (auto &remote_mid : recv_remote_mid_nodes[remoterank]) {
+          if (remote_mid == nb.index) {
+            if (crm(remoterank) > crm(rank))
+              node.higher_dependents.push_back(nb.index);
+            else
+              node.lower_dependents.push_back(nb.index);
+          }
+        }
+      }
+    }
+  }
 
   PetscFunctionReturn(PETSC_SUCCESS);
+}
+
+inline PetscErrorCode make_botmidtop_partition(Mat mat, BotMidTopPartition &partition) {
+  return make_botmidtop_partition(mat, partition, [](PetscMPIInt rank) { return rank; });
 }
 
 } // namespace parmgmc

@@ -41,10 +41,11 @@ struct BoundaryNode {
 struct MidNode {
   PetscInt index;
 
+  /// Neighboring nodes on other ranks
   std::vector<RemoteNode> neighbors;
 
-  std::vector<PetscInt> higher_dependents;
   std::vector<PetscInt> lower_dependents;
+  std::vector<PetscInt> higher_dependents;
 };
 
 struct BotMidTopPartition {
