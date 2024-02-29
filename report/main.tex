@@ -1,0 +1,52 @@
+\documentclass[
+fontsize=11pt,
+paper=a4,
+numbers=noenddot,
+parskip=half
+]{scrartcl}
+
+\usepackage[bottom=3cm, top=3cm]{geometry}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{microtype}
+
+\usepackage[backend=biber]{biblatex}
+\addbibresource{bibliography.bib}
+
+\usepackage{hyperref}  
+
+\usepackage{mathtools}
+\usepackage{amsthm}
+\usepackage{amssymb}
+\usepackage{bm}
+
+\usepackage{todonotes}
+\usepackage[ruled,vlined,resetcount]{algorithm2e}
+\SetKwInput{KwData}{Input}
+
+
+\addtokomafont{disposition}{\rmfamily}
+
+\title{Parallel Multigrid Monte Carlo\\
+{\normalsize Software practical report}}
+\date{\today}
+\author{Nils Friess}
+
+\begin{document} 
+\maketitle
+
+\begin{abstract}
+    This report introduces a parallel implementation of the Multigrid Monte Carlo (MGMC) method for sampling from Gaussian distributions with large and sparse precision matrix on distributed memory machines. MGMC is in a certain sense the stochastic counterpart of the classic geometric Multigrid method, and a parallel implementation of MGMC can reuse large parts of a parallel implementation of the classic Multigrid method with the exception of the smoothers which are replaced by certain random samplers. Our implementation reuses Multigrid components from the \emph{Portable and Extensible Toolkit for Scientific computing (PETSc)} and implements the following parallel random samplers within this framework: a multicolour Gibbs sampler which is particularly suited for distributions corresponding to Gaussian Markov random fields on simple grids or lattices; a border/interior Gibbs sampler which is advantageous if the underlying grid is unstructured where a multicolouring approach becomes inefficient; a so called \emph{Hogwild} Gibbs sampler which has the highest parallel efficency but does not target the desired distribution.  
+\end{abstract}
+
+\printbibliography
+
+\end{document}
+
+ 
+%%% Local Variables:
+%%% mode: latex
+%%% TeX-master: t
+%%% TeX-command-extra-options: "-shell-escape"
+%%% End:
