@@ -12,8 +12,7 @@
 namespace parmgmc {
 template <class Engine> class NodalGibbsSampler {
 public:
-  NodalGibbsSampler(const std::shared_ptr<LinearOperator> &linear_operator,
-                    Engine *engine)
+  NodalGibbsSampler(const std::shared_ptr<LinearOperator> &linear_operator, Engine *engine)
       : linear_operator{linear_operator}, engine{engine} {
     PetscFunctionBeginUser;
 
@@ -40,15 +39,12 @@ public:
 
     Mat Ad = nullptr;
     if (std::strcmp(type, MATMPIAIJ) == 0) {
-      PetscCallVoid(
-          MatMPIAIJGetSeqAIJ(linear_operator->get_mat(), &Ad, NULL, NULL));
+      PetscCallVoid(MatMPIAIJGetSeqAIJ(linear_operator->get_mat(), &Ad, NULL, NULL));
     } else if (std::strcmp(type, MATSEQAIJ) == 0) {
       Ad = linear_operator->get_mat();
     } else {
-      PetscCheckAbort(false,
-                      MPI_COMM_WORLD,
-                      PETSC_ERR_SUP,
-                      "Only MATMPIAIJ and MATSEQAIJ types are supported");
+      PetscCheckAbort(
+          false, MPI_COMM_WORLD, PETSC_ERR_SUP, "Only MATMPIAIJ and MATSEQAIJ types are supported");
     }
 
     const PetscInt *i, *j;
@@ -86,8 +82,7 @@ public:
 
     PetscLogEvent gibbs_event;
     PetscCall(PetscHelper::get_gibbs_event(&gibbs_event));
-    PetscCall(
-        PetscLogEventBegin(gibbs_event, nullptr, nullptr, nullptr, nullptr));
+    PetscCall(PetscLogEventBegin(gibbs_event, nullptr, nullptr, nullptr, nullptr));
 
     PetscCall(fill_vec_rand(rand_vec, rand_vec_size, *engine));
     PetscCall(VecPointwiseMult(rand_vec, rand_vec, inv_sqrt_diag_omega));
@@ -102,8 +97,7 @@ public:
 
     const PetscInt *B_rowptr, *B_colptr;
     PetscReal *B_matvals;
-    PetscCall(
-        MatSeqAIJGetCSRAndMemType(Ao, &B_rowptr, &B_colptr, &B_matvals, NULL));
+    PetscCall(MatSeqAIJGetCSRAndMemType(Ao, &B_rowptr, &B_colptr, &B_matvals, NULL));
 
     PetscInt rows;
     PetscCall(MatGetSize(Ad, &rows, NULL));
@@ -141,42 +135,49 @@ public:
     };
 
     // 1. Send boundary values to higher processors
-    PetscCall(VecScatterBegin(partition.botscatter,
-                              sample,
-                              ghost_vec,
-                              INSERT_VALUES,
-                              SCATTER_FORWARD));
+    PetscCall(
+        VecScatterBegin(partition.topscatter, sample, ghost_vec, INSERT_VALUES, SCATTER_FORWARD));
+
+    // TODO: Split interior1 nodes in half to overlap communication and computation here
 
     // 2. Receive boundary values from lower processors
-    PetscCall(VecScatterEnd(partition.botscatter,
-                            sample,
-                            ghost_vec,
-                            INSERT_VALUES,
-                            SCATTER_FORWARD));
+    PetscCall(
+        VecScatterEnd(partition.topscatter, sample, ghost_vec, INSERT_VALUES, SCATTER_FORWARD));
 
     // 3. Run Gibbs kernel on TOP nodes
     for (auto i : partition.top)
-      gibbs_kernel(i);
+      gibbs_kernel(i.index);
 
     // 4. Send boundary values to lower processors
-    PetscCall(VecScatterBegin(partition.topscatter,
-                              sample,
-                              ghost_vec,
-                              INSERT_VALUES,
-                              SCATTER_FORWARD));
+    PetscCall(
+        VecScatterBegin(partition.botscatter, sample, ghost_vec, INSERT_VALUES, SCATTER_FORWARD));
 
     // 5. Run Gibbs kernel on INT1 nodes
     for (auto i : partition.interior1)
       gibbs_kernel(i);
 
     // 6. Receive boundary values from higher processors
-    PetscCall(VecScatterEnd(partition.topscatter,
-                            sample,
-                            ghost_vec,
-                            INSERT_VALUES,
-                            SCATTER_FORWARD));
+    PetscCall(
+        VecScatterEnd(partition.botscatter, sample, ghost_vec, INSERT_VALUES, SCATTER_FORWARD));
 
     // 7. Handle mid nodes
+    partition.reset_mid_nodes();
+    while (not partition.mid_nodes_done()) {
+      bool flag;
+      do {
+        flag = false;
+        for (auto &midnode : partition.mid) {
+          if (midnode.done)
+            continue;
+
+          if (midnode.is_ready()) {
+            gibbs_kernel(midnode.index);
+            flag = true;
+          }
+        }
+
+      } while (flag);
+    }
 
     // 8. Run Gibbs on INT2 nodes
     for (auto i : partition.interior2)
@@ -186,7 +187,7 @@ public:
 
     // 10. Run Gibbs on BOT nodes
     for (auto i : partition.bot)
-      gibbs_kernel(i);
+      gibbs_kernel(i.index);
 
     PetscFunctionReturn(PETSC_SUCCESS);
   }

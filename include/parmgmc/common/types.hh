@@ -1,13 +1,22 @@
 #pragma once
 
+#include <algorithm>
 #include <ostream>
 #include <petsc.h>
 #include <petscsftypes.h>
 #include <petscsystypes.h>
 
+#include <set>
 #include <vector>
 
 namespace parmgmc {
+struct DependentNode {
+  PetscInt index;
+  PetscScalar value;
+
+  bool operator<(const DependentNode &other) const { return index < other.index; }
+};
+
 struct RemoteNode {
   RemoteNode(PetscInt index, PetscMPIInt owner) : index{index}, owner{owner} {}
   RemoteNode() = default;
@@ -44,13 +53,40 @@ struct MidNode {
   /// Neighboring nodes on other ranks
   std::vector<RemoteNode> neighbors;
 
-  std::vector<PetscInt> lower_dependents;
-  std::vector<PetscInt> higher_dependents;
+  std::set<PetscInt> lower_dependents;
+  std::set<PetscInt> higher_dependents;
+
+  std::set<DependentNode> received_dependents;
+
+  bool done;
+
+  void insert_dependent(PetscInt index, PetscScalar value) {}
+
+  bool is_ready(bool forward_pass = true) const {
+    const auto &compare_to = forward_pass ? higher_dependents : lower_dependents;
+
+    if (received_dependents.size() != compare_to.size())
+      return false;
+
+    auto it1 = received_dependents.begin();
+    auto it2 = compare_to.begin();
+    for (; it1 != received_dependents.end() && it2 != compare_to.end(); ++it1, ++it2)
+      if (it1->index != *it2)
+        return false;
+
+    return true;
+  }
 };
 
 struct BotMidTopPartition {
-  VecScatter high_to_low;
-  VecScatter low_to_high;
+  VecScatter topscatter; // Get the values needed to process the top nodes
+  VecScatter botscatter; // Get the values needed to process the bot nodes
+
+  std::vector<PetscInt> topscatter_indices;
+  std::vector<PetscInt> botscatter_indices;
+
+  Vec top_sctvec;
+  Vec bot_sctvec;
 
   std::vector<BoundaryNode> top;
   std::vector<BoundaryNode> bot;
@@ -66,6 +102,18 @@ struct BotMidTopPartition {
     interior1.clear();
     interior2.clear();
     mid.clear();
+  }
+
+  void reset_mid_nodes() {
+    for (auto &node : mid) {
+      node.done = false;
+      node.received_dependents_idx.clear();
+      node.received_dependents_val.clear();
+    }
+  }
+
+  bool mid_nodes_done() const {
+    return std::all_of(mid.begin(), mid.end(), [](const MidNode &node) { return node.done; });
   }
 };
 

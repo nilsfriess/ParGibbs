@@ -182,6 +182,24 @@ inline PetscErrorCode VecScatter_for_Mat(Mat m, VecScatter *scatter, Vec sct_vec
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
+/** Create a PETSc VecScatter context which collects the given indices (which are assumed to be
+ *  global indices on remote MPI processes) on the calling process.
+ */
+inline PetscErrorCode make_scatter_for_indices(Vec fromvec, const std::vector<PetscInt> &indices,
+                                               VecScatter *scatter, Vec *tovec) {
+  PetscFunctionBeginUser;
+
+  IS is;
+  PetscCall(
+      ISCreateGeneral(MPI_COMM_WORLD, indices.size(), indices.data(), PETSC_COPY_VALUES, &is));
+
+  PetscCall(VecCreateSeq(MPI_COMM_SELF, indices.size(), tovec));
+
+  PetscCall(VecScatterCreate(fromvec, is, *tovec, nullptr, scatter));
+
+  PetscFunctionReturn(PETSC_SUCCESS);
+}
+
 template <typename ColorRankMap>
 inline PetscErrorCode make_botmidtop_partition(Mat mat, BotMidTopPartition &partition,
                                                ColorRankMap &&crm) {
@@ -364,14 +382,45 @@ inline PetscErrorCode make_botmidtop_partition(Mat mat, BotMidTopPartition &part
         for (auto &remote_mid : recv_remote_mid_nodes[remoterank]) {
           if (remote_mid == nb.index) {
             if (crm(remoterank) > crm(rank))
-              node.higher_dependents.push_back(nb.index);
+              node.higher_dependents.insert(nb.index);
             else
-              node.lower_dependents.push_back(nb.index);
+              node.lower_dependents.insert(nb.index);
           }
         }
       }
     }
   }
+
+  ////////////////////////////////////////////////////////////////////////
+  //// STEP 4. Create scatters to communicate boundary values         ////
+  ////////////////////////////////////////////////////////////////////////
+  std::set<PetscInt> topneighbors;
+  std::set<PetscInt> botneighbors;
+  for (auto &node : partition.top)
+    topneighbors.insert(node.neighbor.index);
+  for (auto &node : partition.bot)
+    botneighbors.insert(node.neighbor.index);
+
+  // Create vector from which the values are scattered
+  Vec gvec;
+  PetscCall(VecCreateMPIWithArray(MPI_COMM_WORLD, 1, local_rows, global_rows, nullptr, &gvec));
+
+  // First create topscatter, i.e., a VecScatter for all nodes needed by the
+  // top nodes
+  PetscCall(make_scatter_for_indices(gvec,
+                                     {topneighbors.begin(), topneighbors.end()},
+                                     &partition.topscatter,
+                                     &partition.top_sctvec));
+
+  partition.topscatter_indices = std::vector(topneighbors.begin(), topneighbors.end());
+
+  // Next create botscatter, i.e., a VecScatter for all nodes needed by the
+  // bot nodes
+  PetscCall(make_scatter_for_indices(gvec,
+                                     {botneighbors.begin(), botneighbors.end()},
+                                     &partition.botscatter,
+                                     &partition.bot_sctvec));
+  partition.botscatter_indices = std::vector(botneighbors.begin(), botneighbors.end());
 
   PetscFunctionReturn(PETSC_SUCCESS);
 }
