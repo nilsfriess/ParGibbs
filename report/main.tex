@@ -11,6 +11,10 @@ parskip=half
 \usepackage[T1]{fontenc}
 \usepackage{microtype}
 
+\usepackage[british]{babel}
+
+\usepackage{csquotes}
+
 \usepackage[backend=biber]{biblatex}
 \addbibresource{bibliography.bib}
 
@@ -37,16 +41,24 @@ parskip=half
 \maketitle
 
 \begin{abstract}
-    This report introduces a parallel implementation of the Multigrid Monte Carlo (MGMC) method for sampling from Gaussian distributions with large and sparse precision matrix on distributed memory machines. MGMC is in a certain sense the stochastic counterpart of the classic geometric Multigrid method, and a parallel implementation of MGMC can reuse large parts of a parallel implementation of the classic Multigrid method with the exception of the smoothers which are replaced by certain random samplers. Our implementation reuses Multigrid components from the \emph{Portable and Extensible Toolkit for Scientific computing (PETSc)} and implements the following parallel random samplers within this framework: a multicolour Gibbs sampler which is particularly suited for distributions corresponding to Gaussian Markov random fields on simple grids or lattices; a border/interior Gibbs sampler which is advantageous if the underlying grid is unstructured where a multicolouring approach becomes inefficient; a so called \emph{Hogwild} Gibbs sampler which has the highest parallel efficency but does not target the desired distribution.  
+    This report presents a parallel implementation of the Multigrid Monte Carlo (MGMC) method for sampling from Gaussian distributions with large and sparse precision matrix on distributed memory machines. MGMC is in a certain sense the stochastic counterpart of the classic geometric Multigrid method where the smoothers are replaced by certain random samplers. The implementation is based on the \emph{Portable and Extensible Toolkit for Scientific computing (PETSc)} and offers three parallel Gibbs-type samplers that can be used within MGMC. First, a multicolour Gibbs sampler which partitions the rows of the precision matrix into independent sets that can be handled in parallel; second, a parallel Gibbs sampler that partitions the matrix graph into interior and boundary nodes to increase the parallel efficiency; and third, a so-called \emph{Hogwild} Gibbs sampler, which does not target the desired distribution but offers a higher degree of parallelisation. We provide several numerical examples to study both the general characteristics of the MGMC method and the scaling of the parallel implementation.
 \end{abstract}
+
+\section{Introduction}
+Efficiently generating samples from high-dimensional Gaussian distributions is an important task in many computational sciences but remains computationally challenging when the problem becomes so large that the data does not fit in the memory of a single computing node or if the computation should be sped up by distributing the work among multiple processors or computers. In this report we present a parallel implementation of the \emph{Multigrid Monte Carlo (MGMC)} method~\cite{goodmansokal} to sample from Gaussian distributions with large and sparse precision matrix (inverse covariance matrix). The implementation is based on the \emph{Portable and Extensible  Toolkit for Scientific computing (PETSc)}~\cite{petsc-web-page,petsc-user-ref} which is a widely used library for the solution of partial differential equations and related problems on distributed memory machines. The implementation is available as a free and open source software package at \url{https://github.com/nilsfriess/ParMGMC}.
+
+In the next section we give a brief introduction to the MGMC method, and we give an overview of our implementation. Since the MGMC method is in a certain sense a stochastic version of the classic (geometric) Multigrid algorithm, large parts of the implementation can reuse parallel data structures and algorithms provided by PETSc (e.g., parallel matrix formats, or the parallel assembly and application of grid-transfer operators) so that we only briefly comment on those aspects of the implementation. Our focus is the parallelisation of the random samplers that replace the smoothers in the classic Multgrid method which we present in the third section. The implementation offers three Gibbs-type random samplers: a multicolour Gibbs sampler, a parallel Gibbs sampler based on a distributed-memory Gauss-Seidel solver~\cite{adams2001}, and a so-called \emph{Hogwild} Gibbs sampler. In the fourth section we present numerical examples to study the general characteristics of the MGMC method and the scaling of the parallel implementation. We conclude the report with some remarks on possible future work.
+
+\section{Multigrid Monte Carlo}
+MGMC was first introduced in the context of simulating lattice field theories as a means to reduce or even eliminate the phenomenon of \emph{critical slowing down}: For classical algorithms, such as the \emph{heat bath} algorithm, the autocorrelation time $\tau$ (the time that is necessary to obtain a new useful grid configuration during the simulation) typically behaves as $\tau \sim h^z$ where $h$ is the grid spacing and usually $z \approx 2$. Thus, as the continuum limit $h \rightarrow 0$ is approached, the computer time increases drastically, rendering these algorithms practically useless. As already described in the original paper~\cite{goodmansokal}, the same holds true when these algorithms are used to generated Gaussian samples (since this simply corresponds to a specific type of Hamiltonian operator that is used to describe the physical theory). In this case, the \emph{heat bath} algorithm is a Gibbs sampler and the autocorrelation time roughly corresponds to the number of samples that need to be generated to obtain one statistically independent sample.
+
+\section{Parallel Gibbs sampling}
+
+\section{Numerical results}
+
+\section{Conclusion}
+
 
 \printbibliography
 
 \end{document}
-
- 
-%%% Local Variables:
-%%% mode: latex
-%%% TeX-master: t
-%%% TeX-command-extra-options: "-shell-escape"
-%%% End:
