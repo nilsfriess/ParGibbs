@@ -1,8 +1,7 @@
 \documentclass[
 fontsize=11pt,
 paper=a4,
-numbers=noenddot,
-parskip=half
+numbers=noenddot
 ]{scrartcl}
 
 \usepackage[bottom=3cm, top=3cm]{geometry}
@@ -51,6 +50,10 @@ In the next section we give a brief introduction to the MGMC method, and we give
 
 \section{Multigrid Monte Carlo}
 MGMC was first introduced in the context of simulating lattice field theories as a means to reduce or even eliminate the phenomenon of \emph{critical slowing down}: For classical algorithms, such as the \emph{heat bath} algorithm, the autocorrelation time $\tau$ (the time that is necessary to obtain a new useful grid configuration during the simulation) typically behaves as $\tau \sim h^z$ where $h$ is the grid spacing and usually $z \approx 2$. Thus, as the continuum limit $h \rightarrow 0$ is approached, the computer time increases drastically, rendering these algorithms practically useless. As already described in the original paper~\cite{goodmansokal}, the same holds true when these algorithms are used to generated Gaussian samples (since this simply corresponds to a specific type of Hamiltonian operator that is used to describe the physical theory). In this case, the \emph{heat bath} algorithm is a Gibbs sampler and the autocorrelation time roughly corresponds to the number of samples that need to be generated to obtain one statistically independent sample.
+
+In essence, the MGMC algorithm corresponds to the classic (geometric) multigrid algorithm~\cite{hackbuschMultiGridMethodsApplications1985}, whereby the \emph{pre- and postsmoothers} are replaced by \emph{pre- and postsamplers} (which we also refer to as random smoothers to emphasise the connection to classic Multigrid) and the direct solver on the coarsest level is replaced by a random sampler. More precisely, for every Multigrid method with a smoother based on a convergent matrix splitting there exists a corresponding MGMC method (if we fix the coarse sampler). This correspondence follows from a general equivalence between stationary iterative methods and so called generalised Gibbs samplers~\cite{foxparker}. In the case of the Gauss-Seidel method, for example, the corresponding sampler is the classical component-wise Gibbs sampler.
+
+The remaining components of the Multigrid method (in particular, the prolongation and restriction operations) are used in the same way in the MGMC method. An implementation can thus reuse parts of a given Multigrid implementation and for our parallel implementation we can leverage PETSc's optimised parallel implementations of these components. For the coarse sampler, we either use a few iterations of a Gibbs sampler or we generate the samples using a Cholesky factorisation of the coarse matrix. We used the 
 
 \section{Parallel Gibbs sampling}
 
