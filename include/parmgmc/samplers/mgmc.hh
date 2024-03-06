@@ -83,7 +83,7 @@ public:
     PetscFunctionBeginUser;
 
     PARMGMC_INFO << "Start setting up Multigrid sampler using DM hierarchy ("
-                  << dm_hierarchy->num_levels() << " levels).\n";
+                 << dm_hierarchy->num_levels() << " levels).\n";
     Timer timer;
 
     ops.resize(n_levels);
@@ -91,13 +91,6 @@ public:
 
     MatType type;
     PetscCallVoid(MatGetType(fine_operator->get_mat(), &type));
-
-    bool is_parallel = false;
-    if (std::strcmp(type, MATMPIAIJ) == 0)
-      is_parallel = true;
-
-    if (is_parallel && !fine_operator->has_coloring())
-      PetscCallVoid(fine_operator->color_matrix(dm_hierarchy->get_fine()));
 
     for (int level = n_levels - 1; level > 0; --level) {
       // Create fine matrix using Galerkin projection
@@ -108,16 +101,13 @@ public:
                             PETSC_DEFAULT,
                             &coarse_mat));
       ops[level - 1] = std::make_shared<LinearOperator>(coarse_mat);
-
-      if (is_parallel)
-        PetscCallVoid(ops[level - 1]->color_matrix(dm_hierarchy->get_dm(level)));
     }
 
     PetscCallVoid(init_vecs_and_smoothers(engine));
 
     auto elapsed = timer.elapsed();
     PARMGMC_INFO << "Done setting up Multigrid sampler (took " << elapsed
-                  << " seconds).\n";
+                 << " seconds).\n";
 
     PetscFunctionReturnVoid();
   }
@@ -177,7 +167,7 @@ private:
     rs.resize(n_levels);
 
     for (std::size_t level = 0; level < n_levels; ++level) {
-      PetscCall(MatCreateVecs(ops[level]->get_mat(), &bs[level], NULL));
+      PetscCall(MatCreateVecs(ops[level]->get_mat(), &bs[level], nullptr));
       PetscCall(VecDuplicate(bs[level], &xs[level]));
       PetscCall(VecDuplicate(bs[level], &rs[level]));
 

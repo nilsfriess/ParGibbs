@@ -2,11 +2,13 @@
 
 #include <cstring>
 
+#include <memory>
 #include <petsc.h>
 #include <petscerror.h>
 #include <petscis.h>
 #include <petscmat.h>
 
+#include "parmgmc/common/coloring.hh"
 #include "parmgmc/common/helpers.hh"
 #include "parmgmc/common/log.hh"
 #include "petscsystypes.h"
@@ -15,45 +17,21 @@ namespace parmgmc {
 class LinearOperator {
 public:
   explicit LinearOperator(Mat mat, bool transfer_ownership = true)
-      : mat{mat}, should_delete{transfer_ownership} {
-    PetscFunctionBeginUser;
+      : mat{mat}, should_delete{transfer_ownership} {}
 
-    MatType type;
-    PetscCallVoid(MatGetType(mat, &type));
-
-    if (std::strcmp(type, MATMPIAIJ) == 0)
-      PetscCallVoid(VecScatter_for_Mat(mat, &scatter));
-
-    PetscFunctionReturnVoid();
+  void color_matrix(MatColoringType coloring_type = MATCOLORINGJP) {
+    coloring = std::make_unique<Coloring>(mat, coloring_type);
   }
 
-  PetscErrorCode color_matrix(DM dm = nullptr) {
-    PetscFunctionBeginUser;
-
-    if (!dm)
-      PetscCall(ISColoring_for_Mat(mat, &coloring));
-    else
-      PetscCall(ISColoring_for_Mat(mat, dm, &coloring));
-
-    PetscInt ncolors;
-    PetscCall(ISColoringGetColors(coloring, nullptr, &ncolors, nullptr));
-
-    PARMGMC_DEBUG << "Matrix coloring required " << ncolors << " colors\n";
-
-    PetscFunctionReturn(PETSC_SUCCESS);
-  }
+  void color_matrix(DM dm) { coloring = std::make_unique<Coloring>(mat, dm); }
 
   Mat get_mat() const { return mat; }
-  ISColoring get_coloring() const { return coloring; }
-  VecScatter get_scatter() const { return scatter; }
+  Coloring *get_coloring() const { return coloring.get(); }
 
   bool has_coloring() const { return coloring != nullptr; }
 
   ~LinearOperator() {
     PetscFunctionBeginUser;
-
-    PetscCallVoid(ISColoringDestroy(&coloring));
-    PetscCallVoid(VecScatterDestroy(&scatter));
 
     if (should_delete)
       PetscCallVoid(MatDestroy(&mat));
@@ -64,10 +42,7 @@ public:
 private:
   Mat mat = nullptr;
 
-  // Only set in parallel execution (i.e. when type of mat == MATMPIAIJ)
-  VecScatter scatter = nullptr;
-
-  ISColoring coloring = nullptr;
+  std::unique_ptr<Coloring> coloring;
 
   bool should_delete;
 };

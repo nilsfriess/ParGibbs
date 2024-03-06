@@ -56,57 +56,6 @@ inline PetscErrorCode fill_vec_rand(Vec vec, Engine &engine) {
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
-inline PetscErrorCode ISColoring_for_Mat(Mat m, ISColoring *coloring) {
-  PetscFunctionBeginUser;
-
-  MatColoring mc;
-  PetscCall(MatColoringCreate(m, &mc));
-  PetscCall(MatColoringSetDistance(mc, 1));
-  PetscCall(MatColoringSetType(mc, MATCOLORINGJP));
-  PetscCall(MatColoringApply(mc, coloring));
-  PetscCall(MatColoringDestroy(&mc));
-
-  PetscCall(ISColoringSetType(*coloring, IS_COLORING_LOCAL));
-
-  PetscFunctionReturn(PETSC_SUCCESS);
-}
-
-inline PetscErrorCode ISColoring_for_Mat(Mat mat, DM dm, ISColoring *coloring) {
-  PetscFunctionBeginUser;
-
-  const PetscInt ncolors = 2;
-
-  PetscInt start, end;
-  PetscCall(MatGetOwnershipRange(mat, &start, &end));
-
-  // Global indices owned by current MPI rank
-  std::vector<PetscInt> indices(end - start);
-  std::iota(indices.begin(), indices.end(), start);
-
-  // Convert to natural indices
-  AO ao;
-  PetscCall(DMDAGetAO(dm, &ao));
-  PetscCall(AOPetscToApplication(ao, indices.size(), indices.data()));
-
-  std::vector<ISColoringValue> colors(indices.size());
-  for (std::size_t i = 0; i < indices.size(); ++i) {
-    if (indices[i] % 2 == 0)
-      colors[i] = 0; // red
-    else
-      colors[i] = 1; // black
-  }
-
-  PetscCall(ISColoringCreate(MPI_COMM_WORLD,
-                             ncolors,
-                             colors.size(),
-                             colors.data(),
-                             PETSC_COPY_VALUES,
-                             coloring));
-  PetscCall(ISColoringSetType(*coloring, IS_COLORING_LOCAL));
-
-  PetscFunctionReturn(PETSC_SUCCESS);
-}
-
 inline PetscErrorCode VecScatter_for_Mat(Mat m, VecScatter *scatter,
                                          Vec sct_vec = nullptr) {
   PetscFunctionBeginUser;

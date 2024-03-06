@@ -1,6 +1,5 @@
 #include "parmgmc/common/petsc_helper.hh"
 #include "parmgmc/linear_operator.hh"
-#include "parmgmc/samplers/hogwild.hh"
 #include "parmgmc/samplers/mgmc.hh"
 #include "parmgmc/samplers/multicolor_gibbs.hh"
 
@@ -54,7 +53,7 @@ public:
       auto *A = new mfem::PetscParMatrix;
       forms[l]->FormSystemMatrix(ess_tdofs, *A);
       this->ops[l] = std::make_shared<parmgmc::LinearOperator>(*A, false);
-      this->ops[l]->color_matrix();
+      // this->ops[l]->color_matrix();
     }
   }
 

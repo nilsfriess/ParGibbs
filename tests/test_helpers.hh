@@ -1,71 +1,70 @@
 #pragma once
 
-#include "petscviewer.h"
 #include <iostream>
 #include <mpi.h>
+
+#include <ostream>
 #include <petsc.h>
 #include <petscmat.h>
 
+#include <utility>
 #include <vector>
 
-inline Mat create_test_mat(PetscInt size, bool no_off_diag = false) {
+/** Creates finite difference matrix for the 2d Laplacian.
+*/
+inline Mat create_test_mat(PetscInt size_per_dim) {
   Mat mat;
-  MatCreateAIJ(MPI_COMM_WORLD,
-               PETSC_DECIDE,
-               PETSC_DECIDE,
-               size,
-               size,
-               3,
-               nullptr,
-               no_off_diag ? 0 : 2,
-               nullptr,
-               &mat);
-  MatSetOption(mat, MAT_NEW_NONZERO_ALLOCATION_ERR, PETSC_FALSE);
+  MatCreate(MPI_COMM_WORLD, &mat);
+  MatSetType(mat, MATMPIAIJ);
+  MatSetSizes(mat,
+              PETSC_DECIDE,
+              PETSC_DECIDE,
+              size_per_dim * size_per_dim,
+              size_per_dim * size_per_dim);
+  MatMPIAIJSetPreallocation(mat, 5, nullptr, 2, nullptr);
+
+  double h2 = 1.0 / ((size_per_dim + 1) * (size_per_dim + 1));
 
   PetscInt local_start, local_end;
   MatGetOwnershipRange(mat, &local_start, &local_end);
-  auto local_size = local_end - local_start;
 
-  PetscInt min_local_size;
-  MPI_Allreduce(
-      &local_size, &min_local_size, 1, MPI_INT, MPI_MIN, MPI_COMM_WORLD);
+  const auto index_to_grid = [size_per_dim](auto row) {
+    return std::make_pair(row / size_per_dim, row % size_per_dim);
+  };
 
-  PetscInt n_cols = no_off_diag ? 3 : 5;
-
-  std::vector<PetscInt> cols(n_cols);
-  std::vector<PetscReal> vals(n_cols);
+  std::vector<PetscInt> cols;
+  std::vector<PetscReal> vals; 
 
   for (PetscInt row = local_start; row < local_end; ++row) {
-    PetscInt nz = 0;
-    if (not no_off_diag && row - min_local_size >= 0) {
-      cols[nz] = row - min_local_size;
-      vals[nz] = -2;
-      nz++;
+    const auto [i, j] = index_to_grid(row);
+    cols.clear();
+    vals.clear();
+
+    if (i > 0) {
+      cols.push_back(row - size_per_dim);
+      vals.push_back(-1 / h2);
     }
 
-    if (row - 1 >= 0) {
-      cols[nz] = row - 1;
-      vals[nz] = -1;
-      nz++;
+    if (i < size_per_dim - 1) {
+      cols.push_back(row + size_per_dim);
+      vals.push_back(-1 / h2);
     }
 
-    cols[nz] = row;
-    vals[nz] = 8;
-    nz++;
+    cols.push_back(row);
+    vals.push_back(4 / h2);
 
-    if (row + 1 < size) {
-      cols[nz] = row + 1;
-      vals[nz] = -1;
-      nz++;
+    if (j > 0) {
+      cols.push_back(row - 1);
+      vals.push_back(-1 / h2);
     }
 
-    if (not no_off_diag && row + min_local_size < size) {
-      cols[nz] = row + min_local_size;
-      vals[nz] = -2;
-      nz++;
+    if (j < size_per_dim - 1) {
+      cols.push_back(row + 1);
+      vals.push_back(-1 / h2);
     }
 
-    MatSetValues(mat, 1, &row, nz, cols.data(), vals.data(), INSERT_VALUES);
+    MatSetValues(
+        mat, 1, &row, cols.size(), cols.data(), vals.data(), INSERT_VALUES);
   }
 
   MatAssemblyBegin(mat, MAT_FINAL_ASSEMBLY);
@@ -74,7 +73,6 @@ inline Mat create_test_mat(PetscInt size, bool no_off_diag = false) {
   return mat;
 }
 
-
 struct Coordinate {
   PetscReal x;
   PetscReal y;
@@ -82,7 +80,7 @@ struct Coordinate {
 
 inline DM create_test_dm(PetscInt n_vertices_per_dim) {
   Coordinate lower_left{0, 0};
-  Coordinate upper_right{1, 1};
+  Coordinate upper_right{1, 1}; 
 
   PetscInt n_vertices = n_vertices_per_dim;
   PetscInt dof_per_node = 1;
@@ -99,8 +97,8 @@ inline DM create_test_dm(PetscInt n_vertices_per_dim) {
                PETSC_DECIDE,
                dof_per_node,
                stencil_width,
-               NULL,
-               NULL,
+               nullptr,
+               nullptr,
                &dm);
 
   DMSetUp(dm);
@@ -108,4 +106,13 @@ inline DM create_test_dm(PetscInt n_vertices_per_dim) {
       dm, lower_left.x, upper_right.x, lower_left.y, upper_right.y, 0, 0);
 
   return dm;
+}
+
+inline bool operator==(PetscSFNode n1, PetscSFNode n2) {
+  return n1.index == n2.index && n1.rank == n2.rank;
+}
+
+inline std::ostream& operator<<(std::ostream &out, const PetscSFNode &node) {
+  out << "[" << node.rank <<"]->" << node.index;
+  return out;
 }

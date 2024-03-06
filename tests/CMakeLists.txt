@@ -11,11 +11,13 @@ FetchContent_MakeAvailable(Catch2)
 list(APPEND CMAKE_MODULE_PATH ${catch2_SOURCE_DIR}/extras)
 include(Catch)
 
+# add_executable(tests coloring.cc test.cc)
 add_executable(tests 
   test.cc 
   multicolor_gibbs.cc
   helpers.cc
   dm_hierarchy.cc
-  linear_operator.cc)
+  linear_operator.cc
+  coloring.cc)
 target_link_libraries(tests PRIVATE Catch2::Catch2 parmgmc)
 catch_discover_tests(tests)

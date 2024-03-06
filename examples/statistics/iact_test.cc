@@ -1,4 +1,5 @@
 #include "mat.hh"
+#include "petscsys.h"
 #include "qoi.hh"
 
 #include "parmgmc/common/helpers.hh"
@@ -8,6 +9,7 @@
 #include "parmgmc/samplers/mgmc.hh"
 #include "parmgmc/samplers/sample_chain.hh"
 
+#include <iostream>
 #include <mpi.h>
 #include <pcg_random.hpp>
 
@@ -187,7 +189,7 @@ int main(int argc, char *argv[]) {
     Mat mat;
     PetscCall(assemble(dm_hierarchy->get_fine(), &mat));
     auto linear_operator = std::make_shared<LinearOperator>(mat);
-    linear_operator->color_matrix(dm_hierarchy->get_fine());
+    // linear_operator->color_matrix(dm_hierarchy->get_fine());
 
     PetscReal omega = 1.; // SOR parameter
     PetscOptionsGetReal(NULL, NULL, "-omega", &omega, NULL);
