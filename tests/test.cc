@@ -1,5 +1,4 @@
 #include "parmgmc/common/petsc_helper.hh"
-#include "parmgmc/dm_hierarchy.hh"
 
 #include <catch2/catch_session.hpp>
 #include <petscoptions.h>

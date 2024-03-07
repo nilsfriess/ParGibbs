@@ -156,7 +156,8 @@ int main(int argc, char *argv[]) {
   parmgmc::MGMCParameters params;
   params.n_smooth = 1;
   params.cycle_type = parmgmc::MGMCCycleType::V;
-  params.smoothing_type = parmgmc::MGMCSmoothingType::Symmetric;
+  params.smoothing_type = parmgmc::MGMCSmoothingType::ForwardBackward;
+  params.coarse_sampler_type = parmgmc::MGMCCoarseSamplerType::Cholesky;
 
   ShiftedLaplaceMGMC sampler(fespaces, ess_bdr, &engine, params, kappainv);
 

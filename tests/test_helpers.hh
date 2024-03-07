@@ -11,7 +11,7 @@
 #include <vector>
 
 /** Creates finite difference matrix for the 2d Laplacian.
-*/
+ */
 inline Mat create_test_mat(PetscInt size_per_dim) {
   Mat mat;
   MatCreate(MPI_COMM_WORLD, &mat);
@@ -21,7 +21,7 @@ inline Mat create_test_mat(PetscInt size_per_dim) {
               PETSC_DECIDE,
               size_per_dim * size_per_dim,
               size_per_dim * size_per_dim);
-  MatMPIAIJSetPreallocation(mat, 5, nullptr, 2, nullptr);
+  MatMPIAIJSetPreallocation(mat, 5, nullptr, 4, nullptr);
 
   double h2 = 1.0 / ((size_per_dim + 1) * (size_per_dim + 1));
 
@@ -33,7 +33,7 @@ inline Mat create_test_mat(PetscInt size_per_dim) {
   };
 
   std::vector<PetscInt> cols;
-  std::vector<PetscReal> vals; 
+  std::vector<PetscReal> vals;
 
   for (PetscInt row = local_start; row < local_end; ++row) {
     const auto [i, j] = index_to_grid(row);
@@ -80,7 +80,7 @@ struct Coordinate {
 
 inline DM create_test_dm(PetscInt n_vertices_per_dim) {
   Coordinate lower_left{0, 0};
-  Coordinate upper_right{1, 1}; 
+  Coordinate upper_right{1, 1};
 
   PetscInt n_vertices = n_vertices_per_dim;
   PetscInt dof_per_node = 1;
@@ -112,7 +112,7 @@ inline bool operator==(PetscSFNode n1, PetscSFNode n2) {
   return n1.index == n2.index && n1.rank == n2.rank;
 }
 
-inline std::ostream& operator<<(std::ostream &out, const PetscSFNode &node) {
-  out << "[" << node.rank <<"]->" << node.index;
+inline std::ostream &operator<<(std::ostream &out, const PetscSFNode &node) {
+  out << "[" << node.rank << "]->" << node.index;
   return out;
 }

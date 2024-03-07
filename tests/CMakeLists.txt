@@ -18,6 +18,7 @@ add_executable(tests
   helpers.cc
   dm_hierarchy.cc
   linear_operator.cc
-  coloring.cc)
+  coloring.cc
+  cholesky.cc)
 target_link_libraries(tests PRIVATE Catch2::Catch2 parmgmc)
 catch_discover_tests(tests)

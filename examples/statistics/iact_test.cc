@@ -40,8 +40,8 @@ inline PetscErrorCode iact(const std::string &name, Chain &chain,
   }
   PetscCall(VecDestroy(&initial_sample));
 
-  PetscInt n_burnin = 100;
-  PetscOptionsGetInt(NULL, NULL, "-n_burnin", &n_burnin, NULL);
+  PetscInt n_burnin = 20;
+  PetscOptionsGetInt(nullptr, nullptr, "-n_burnin", &n_burnin, nullptr);
 
   PetscPrintf(MPI_COMM_WORLD, "Starting burnin...");
   timer.reset();
@@ -49,8 +49,8 @@ inline PetscErrorCode iact(const std::string &name, Chain &chain,
   PetscPrintf(MPI_COMM_WORLD, "Done. Took %f seconds.\n", timer.elapsed());
   chain.reset();
 
-  PetscInt n_samples = 100;
-  PetscOptionsGetInt(NULL, NULL, "-n_samples", &n_samples, NULL);
+  PetscInt n_samples = 20;
+  PetscOptionsGetInt(nullptr, nullptr, "-n_samples", &n_samples, nullptr);
 
   PetscPrintf(MPI_COMM_WORLD, "Starting sampling...");
   timer.reset();
@@ -96,7 +96,7 @@ int main(int argc, char *argv[]) {
     const PetscInt stencil_width = 1;
 
     int n_vertices = 5;
-    PetscOptionsGetInt(NULL, NULL, "-n_vertices", &n_vertices, NULL);
+    PetscOptionsGetInt(nullptr, nullptr, "-n_vertices", &n_vertices, nullptr);
 
     Coordinate lower_left{0, 0};
     Coordinate upper_right{1, 1};
@@ -112,23 +112,23 @@ int main(int argc, char *argv[]) {
                            PETSC_DECIDE,
                            dof_per_node,
                            stencil_width,
-                           NULL,
-                           NULL,
+                           nullptr,
+                           nullptr,
                            &dm));
 
     PetscCall(DMSetUp(dm));
     PetscCall(DMDASetUniformCoordinates(
         dm, lower_left.x, upper_right.x, lower_left.y, upper_right.y, 0, 0));
 
-    PetscInt n_levels = 4;
-    PetscOptionsGetInt(NULL, NULL, "-n_levels", &n_levels, NULL);
+    PetscInt n_levels = 5;
+    PetscOptionsGetInt(nullptr, nullptr, "-n_levels", &n_levels, nullptr);
 
     dm_hierarchy = std::make_shared<DMHierarchy>(dm, n_levels);
     // PetscCall(dm_hierarchy->print_info());
   }
 
   int n_chains = 8;
-  PetscOptionsGetInt(NULL, NULL, "-n_chains", &n_chains, NULL);
+  PetscOptionsGetInt(nullptr, nullptr, "-n_chains", &n_chains, nullptr);
 
   // Setup random number generator
   pcg32 engine;
@@ -136,7 +136,7 @@ int main(int argc, char *argv[]) {
     int seed;
     if (rank == 0) {
       seed = std::random_device{}();
-      PetscOptionsGetInt(NULL, NULL, "-seed", &seed, NULL);
+      PetscOptionsGetInt(nullptr, nullptr, "-seed", &seed, nullptr);
     }
 
     // Send seed to all other processes
@@ -153,12 +153,13 @@ int main(int argc, char *argv[]) {
   NormQOI qoi;
 
   PetscInt n_smooth = 2;
-  PetscOptionsGetInt(NULL, NULL, "-n_smooth", &n_smooth, NULL);
+  PetscOptionsGetInt(nullptr, nullptr, "-n_smooth", &n_smooth, nullptr);
 
   MGMCParameters params;
   params.n_smooth = n_smooth;
   params.cycle_type = MGMCCycleType::V;
   params.smoothing_type = MGMCSmoothingType::Symmetric;
+  params.coarse_sampler_type = MGMCCoarseSamplerType::Cholesky;
 
   // Setup Multigrid sampler
   {
@@ -192,7 +193,7 @@ int main(int argc, char *argv[]) {
     // linear_operator->color_matrix(dm_hierarchy->get_fine());
 
     PetscReal omega = 1.; // SOR parameter
-    PetscOptionsGetReal(NULL, NULL, "-omega", &omega, NULL);
+    PetscOptionsGetReal(nullptr, nullptr, "-omega", &omega, nullptr);
 
     using Chain = SampleChain<MulticolorGibbsSampler<pcg32>, NormQOI>;
     Chain chain(qoi,
