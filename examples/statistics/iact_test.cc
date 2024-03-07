@@ -159,7 +159,11 @@ int main(int argc, char *argv[]) {
   params.n_smooth = n_smooth;
   params.cycle_type = MGMCCycleType::V;
   params.smoothing_type = MGMCSmoothingType::Symmetric;
+#if PETSC_HAVE_MKL_CPARDISO
   params.coarse_sampler_type = MGMCCoarseSamplerType::Cholesky;
+#else
+  params.coarse_sampler_type = MGMCCoarseSamplerType::Standard;
+#endif
 
   // Setup Multigrid sampler
   {

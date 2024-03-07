@@ -191,7 +191,7 @@ private:
       PetscCall(VecZeroEntries(xs[level]));
       PetscCall(VecZeroEntries(rs[level]));
     }
-
+#if PETSC_HAVE_MKL_CPARDISO
     bool coarse_cholesky =
         coarse_sampler_type == MGMCCoarseSamplerType::Cholesky;
     auto coarsest_smoother_index = coarse_cholesky ? 1 : 0;
@@ -202,6 +202,10 @@ private:
     if (coarse_cholesky)
       coarse_sampler =
           std::make_shared<CholeskySampler<Engine>>(ops[0], engine);
+#else
+    for (std::size_t level = 0; level < n_levels; ++level)
+      smoothers.push_back(std::make_shared<Smoother>(ops[level], engine));
+#endif
 
     if (smoothing_type == MGMCSmoothingType::Symmetric)
       for (auto &smoother : smoothers)
@@ -215,11 +219,15 @@ private:
 
     if (level > 0) {
       Smoother *curr_smoother;
+#if PETSC_HAVE_MKL_CPARDISO
       if (coarse_sampler_type == MGMCCoarseSamplerType::Cholesky) {
         curr_smoother = smoothers[level - 1].get();
       } else {
         curr_smoother = smoothers[level].get();
       }
+#else
+      curr_smoother = smoothers[level].get();
+#endif
 
       // Pre smooth
       if (smoothing_type != MGMCSmoothingType::Symmetric)
@@ -247,6 +255,7 @@ private:
       PetscCall(curr_smoother->sample(xs[level], bs[level], n_smooth));
     } else {
       // Coarse level
+#if PETSC_HAVE_MKL_CPARDISO
       if (coarse_sampler_type == MGMCCoarseSamplerType::Cholesky) {
         PetscCall(coarse_sampler->sample(xs[0], bs[0]));
       } else {
@@ -254,6 +263,11 @@ private:
           smoothers[0]->setSweepType(GibbsSweepType::Symmetric);
         PetscCall(smoothers[0]->sample(xs[0], bs[0], 2 * n_smooth));
       }
+#else
+      if (smoothing_type != MGMCSmoothingType::Symmetric)
+	smoothers[0]->setSweepType(GibbsSweepType::Symmetric);
+      PetscCall(smoothers[0]->sample(xs[0], bs[0], 2 * n_smooth));
+#endif
     }
 
     PetscFunctionReturn(PETSC_SUCCESS);
