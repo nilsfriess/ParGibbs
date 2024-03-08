@@ -35,6 +35,8 @@ public:
     PARMGMC_INFO_NP << "done. Took " << timer.elapsed() << " seconds.\n";
     timer.reset();
 
+    PetscCallVoid(MatSetOption(smat, MAT_SPD, PETSC_TRUE));
+
     PetscCallVoid(MatGetFactor(
         smat, MATSOLVERMKL_CPARDISO, MAT_FACTOR_CHOLESKY, &factor));
 
