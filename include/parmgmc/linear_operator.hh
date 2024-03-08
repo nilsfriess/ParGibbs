@@ -1,7 +1,5 @@
 #pragma once
 
-#include <cstring>
-
 #include <memory>
 #include <petsc.h>
 #include <petscerror.h>
@@ -9,9 +7,6 @@
 #include <petscmat.h>
 
 #include "parmgmc/common/coloring.hh"
-#include "parmgmc/common/helpers.hh"
-#include "parmgmc/common/log.hh"
-#include "petscsystypes.h"
 
 namespace parmgmc {
 class LinearOperator {
@@ -19,7 +14,7 @@ public:
   explicit LinearOperator(Mat mat, bool transfer_ownership = true)
       : mat{mat}, should_delete{transfer_ownership} {}
 
-  void color_matrix(MatColoringType coloring_type = MATCOLORINGJP) {
+  void color_matrix(MatColoringType coloring_type = MATCOLORINGGREEDY) {
     coloring = std::make_unique<Coloring>(mat, coloring_type);
   }
 
