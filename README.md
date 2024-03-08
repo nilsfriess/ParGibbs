@@ -4,7 +4,7 @@ ParMGMC is a C++17 implementation of the Multigrid Monte Carlo method to sample 
 ## Installation and usage
 ParMGMC is a header-only library and as such requires no installation. If you want to use the library, simply copy the folder `parmgmc` inside the `include` directory somewhere on your computer. ParMGMC has the following dependencies:
 - An MPI installation (e.g., [OpenMPI](https://www.open-mpi.org/) or [MPICH](https://www.mpich.org/))
-- [PETSc](https://petsc.org/)  (tested with version 3.20, anything >= 3.19 should work)
+- [PETSc](https://petsc.org/)  (tested with version 3.20, anything >= 3.19 should work, some features currently require a custom build, see [below](#enabling-the-parallel-cholesky-sampler))
 
 ### Using ParMGMC in a CMake project
 Inside another CMake project, you can use CMake's `FetchContent` to download and configure ParMGMC automatically. Simply add the following to your `CMakeLists.txt`
