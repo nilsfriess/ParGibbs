@@ -61,6 +61,16 @@ The remaining components of the Multigrid method (in particular, the prolongatio
 
 \section{Conclusion}
 
+\section{Notes}
+\subsection{Cholesky sampling from Gaussian distributions with given precision matrix}
+Suppose we want to generate samples from the distribution $\pi = \mathcal{N}(A^{-1} f, A^{-1})$. Let $LL^T = A$ be a Cholesky decomposition of the precision matrix $A$. Samples from $\pi$ can then be generated as follows:
+\begin{enumerate}
+    \item Draw a sample $\xi \sim \mathcal{N}(0,I)$.
+    \item Forward-solve $L g = f$ for $g$.
+    \item Backward-solve $L^T x = \xi + g$.
+    \item Return the new sample $x$.
+\end{enumerate}
+Indeed, we then have $x = L^{-T} \xi + L^{-T} g = L^{-T} \xi + {(LL^T)}^{-1} f =  L^{-T} \xi + A^{-1} f$ and by the properties of the normal distribution it follows that $x \sim \mathcal{N}(A^{-1} f, L^{-T}L^{-1}) = \mathcal{N}(A^{-1} f, A^{-1})$ as claimed.
 
 \printbibliography
 
