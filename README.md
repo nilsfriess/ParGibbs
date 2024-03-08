@@ -67,6 +67,7 @@ $ git clone -b cpardiso_fw_bw_solve https://gitlab.com/nilsfriess/petsc.git pets
 ```
 to clone PETSc and configure and build it with
 ```bash
+$ cd petsc
 $ ./configure --with-fortran-bindings=0 --with-blas-lapack-dir=/opt/intel/oneapi/mkl/latest/lib --with-mkl_cpardiso 
 $ make PETSC_DIR=... PETSC_ARCH=... all
 ```
