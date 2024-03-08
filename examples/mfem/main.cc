@@ -15,7 +15,6 @@
 
 #include <pcg_random.hpp>
 
-#include <iostream>
 #include <memory>
 #include <random>
 #include <string>
