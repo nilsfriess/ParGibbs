@@ -53,7 +53,7 @@ $ make examples
 to build the examples.
 
 ## Enabling the parallel Cholesky sampler
-The MGMC sampler can use a parallel Cholesky sampler on the coarsest level using the PETSc interface of Intel's oneAPI Math Kernel Library (MKL). On Ubuntu, the required packages can be installed using the following commands (for details, see [Intel's documentation]()):
+The MGMC sampler can use a parallel Cholesky sampler on the coarsest level using the PETSc interface of Intel's oneAPI Math Kernel Library (MKL). On Ubuntu, the required packages can be installed using the following commands (for details, see [Intel's documentation](https://www.intel.com/content/www/us/en/developer/tools/oneapi/onemkl-download.html)):
 ``` bash
 $ wget -O- https://apt.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB | gpg --dearmor | sudo tee /usr/share/keyrings/oneapi-archive-keyring.gpg > /dev/null
 $ echo "deb [signed-by=/usr/share/keyrings/oneapi-archive-keyring.gpg] https://apt.repos.intel.com/oneapi all main" | sudo tee /etc/apt/sources.list.d/oneAPI.list
