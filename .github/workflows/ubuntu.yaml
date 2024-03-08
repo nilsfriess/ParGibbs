@@ -37,6 +37,6 @@ jobs:
         run: ${GITHUB_WORKSPACE}/build/tests/tests [seq]
 
       - name: Run parallel tests
-        run: ${GITHUB_WORKSPACE}/petsc/arch-linux-c-opt/bin/mpirun -np 4 ${GITHUB_WORKSPACE}/build/tests/tests [mpi]
+        run: LD_PRELOAD=/opt/intel/oneapi/mkl/latest/lib/libmkl_blacs_intelmpi_lp64.so ${GITHUB_WORKSPACE}/petsc/arch-linux-c-opt/bin/mpirun -np 4 ${GITHUB_WORKSPACE}/build/tests/tests [mpi]
         
   
