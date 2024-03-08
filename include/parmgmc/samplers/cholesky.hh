@@ -24,7 +24,6 @@ public:
                   Engine *engine)
       : linear_operator{linear_operator}, engine{engine} {
     PetscFunctionBegin;
-    // Compute cholesky decomposition of mat
     PARMGMC_INFO << "Computing Cholesky factorisation...\n";
     Timer timer;
 
@@ -50,19 +49,11 @@ public:
     PetscCallVoid(MatMkl_CPardisoSetCntl(
         factor, 3, 1)); // Set number of OpenMP processes per rank
 
-    // PetscCallVoid(MatMkl_CPardisoSetCntl(factor, 68, 1)); // Message level
-    // info
+    // PetscCallVoid(MatMkl_CPardisoSetCntl(factor, 68, 1)); // Message level info
 
-    IS rowperm, colperm;
-    PetscCallVoid(MatGetOrdering(smat, MATORDERINGNATURAL, &rowperm, &colperm));
+    PetscCallVoid(MatCholeskyFactorSymbolic(factor, smat, nullptr, nullptr));
+    PetscCallVoid(MatCholeskyFactorNumeric(factor, smat, nullptr));
 
-    MatFactorInfo info;
-    PetscCallVoid(MatCholeskyFactorSymbolic(factor, smat, rowperm, &info));
-    PetscCallVoid(MatCholeskyFactorNumeric(factor, smat, &info));
-
-    PetscCallVoid(ISDestroy(&rowperm));
-    PetscCallVoid(ISDestroy(&colperm));
-    
     PetscCallVoid(MatDestroy(&smat));
 
     PARMGMC_INFO << "Done. Cholesky factorisation took " << timer.elapsed()
@@ -89,7 +80,7 @@ public:
     PetscFunctionReturn(PETSC_SUCCESS);
   }
 
-~CholeskySampler() {
+  ~CholeskySampler() {
     PetscFunctionBeginUser;
 
     PetscCallVoid(VecDestroy(&r));
@@ -98,7 +89,7 @@ public:
     PetscCallVoid(MatDestroy(&factor));
 
     PetscFunctionReturnVoid();
-}
+  }
 
 private:
   std::shared_ptr<LinearOperator> linear_operator;
