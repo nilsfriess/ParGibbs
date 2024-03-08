@@ -16,3 +16,5 @@ report/main.out
 report/main.pdf
 report/main.run.xml
 report/main.synctex.gz
+
+*.~undo-tree~
