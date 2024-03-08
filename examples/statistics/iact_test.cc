@@ -1,5 +1,4 @@
 #include "mat.hh"
-#include "petscsys.h"
 #include "qoi.hh"
 
 #include "parmgmc/common/helpers.hh"
@@ -9,7 +8,10 @@
 #include "parmgmc/samplers/mgmc.hh"
 #include "parmgmc/samplers/sample_chain.hh"
 
-#include <iostream>
+#if PETSC_HAVE_MKL_CPARDISO
+#include "parmgmc/samplers/cholesky.hh"
+#endif
+
 #include <mpi.h>
 #include <pcg_random.hpp>
 
@@ -210,6 +212,23 @@ int main(int argc, char *argv[]) {
 
     PetscCall(iact("Gibbs", chain, sample_rhs));
   }
+
+#if PETSC_HAVE_MKL_CPARDISO
+  // Setup Cholesky sampler
+  {
+    PetscCall(PetscPrintf(MPI_COMM_WORLD, "Setting up Cholesky sampler...\n"));
+
+    // Setup fine operator
+    Mat mat;
+    PetscCall(assemble(dm_hierarchy->get_fine(), &mat));
+    auto linear_operator = std::make_shared<LinearOperator>(mat);
+
+    using Chain = SampleChain<CholeskySampler<pcg32>, NormQOI>;
+    Chain chain(qoi, n_chains, sample_rhs, linear_operator, &engine);
+
+    PetscCall(iact("Cholesky", chain, sample_rhs));
+  }
+#endif
 
   PetscCall(VecDestroy(&sample_rhs));
 
