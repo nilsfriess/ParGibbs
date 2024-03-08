@@ -49,7 +49,8 @@ public:
     PetscCallVoid(MatMkl_CPardisoSetCntl(
         factor, 3, 1)); // Set number of OpenMP processes per rank
 
-    // PetscCallVoid(MatMkl_CPardisoSetCntl(factor, 68, 1)); // Message level info
+    // PetscCallVoid(MatMkl_CPardisoSetCntl(factor, 68, 1)); // Message level
+    // info
 
     PetscCallVoid(MatCholeskyFactorSymbolic(factor, smat, nullptr, nullptr));
     PetscCallVoid(MatCholeskyFactorNumeric(factor, smat, nullptr));
@@ -62,7 +63,10 @@ public:
     PetscFunctionReturnVoid();
   }
 
-  PetscErrorCode sample(Vec sample, const Vec rhs) {
+  PetscErrorCode sample(Vec sample, const Vec rhs,
+                        // n_samples is ignored in the Cholesky sampler since it
+                        // always produces an independent sample
+                        [[maybe_unused]] std::size_t n_samples = 1) {
     PetscFunctionBeginUser;
 
     if (v == nullptr) {
