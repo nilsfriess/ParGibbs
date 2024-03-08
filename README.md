@@ -58,7 +58,7 @@ The MGMC sampler can use a parallel Cholesky sampler on the coarsest level using
 $ wget -O- https://apt.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB | gpg --dearmor | sudo tee /usr/share/keyrings/oneapi-archive-keyring.gpg > /dev/null
 $ echo "deb [signed-by=/usr/share/keyrings/oneapi-archive-keyring.gpg] https://apt.repos.intel.com/oneapi all main" | sudo tee /etc/apt/sources.list.d/oneAPI.list
 $ sudo apt update
-$ sudo apt install cmake intel-oneapi-mkl intel-oneapi-mkl-devel
+$ sudo apt install intel-oneapi-mkl intel-oneapi-mkl-devel
 
 ```
 This also currently requires PETSc to be built from source using a custom fork. Run 
