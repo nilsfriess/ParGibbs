@@ -72,6 +72,21 @@ Suppose we want to generate samples from the distribution $\pi = \mathcal{N}(A^{
 \end{enumerate}
 Indeed, we then have $x = L^{-T} \xi + L^{-T} g = L^{-T} \xi + {(LL^T)}^{-1} f =  L^{-T} \xi + A^{-1} f$ and by the properties of the normal distribution it follows that $x \sim \mathcal{N}(A^{-1} f, L^{-T}L^{-1}) = \mathcal{N}(A^{-1} f, A^{-1})$ as claimed.
 
+\subsection{Finite Difference discretisation of the shifted Laplace problem}
+Consider the following PDE
+\begin{align*}
+    -u_{xx}(x,y) - u_{yy}(x,y) + \kappa^2 u(x,y) &= 0 \qquad \text{for $0 < x,y < 1$} \\
+    u(x,y) &= 0 \qquad \text{for $x = 0, x = 1, y = 0, y = 1$.}
+\end{align*}
+Using a classic 5-point stencil, we obtain the discrete equations
+\begin{equation*}
+    -\frac{1}{h^2}\left(
+        u_{i+1,j} + u_{i,j+1} - 4u_{i,j} + u_{i,j-1} + u_{i-1,j}
+    \right)
+    + \kappa^2 u_{i,j} = 0\,,
+\end{equation*}
+for $i,j = 1,\dotsc,n-1$.
+
 \printbibliography
 
 \end{document}
