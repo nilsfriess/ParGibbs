@@ -87,6 +87,18 @@ Using a classic 5-point stencil, we obtain the discrete equations
 \end{equation*}
 for $i,j = 1,\dotsc,n-1$.
 
+\subsection*{Mat\'ern Covariance functions and shifted Laplace PDEs}
+Consider the stochastic partial differential equation
+\begin{equation*}
+    \tau {(\kappa^2 - \Delta)}^{\alpha / 2} u = \mathcal{W}
+\end{equation*}
+posed on the whole of $\mathbb{R}^d$. Whittle has shown that the stationary solutions of this SPDE have Mat\'ern covariance with $\nu = \alpha - d/2$. Using a close connection between those solutions and the inner product of an associated reproducing kernel Hilbert space, one can show that the corresponding precision operator is
+\begin{equation*}
+    \mathcal{A}_\alpha \coloneqq \tau^2 {(\kappa^2 - \Delta)}^\alpha\,,
+\end{equation*}
+see~\cite[Sec.\ 2.2]{lindgrenSPDEApproachGaussian2022}.
+
+
 \printbibliography
 
 \end{document}
