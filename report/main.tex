@@ -75,7 +75,7 @@ Indeed, we then have $x = L^{-T} \xi + L^{-T} g = L^{-T} \xi + {(LL^T)}^{-1} f =
 \subsection{Finite Difference discretisation of the shifted Laplace problem}
 Consider the following PDE
 \begin{align*}
-    -u_{xx}(x,y) - u_{yy}(x,y) + \kappa^2 u(x,y) &= 0 \qquad \text{for $0 < x,y < 1$} \\
+    -u_{xx}(x,y) - u_{yy}(x,y) + \kappa^2 u(x,y) &= f \qquad \text{for $0 < x,y < 1$} \\
     u(x,y) &= 0 \qquad \text{for $x = 0, x = 1, y = 0, y = 1$.}
 \end{align*}
 Using a classic 5-point stencil, we obtain the discrete equations
