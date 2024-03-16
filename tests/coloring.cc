@@ -13,7 +13,7 @@
 
 namespace pm = parmgmc;
 
-TEST_CASE("Coloring constructor creates correct coloring", "[.][seq][mpi]") {
+TEST_CASE("Coloring constructor creates correct coloring", "[.][mpi]") {
   auto mat = create_test_mat(5);
 
   pm::Coloring coloring(mat, MATCOLORINGGREEDY);
@@ -43,6 +43,28 @@ TEST_CASE("Coloring constructor creates correct coloring", "[.][seq][mpi]") {
 
       MatRestoreRow(mat, color_idx, &ncols, &cols, nullptr);
     }
+  });
+
+  MatDestroy(&mat);
+}
+
+TEST_CASE("Coloring constructor creates no coloring in sequential run",
+          "[.][seq]") {
+  auto mat = create_test_mat(5);
+
+  pm::Coloring coloring(mat);
+
+  int rank;
+  MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+
+  PetscInt rowstart, rowend;
+  MatGetOwnershipRange(mat, &rowstart, &rowend);
+
+  std::vector<PetscInt> expected(rowend - rowstart);
+  std::iota(expected.begin(), expected.end(), 0);
+
+  coloring.for_each_color([&](auto /*i*/, const auto &color_idxs) {
+    REQUIRE(expected == color_idxs);
   });
 
   MatDestroy(&mat);
