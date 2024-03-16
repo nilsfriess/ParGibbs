@@ -40,7 +40,7 @@ TEST_CASE("Cholesky sampler can be constructed", "[.][mpi]") {
 
 // TODO: This only works in parallel but why? Shouldn't the MKL solver also work
 // with a single MPI rank?
-TEST_CASE("Cholesky sampler computes samples with correct mean", "[.][mpi]") {
+TEST_CASE("Cholesky sampler computes samples with correct mean", "[.][mpi][chols]") {
   auto mat = create_test_mat(33);
   auto op = std::make_shared<pm::LinearOperator>(mat, true);
 
@@ -48,13 +48,18 @@ TEST_CASE("Cholesky sampler computes samples with correct mean", "[.][mpi]") {
 
   pm::CholeskySampler sampler(op, &engine);
 
-  Vec sample, rhs, mean;
+  Vec sample, exp_mean, rhs, mean;
 
+  MatCreateVecs(mat, &exp_mean, nullptr);
   MatCreateVecs(mat, &sample, nullptr);
   MatCreateVecs(mat, &rhs, nullptr);
   MatCreateVecs(mat, &mean, nullptr);
 
-  pm::fill_vec_rand(rhs, engine);
+  // pm::fill_vec_rand(rhs, engine);
+
+  VecSet(exp_mean, 1.);
+
+  MatMult(mat, exp_mean, rhs);
 
   constexpr std::size_t n_samples = 100000;
 
@@ -68,13 +73,17 @@ TEST_CASE("Cholesky sampler computes samples with correct mean", "[.][mpi]") {
   VecNorm(mean, NORM_2, &norm);
 
   // Compute expected mean = A^{-1} * rhs
-  Vec exp_mean;
-  VecDuplicate(mean, &exp_mean);
-  KSP ksp;
-  KSPCreate(PETSC_COMM_WORLD, &ksp);
-  KSPSetOperators(ksp, mat, mat);
-  KSPSolve(ksp, rhs, exp_mean);
-  KSPDestroy(&ksp);
+  // Vec exp_mean;
+  // VecDuplicate(mean, &exp_mean);
+  // KSP ksp;
+  // KSPCreate(PETSC_COMM_WORLD, &ksp);
+  // KSPSetOperators(ksp, mat, mat);
+  // KSPSolve(ksp, rhs, exp_mean);
+  // KSPDestroy(&ksp);
+
+
+  VecView(exp_mean, PETSC_VIEWER_STDOUT_WORLD);
+  VecView(mean, PETSC_VIEWER_STDOUT_WORLD);
 
   PetscReal norm_expected;
   VecNorm(exp_mean, NORM_2, &norm_expected);

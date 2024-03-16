@@ -1,8 +1,8 @@
 #pragma once
 
-#include <iostream>
 #include <petsclog.h>
 #include <petscsys.h>
+#include <petscsystypes.h>
 
 namespace parmgmc {
 struct PetscHelper {
@@ -11,38 +11,69 @@ struct PetscHelper {
     static PetscHelper helper(&argc, &argv, file, help);
   }
 
-  static PetscErrorCode get_rng_event(PetscLogEvent *evt) {
-    static PetscLogEvent rng_event;
-
+  static PetscErrorCode begin_rng_event() {
     PetscFunctionBeginUser;
-    if (!rng_event_registered) {
-      PetscClassId classid;
-      PetscCall(PetscClassIdRegister("ParMGMC", &classid));
-      PetscCall(PetscLogEventRegister("RNG", classid, &rng_event));
 
-      rng_event_registered = true;
-    }
-
-    *evt = rng_event;
+    PetscLogEvent rng_event = PetscHelper::get_rng_event();
+    PetscCall(
+        PetscLogEventBegin(rng_event, nullptr, nullptr, nullptr, nullptr));
 
     PetscFunctionReturn(PETSC_SUCCESS);
   }
 
-  static PetscErrorCode get_gibbs_event(PetscLogEvent *evt) {
-    static PetscLogEvent gibbs_event;
-
+  static PetscErrorCode end_rng_event() {
     PetscFunctionBeginUser;
-    if (!gibbs_event_registered) {
-      PetscClassId classid;
-      PetscCall(PetscClassIdRegister("ParMGMC", &classid));
-      PetscCall(PetscLogEventRegister("Gibbs", classid, &gibbs_event));
 
-      gibbs_event_registered = true;
-    }
-
-    *evt = gibbs_event;
+    PetscLogEvent rng_event = PetscHelper::get_rng_event();
+    PetscCall(PetscLogEventEnd(rng_event, nullptr, nullptr, nullptr, nullptr));
 
     PetscFunctionReturn(PETSC_SUCCESS);
+  }
+
+  static PetscErrorCode begin_gibbs_event() {
+    PetscFunctionBeginUser;
+
+    PetscLogEvent gibbs_event = PetscHelper::get_gibbs_event();
+    PetscCall(
+        PetscLogEventBegin(gibbs_event, nullptr, nullptr, nullptr, nullptr));
+
+    PetscFunctionReturn(PETSC_SUCCESS);
+  }
+
+  static PetscErrorCode end_gibbs_event() {
+    PetscFunctionBeginUser;
+
+    PetscLogEvent gibbs_event = PetscHelper::get_gibbs_event();
+    PetscCall(
+        PetscLogEventEnd(gibbs_event, nullptr, nullptr, nullptr, nullptr));
+
+    PetscFunctionReturn(PETSC_SUCCESS);
+  }
+
+  static PetscLogEvent get_rng_event() {
+    static PetscLogEvent rng_event = []() {
+      PetscClassId classid;
+      PetscLogEvent event;
+      PetscClassIdRegister("ParMGMC", &classid);
+      PetscLogEventRegister("RNG", classid, &event);
+
+      return event;
+    }();
+
+    return rng_event;
+  }
+
+  static PetscLogEvent get_gibbs_event() {
+    static PetscLogEvent gibbs_event = []() {
+      PetscClassId classid;
+      PetscLogEvent event;
+      PetscClassIdRegister("ParMGMC", &classid);
+      PetscLogEventRegister("Gibbs", classid, &event);
+
+      return event;
+    }();
+
+    return gibbs_event;
   }
 
   ~PetscHelper() { PetscFinalize(); }

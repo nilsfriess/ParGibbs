@@ -92,7 +92,8 @@ public:
    * A_coarse = P^T A_fine P. */
   MultigridSampler(const std::shared_ptr<LinearOperator> &fine_operator,
                    const std::shared_ptr<DMHierarchy> &dm_hierarchy,
-                   Engine *engine, const MGMCParameters &params)
+                   Engine *engine,
+                   const MGMCParameters &params = MGMCParameters::Default())
       : dm_hierarchy{dm_hierarchy}, engine{engine},
         n_levels{dm_hierarchy->num_levels()}, n_smooth{params.n_smooth},
         smoothing_type{params.smoothing_type},
@@ -116,6 +117,7 @@ public:
                             PETSC_DEFAULT,
                             &coarse_mat));
       ops[level - 1] = std::make_shared<LinearOperator>(coarse_mat);
+      ops[level - 1]->color_matrix(dm_hierarchy->get_dm(level - 1));
     }
 
     PetscCallVoid(init_vecs_and_smoothers(engine));
@@ -136,7 +138,7 @@ public:
         coarse_sampler_type{params.coarse_sampler_type},
         cycles{static_cast<unsigned int>(params.cycle_type)} {}
 
-  PetscErrorCode sample(Vec sample, Vec rhs, std::size_t n_samples) {
+  PetscErrorCode sample(Vec sample, Vec rhs, std::size_t n_samples = 1) {
     PetscFunctionBeginUser;
 
     if (!init_done)
@@ -232,7 +234,8 @@ private:
       // Pre smooth
       if (smoothing_type != MGMCSmoothingType::Symmetric)
         curr_smoother->setSweepType(GibbsSweepType::Forward);
-      PetscCall(curr_smoother->sample(xs[level], bs[level], n_smooth));
+      PetscCall(curr_smoother->setFixedRhs(bs[level]));
+      PetscCall(curr_smoother->sample(xs[level], nullptr, n_smooth));
 
       // Restrict residual
       PetscCall(
@@ -252,7 +255,8 @@ private:
       // Post smooth
       if (smoothing_type != MGMCSmoothingType::Symmetric)
         curr_smoother->setSweepType(GibbsSweepType::Backward);
-      PetscCall(curr_smoother->sample(xs[level], bs[level], n_smooth));
+      PetscCall(curr_smoother->setFixedRhs(bs[level]));
+      PetscCall(curr_smoother->sample(xs[level], nullptr, n_smooth));
     } else {
       // Coarse level
 #if PETSC_HAVE_MKL_CPARDISO
@@ -265,7 +269,7 @@ private:
       }
 #else
       if (smoothing_type != MGMCSmoothingType::Symmetric)
-	smoothers[0]->setSweepType(GibbsSweepType::Symmetric);
+        smoothers[0]->setSweepType(GibbsSweepType::Symmetric);
       PetscCall(smoothers[0]->sample(xs[0], bs[0], 2 * n_smooth));
 #endif
     }

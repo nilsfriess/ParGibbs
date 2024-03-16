@@ -25,6 +25,21 @@ public:
   Coloring(Mat mat, MatColoringType coloring_type = MATCOLORINGJP) {
     PetscFunctionBeginUser;
 
+    // Don't create coloring if running sequentially
+    PetscMPIInt size;
+    PetscCallVoid(MPI_Comm_size(MPI_COMM_WORLD, &size));
+    if (size == 1) {
+      PetscInt start, end;
+      PetscCallVoid(MatGetOwnershipRange(mat, &start, &end));
+
+      color_indices.resize(1);
+      color_indices[0].resize(end - start);
+
+      std::iota(color_indices[0].begin(), color_indices[0].end(), start);
+
+      PetscFunctionReturnVoid();
+    }
+
     Timer timer;
 
     MatColoring mc;
