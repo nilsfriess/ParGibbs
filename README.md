@@ -68,7 +68,7 @@ $ git clone -b cpardiso_fw_bw_solve https://gitlab.com/nilsfriess/petsc.git pets
 to clone PETSc and configure and build it with
 ```bash
 $ cd petsc
-$ ./configure --with-fortran-bindings=0 --with-blas-lapack-dir=/opt/intel/oneapi/mkl/latest/lib --with-mkl_cpardiso 
+$ ./configure --with-fortran-bindings=0 --with-blas-lapack-dir=/opt/intel/oneapi/mkl/latest/lib --with-mkl_cpardiso --with-mkl_pardiso 
 $ make PETSC_DIR=... PETSC_ARCH=... all
 ```
 The values for `PETSC_DIR` and `PETSC_ARCH` are printed at the end of a successful `./configure` run. If PETSc was built with `C/Pardiso` enabled, the Cholesky sampler will automatically be enabled. Note that it might be necessary on some systems to preload an executable that uses the parallel Cholesky sampler with the library `libmkl_blacs_intelmpi_lp64.so` (or `libmkl_blacs_openmpi_lp64.so` if using OpenMPI). If you are getting errors of the form `Intel MKL FATAL ERROR: Cannot load symbol MKLMPI_Get_wrappers`, e.g., when running the tests, then try running instead
