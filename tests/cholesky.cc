@@ -72,19 +72,6 @@ TEST_CASE("Cholesky sampler computes samples with correct mean", "[.][mpi][chols
   PetscReal norm;
   VecNorm(mean, NORM_2, &norm);
 
-  // Compute expected mean = A^{-1} * rhs
-  // Vec exp_mean;
-  // VecDuplicate(mean, &exp_mean);
-  // KSP ksp;
-  // KSPCreate(PETSC_COMM_WORLD, &ksp);
-  // KSPSetOperators(ksp, mat, mat);
-  // KSPSolve(ksp, rhs, exp_mean);
-  // KSPDestroy(&ksp);
-
-
-  VecView(exp_mean, PETSC_VIEWER_STDOUT_WORLD);
-  VecView(mean, PETSC_VIEWER_STDOUT_WORLD);
-
   PetscReal norm_expected;
   VecNorm(exp_mean, NORM_2, &norm_expected);
 
