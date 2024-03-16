@@ -24,8 +24,10 @@ numbers=noenddot
 \usepackage{amssymb}
 \usepackage{bm}
 
+\newtheorem{theorem}{Theorem}
+
 \usepackage{todonotes}
-\usepackage[ruled,vlined,resetcount]{algorithm2e}
+\usepackage[linesnumbered,ruled,vlined]{algorithm2e}
 \SetKwInput{KwData}{Input}
 
 
@@ -58,6 +60,45 @@ In essence, the MGMC algorithm corresponds to the classic (geometric) multigrid 
 The remaining components of the Multigrid method (in particular, the prolongation and restriction operations) are used in the same way in the MGMC method. An implementation can thus reuse parts of a given Multigrid implementation and for our parallel implementation we can leverage PETSc's optimised parallel implementations of these components. For the coarse sampler, we either use a few iterations of a Gibbs sampler or we generate the samples using a Cholesky factorisation of the coarse matrix. We used the 
 
 \section{Parallel Gibbs sampling}
+To define the MGMC sampler as an analogue of the Multigrid method, Goodman and Sokal~\cite{goodmansokal} exploited a close connection between the Gauß-Seidel iterative method and the Gibbs sampler. Fox and Parker showed that this connection is only a special case of a broader correspondence between iterative methods based on matrix splittings and so called generalised Gibbs samplers.
+
+Recall that the target distribution is $\pi \coloneqq \mathcal{N}(A^{-1}f, A^{-1})$ with $(A, f) \in \mathbb{R}^{n \times n} \times \mathbb{R}^n$ and $A$ symmetric positive definite. Let now $A = M - N$ be a matrix splitting with $M$ invertible, and let $y^{(0)} \in \mathbb{R}^n$ be arbitrary. Then, the stochastic iteration
+\begin{equation}
+    \label{eq:stochasticit}
+    M y^{(k+1)} = N y^{(k)} + c^{(k)}\,,\qquad k = 0,1,2, \dotsc,
+\end{equation}
+with $c^{(k)} \sim \mathcal{N}(f, M^T + N)$, converges in distribution to $\pi$ (see~\cite[Thm.\ 2 and Cor.\ 4]{foxparker}). It is evident that the practicality of a sampler derived from this idea depends on the form of $M^T + N$. If $A$ and $M^T + N$ have essentially the same structure, then this approach merely moves the problem of sampling from $\mathcal{N}(0, A)$ to that of sampling from $\mathcal{N}(0, M^T + N)$. It turns out that the choice $M = D + L$, $N = -L^T$ lies at a sweet spot since $M^T + N = D$ and thus sampling from $\mathcal{N}(f, M^T + N)$ is easy, and solving the linear system in~\eqref{eq:stochasticit} is also simple (see below). Here, $L$ is the strictly lower triangular part of $A$ and $D$ is the diagonal. In the deterministic case, this matrix splitting defines a Gauß-Seidel solver; in the stochastic case, this is a Gibbs sampler. Using $M = \frac{1}{\omega} D + L$, $N = \frac{1-\omega}{\omega} D - L^T$, for $\omega \in (0,2)$, offers the same advantages and corresponds to the method of successive over-relaxation (SOR) in the deterministic case and we refer to the stochastic variant as SOR-Gibbs. Since this reduces to a standard Gibbs sampler for $\omega = 1$, we now study SOR-Gibbs in detail.
+
+Let us first write out the iteration~\eqref{eq:stochasticit}. Inserting $M$ and $N$ gives
+\begin{equation*}
+    \left(\frac{1}{\omega} D + L\right) y^{(k+1)} = \left(\frac{1-\omega}{\omega} D - L^T\right) y^{(k)} + c^{(k)}\,.
+\end{equation*}
+Multiplying both sides by $\omega D^{-1}$ and rearranging terms then gives
+\begin{equation*}
+    y^{(k+1)} = (1 - \omega) y^{(k)} - \omega D^{-1} (L y^{(k+1)} + L^T y^{(k)}) + \omega D^{-1} c^{(k)}\,.
+\end{equation*}
+Component-wise we have
+\begin{equation*}
+    y^{(k+1)}_j = (1-\omega) y^{(k)}_j - \frac{\omega}{a_{jj}} \left(
+        \sum_{m=1}^{j-1} a_{mj} y^{(k+1)}_m + \sum_{m=j+1}^n a_{mj} y^{(k)}_m
+    \right) + \frac{\omega}{a_{jj}} c^{(k)}_j \,.
+\end{equation*}
+Since the first sum only contains entries of $y^{(k+1)}$ with index \emph{smaller} than $j$, and the second sum only contains entries of $y^{(k)}$ with index \emph{larger} than $j$, one can update the sample in-place, giving Algorithm~\ref{alg:gibbs-sor}. To compute $\omega D^{-1} c^{(k)}$ we first note that since $c^{(k)} \sim \mathcal{N}(f, (2-\omega)/\omega D)$ we have $\omega D^{-1} c^{(k)} \sim \mathcal{N}(\omega D^{-1}f, \omega(2-\omega)D^{-1})$ which we compute by first sampling $z \sim \mathcal{N}(0, I)$ and transforming the result linearly to obtain the correct mean and covariance (see Line 2 of Algorithm~\ref{alg:gibbs-sor}).
+
+\begin{algorithm}[htpb]
+    \SetAlgoLined
+    \KwData{Precision matrix $A$, vector $f$, SOR parameter $\omega$, number of iterations $K$, initial sample $y$}
+    \KwResult{Sample $y$}
+    \For{$k \leftarrow 1$ \KwTo $K$}{
+      Sample $z \sim \mathcal{N}(0, I)$ \;
+      Transform $z \leftarrow \sqrt{\omega(2 - \omega)} D^{-1/2} z + \omega D^{-1} f$ \;
+      Update $y_j \leftarrow (1-\omega) y_j - \frac{\omega}{a_{jj}} \left(
+            \sum_{m=1}^{j-1} a_{mj} y_m + \sum_{m=j+1}^n a_{mj} y_m
+        \right) + z$ \;
+    }
+    \caption{SOR-Gibbs sampler}\label{alg:gibbs-sor}
+  \end{algorithm}
+
 
 \section{Numerical results}
 
