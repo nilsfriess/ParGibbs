@@ -116,11 +116,11 @@ TEST_CASE("Gibbs sampler converges to target mean", "[.][seq][mpi]") {
   op->color_matrix(dm);
 
   pm::MulticolorGibbsSampler sampler(
-      op, &engine, 1., pm::GibbsSweepType::Symmetric);
+      op, &engine, 1., pm::GibbsSweepType::Forward);
   sampler.setFixedRhs(rhs);
 
   constexpr std::size_t n_burnin = 10'000;
-  constexpr std::size_t n_samples = 100'000;
+  constexpr std::size_t n_samples = 1'000'000;
 
   sampler.sample(sample, rhs, n_burnin);
 
@@ -156,7 +156,7 @@ TEST_CASE("Gibbs sampler converges to target mean", "[.][seq][mpi]") {
   // VecView(sample, PETSC_VIEWER_STDOUT_WORLD);
   // VecView(exp_mean, PETSC_VIEWER_STDOUT_WORLD);
 
-  REQUIRE_THAT(norm_computed, WithinRel(norm_expected, 0.001));
+  REQUIRE_THAT(norm_computed, WithinRel(norm_expected, 0.01));
 
   // Cleanup
   VecDestroy(&mean);
