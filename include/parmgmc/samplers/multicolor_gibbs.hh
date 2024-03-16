@@ -24,8 +24,6 @@ namespace parmgmc {
 enum class GibbsSweepType { Forward, Backward, Symmetric };
 
 template <class Engine> class MulticolorGibbsSampler {
-  enum class PetscMatType { Seq, MPI };
-
 public:
   MulticolorGibbsSampler(const std::shared_ptr<LinearOperator> &linear_operator,
                          Engine *engine, PetscReal omega = 1.,
@@ -59,11 +57,9 @@ public:
 
     Mat Ad = nullptr;
     if (std::strcmp(type, MATMPIAIJ) == 0) {
-      mat_type = PetscMatType::MPI;
       PetscCallVoid(MatMPIAIJGetSeqAIJ(
           linear_operator->get_mat(), &Ad, nullptr, nullptr));
     } else if (std::strcmp(type, MATSEQAIJ) == 0) {
-      mat_type = PetscMatType::Seq;
       Ad = linear_operator->get_mat();
     } else {
       PetscCheckAbort(false,
@@ -142,7 +138,7 @@ public:
           VecPointwiseMult(sampler_rhs, sampler_rhs, inv_diag_omega));
     }
 
-    if (mat_type == PetscMatType::MPI) {
+    if (linear_operator->get_mat_type() == PetscMatType::MPIAIJ) {
       for (std::size_t n = 0; n < n_samples; ++n)
         PetscCall(gibbs_rb_mpi(sample, sampler_rhs));
     } else {
@@ -409,8 +405,6 @@ private:
   Vec fixed_rhs = nullptr;
 
   GibbsSweepType sweep_type;
-
-  PetscMatType mat_type;
 
   /// Only used in parallel execution
   std::vector<PetscInt> diag_ptrs; // Indices of the diagonal entries
