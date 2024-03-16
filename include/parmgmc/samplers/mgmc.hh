@@ -17,7 +17,7 @@
 #include <petscvec.h>
 #include <petscviewer.h>
 
-#if PETSC_HAVE_MKL_CPARDISO
+#if PETSC_HAVE_MKL_CPARDISO && PETSC_HAVE_MKL_PARDISO
 #include "parmgmc/samplers/cholesky.hh"
 #endif
 
@@ -26,7 +26,7 @@ enum class MGMCSmoothingType { ForwardBackward, Symmetric };
 enum class MGMCCycleType : unsigned int { V = 1, W = 2 };
 enum class MGMCCoarseSamplerType {
   Standard
-#if (PETSC_HAVE_MKL_CPARDISO == 1)
+#if PETSC_HAVE_MKL_CPARDISO && PETSC_HAVE_MKL_PARDISO
   ,
   Cholesky
 #endif
@@ -43,7 +43,7 @@ struct MGMCParameters {
     params.n_smooth = 1;
     params.smoothing_type = MGMCSmoothingType::Symmetric;
     params.cycle_type = MGMCCycleType::V;
-#if PETSC_HAVE_MKL_CPARDISO
+#if PETSC_HAVE_MKL_CPARDISO && PETSC_HAVE_MKL_PARDISO
     params.coarse_sampler_type = MGMCCoarseSamplerType::Cholesky;
 #else
     params.coarse_sampler_type = MGMCCoarseSamplerType::Standard;
@@ -193,7 +193,7 @@ private:
       PetscCall(VecZeroEntries(xs[level]));
       PetscCall(VecZeroEntries(rs[level]));
     }
-#if PETSC_HAVE_MKL_CPARDISO
+#if PETSC_HAVE_MKL_CPARDISO && PETSC_HAVE_MKL_PARDISO
     bool coarse_cholesky =
         coarse_sampler_type == MGMCCoarseSamplerType::Cholesky;
     auto coarsest_smoother_index = coarse_cholesky ? 1 : 0;
@@ -221,7 +221,7 @@ private:
 
     if (level > 0) {
       Smoother *curr_smoother;
-#if PETSC_HAVE_MKL_CPARDISO
+#if PETSC_HAVE_MKL_CPARDISO && PETSC_HAVE_MKL_PARDISO
       if (coarse_sampler_type == MGMCCoarseSamplerType::Cholesky) {
         curr_smoother = smoothers[level - 1].get();
       } else {
@@ -259,7 +259,7 @@ private:
       PetscCall(curr_smoother->sample(xs[level], nullptr, n_smooth));
     } else {
       // Coarse level
-#if PETSC_HAVE_MKL_CPARDISO
+#if PETSC_HAVE_MKL_CPARDISO && PETSC_HAVE_MKL_PARDISO
       if (coarse_sampler_type == MGMCCoarseSamplerType::Cholesky) {
         PetscCall(coarse_sampler->sample(xs[0], bs[0]));
       } else {
@@ -282,7 +282,7 @@ private:
   std::shared_ptr<DMHierarchy> dm_hierarchy;
   std::vector<std::shared_ptr<Smoother>> smoothers;
 
-#if PETSC_HAVE_MKL_CPARDISO
+#if PETSC_HAVE_MKL_CPARDISO && PETSC_HAVE_MKL_PARDISO
   std::shared_ptr<CholeskySampler<Engine>> coarse_sampler;
 #endif
 

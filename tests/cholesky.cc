@@ -1,10 +1,9 @@
 #include <petscconf.h>
-#if PETSC_HAVE_MKL_CPARDISO
+#if PETSC_HAVE_MKL_CPARDISO && PETSC_HAVE_MKL_PARDISO
 
 #include "catch2/catch_test_macros.hpp"
 #include "catch2/matchers/catch_matchers_floating_point.hpp"
 
-#include "parmgmc/common/helpers.hh"
 #include "parmgmc/linear_operator.hh"
 #include "parmgmc/samplers/cholesky.hh"
 
@@ -38,9 +37,8 @@ TEST_CASE("Cholesky sampler can be constructed", "[.][mpi]") {
   VecDestroy(&rhs);
 }
 
-// TODO: This only works in parallel but why? Shouldn't the MKL solver also work
-// with a single MPI rank?
-TEST_CASE("Cholesky sampler computes samples with correct mean", "[.][mpi][chols]") {
+TEST_CASE("Cholesky sampler computes samples with correct mean",
+          "[.][seq][mpi]") {
   auto mat = create_test_mat(33);
   auto op = std::make_shared<pm::LinearOperator>(mat, true);
 

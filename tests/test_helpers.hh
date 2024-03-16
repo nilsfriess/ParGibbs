@@ -85,6 +85,8 @@ inline Mat create_test_mat(PetscInt size_per_dim) {
   MatAssemblyBegin(mat, MAT_FINAL_ASSEMBLY);
   MatAssemblyEnd(mat, MAT_FINAL_ASSEMBLY);
 
+  MatSetOption(mat, MAT_SPD, PETSC_TRUE);
+
   return mat;
 }
 

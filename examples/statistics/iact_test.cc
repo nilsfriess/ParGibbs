@@ -8,7 +8,7 @@
 #include "parmgmc/samplers/mgmc.hh"
 #include "parmgmc/samplers/sample_chain.hh"
 
-#if PETSC_HAVE_MKL_CPARDISO
+#if PETSC_HAVE_MKL_CPARDISO && PETSC_HAVE_MKL_PARDISO
 #include "parmgmc/samplers/cholesky.hh"
 #endif
 
@@ -161,7 +161,7 @@ int main(int argc, char *argv[]) {
   params.n_smooth = n_smooth;
   params.cycle_type = MGMCCycleType::V;
   params.smoothing_type = MGMCSmoothingType::Symmetric;
-#if PETSC_HAVE_MKL_CPARDISO
+#if PETSC_HAVE_MKL_CPARDISO && PETSC_HAVE_MKL_PARDISO
   params.coarse_sampler_type = MGMCCoarseSamplerType::Cholesky;
 #else
   params.coarse_sampler_type = MGMCCoarseSamplerType::Standard;
@@ -213,7 +213,7 @@ int main(int argc, char *argv[]) {
     PetscCall(iact("Gibbs", chain, sample_rhs));
   }
 
-#if PETSC_HAVE_MKL_CPARDISO
+#if PETSC_HAVE_MKL_CPARDISO && PETSC_HAVE_MKL_PARDISO
   // Setup Cholesky sampler
   {
     PetscCall(PetscPrintf(MPI_COMM_WORLD, "Setting up Cholesky sampler...\n"));
