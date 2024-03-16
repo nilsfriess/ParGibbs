@@ -17,14 +17,14 @@ jobs:
         uses: actions/cache@v4
         with: 
           path: ${{github.workspace}}/petsc
-          key: ${{runner.os}}-petsc1
+          key: ${{runner.os}}-petsc2
 
       - name: Build PETSc
-        if: steps.cache-petsc.outputs.cache-hit != 'true'
+        if: steps.cache-petsc2.outputs.cache-hit != 'true'
         run: |
           git clone --depth 1 -b cpardiso_fw_bw_solve https://gitlab.com/nilsfriess/petsc.git petsc
           cd petsc
-          ./configure --with-debugging=no --download-mpich --with-fortran-bindings=0 --with-blas-lapack-dir=/opt/intel/oneapi/mkl/latest/lib --with-mkl_cpardiso COPTFLAGS="-O3 -march=native" CXXOPTFLAGS="-O3 -march=native"
+          ./configure --with-debugging=no --download-mpich --with-fortran-bindings=0 --with-blas-lapack-dir=/opt/intel/oneapi/mkl/latest/lib --with-mkl_cpardiso --with-mkl_pardiso  COPTFLAGS="-O3 -march=native" CXXOPTFLAGS="-O3 -march=native"
           make PETSC_DIR=${GITHUB_WORKSPACE}/petsc PETSC_ARCH=arch-linux-c-opt all
 
       - name: Build ParMGMC
