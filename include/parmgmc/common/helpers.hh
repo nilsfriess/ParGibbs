@@ -27,9 +27,7 @@ inline PetscErrorCode fill_vec_rand(Vec vec, PetscInt size, Engine &engine) {
 
   PetscFunctionBeginUser;
 
-  PetscLogEvent rng_event;
-  PetscCall(PetscHelper::get_rng_event(&rng_event));
-  PetscCall(PetscLogEventBegin(rng_event, NULL, NULL, NULL, NULL));
+  PetscCall(PetscHelper::begin_rng_event());
 
   PetscScalar *r_arr;
   PetscCall(VecGetArrayWrite(vec, &r_arr));
@@ -39,7 +37,7 @@ inline PetscErrorCode fill_vec_rand(Vec vec, PetscInt size, Engine &engine) {
   // Estimated using perf
   PetscCall(PetscLogFlops(size * 27));
 
-  PetscCall(PetscLogEventEnd(rng_event, NULL, NULL, NULL, NULL));
+  PetscCall(PetscHelper::end_rng_event());
 
   PetscFunctionReturn(PETSC_SUCCESS);
 }
