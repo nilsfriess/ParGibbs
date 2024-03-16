@@ -39,7 +39,7 @@ TEST_CASE("Cholesky sampler can be constructed", "[.][mpi]") {
 
 TEST_CASE("Cholesky sampler computes samples with correct mean",
           "[.][seq][mpi]") {
-  auto mat = create_test_mat(33);
+  auto mat = create_test_mat(5);
   auto op = std::make_shared<pm::LinearOperator>(mat, true);
 
   std::mt19937 engine;
@@ -59,7 +59,7 @@ TEST_CASE("Cholesky sampler computes samples with correct mean",
 
   MatMult(mat, exp_mean, rhs);
 
-  constexpr std::size_t n_samples = 100000;
+  constexpr std::size_t n_samples = 300'000;
 
   for (std::size_t n = 0; n < n_samples; ++n) {
     sampler.sample(sample, rhs);
