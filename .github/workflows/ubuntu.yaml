@@ -20,7 +20,7 @@ jobs:
           key: ${{runner.os}}-petsc2
 
       - name: Build PETSc
-        if: steps.cache-petsc2.outputs.cache-hit != 'true'
+        if: steps.cache-petsc.outputs.cache-hit != 'true'
         run: |
           git clone --depth 1 -b cpardiso_fw_bw_solve https://gitlab.com/nilsfriess/petsc.git petsc
           cd petsc
