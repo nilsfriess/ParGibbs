@@ -41,7 +41,7 @@ struct MGMCParameters {
   static MGMCParameters Default() {
     MGMCParameters params;
     params.n_smooth = 1;
-    params.smoothing_type = MGMCSmoothingType::Symmetric;
+    params.smoothing_type = MGMCSmoothingType::ForwardBackward;
     params.cycle_type = MGMCCycleType::V;
 #if PETSC_HAVE_MKL_CPARDISO && PETSC_HAVE_MKL_PARDISO
     params.coarse_sampler_type = MGMCCoarseSamplerType::Cholesky;
@@ -52,8 +52,7 @@ struct MGMCParameters {
   }
 };
 
-template <class Engine, class Smoother = MulticolorGibbsSampler<Engine>>
-class MultigridSampler {
+template <class Engine, class Smoother = MulticolorGibbsSampler<Engine>> class MultigridSampler {
 public:
   // /** Construct a Multigrid sampler using a given hierarchy of DMs and a
   // matrix
@@ -91,12 +90,10 @@ public:
    * hierarchy, the remaining operators are created by Galerkin projection
    * A_coarse = P^T A_fine P. */
   MultigridSampler(const std::shared_ptr<LinearOperator> &fine_operator,
-                   const std::shared_ptr<DMHierarchy> &dm_hierarchy,
-                   Engine *engine,
+                   const std::shared_ptr<DMHierarchy> &dm_hierarchy, Engine *engine,
                    const MGMCParameters &params = MGMCParameters::Default())
-      : dm_hierarchy{dm_hierarchy}, engine{engine},
-        n_levels{dm_hierarchy->num_levels()}, n_smooth{params.n_smooth},
-        smoothing_type{params.smoothing_type},
+      : dm_hierarchy{dm_hierarchy}, engine{engine}, n_levels{dm_hierarchy->num_levels()},
+        n_smooth{params.n_smooth}, smoothing_type{params.smoothing_type},
         coarse_sampler_type{params.coarse_sampler_type},
         cycles{static_cast<unsigned int>(params.cycle_type)} {
     PetscFunctionBeginUser;
@@ -111,11 +108,8 @@ public:
     for (int level = n_levels - 1; level > 0; --level) {
       // Create fine matrix using Galerkin projection
       Mat coarse_mat;
-      PetscCallVoid(MatPtAP(ops[level]->get_mat(),
-                            dm_hierarchy->get_interpolation(level - 1),
-                            MAT_INITIAL_MATRIX,
-                            PETSC_DEFAULT,
-                            &coarse_mat));
+      PetscCallVoid(MatPtAP(ops[level]->get_mat(), dm_hierarchy->get_interpolation(level - 1),
+                            MAT_INITIAL_MATRIX, PETSC_DEFAULT, &coarse_mat));
       ops[level - 1] = std::make_shared<LinearOperator>(coarse_mat);
       ops[level - 1]->color_matrix(dm_hierarchy->get_dm(level - 1));
     }
@@ -123,19 +117,16 @@ public:
     PetscCallVoid(init_vecs_and_smoothers(engine));
 
     auto elapsed = timer.elapsed();
-    PARMGMC_INFO << "Done setting up Multigrid sampler (took " << elapsed
-                 << " seconds).\n";
+    PARMGMC_INFO << "Done setting up Multigrid sampler (took " << elapsed << " seconds).\n";
 
     PetscFunctionReturnVoid();
   }
 
   /* Constructor that must be called by classes that are derived from this
    * sampler to define a custom sampler. */
-  MultigridSampler(const MGMCParameters &params, std::size_t n_levels,
-                   Engine *engine)
+  MultigridSampler(const MGMCParameters &params, std::size_t n_levels, Engine *engine)
       : engine{engine}, n_levels{n_levels}, n_smooth{params.n_smooth},
-        smoothing_type{params.smoothing_type},
-        coarse_sampler_type{params.coarse_sampler_type},
+        smoothing_type{params.smoothing_type}, coarse_sampler_type{params.coarse_sampler_type},
         cycles{static_cast<unsigned int>(params.cycle_type)} {}
 
   PetscErrorCode sample(Vec sample, Vec rhs, std::size_t n_samples = 1) {
@@ -155,9 +146,7 @@ public:
     PetscFunctionReturn(PETSC_SUCCESS);
   }
 
-  std::shared_ptr<LinearOperator> get_operator(std::size_t level) const {
-    return ops[level];
-  }
+  std::shared_ptr<LinearOperator> get_operator(std::size_t level) const { return ops[level]; }
 
   virtual ~MultigridSampler() {
     PetscFunctionBeginUser;
@@ -194,16 +183,14 @@ private:
       PetscCall(VecZeroEntries(rs[level]));
     }
 #if PETSC_HAVE_MKL_CPARDISO && PETSC_HAVE_MKL_PARDISO
-    bool coarse_cholesky =
-        coarse_sampler_type == MGMCCoarseSamplerType::Cholesky;
+    bool coarse_cholesky = coarse_sampler_type == MGMCCoarseSamplerType::Cholesky;
     auto coarsest_smoother_index = coarse_cholesky ? 1 : 0;
 
     for (std::size_t level = coarsest_smoother_index; level < n_levels; ++level)
       smoothers.push_back(std::make_shared<Smoother>(ops[level], engine));
 
     if (coarse_cholesky)
-      coarse_sampler =
-          std::make_shared<CholeskySampler<Engine>>(ops[0], engine);
+      coarse_sampler = std::make_shared<CholeskySampler<Engine>>(ops[0], engine);
 #else
     for (std::size_t level = 0; level < n_levels; ++level)
       smoothers.push_back(std::make_shared<Smoother>(ops[level], engine));
@@ -238,8 +225,7 @@ private:
       PetscCall(curr_smoother->sample(xs[level], nullptr, n_smooth));
 
       // Restrict residual
-      PetscCall(
-          MatResidual(ops[level]->get_mat(), bs[level], xs[level], rs[level]));
+      PetscCall(MatResidual(ops[level]->get_mat(), bs[level], xs[level], rs[level]));
 
       PetscCall(restrict(level, rs[level], bs[level - 1]));
 
@@ -290,14 +276,11 @@ private:
 
 protected:
   virtual PetscErrorCode restrict(std::size_t level, Vec residual, Vec rhs) {
-    return MatRestrict(
-        dm_hierarchy->get_interpolation(level - 1), residual, rhs);
+    return MatRestrict(dm_hierarchy->get_interpolation(level - 1), residual, rhs);
   }
 
-  virtual PetscErrorCode prolongate_add(std::size_t level, Vec coarse,
-                                        Vec fine) {
-    return MatInterpolateAdd(
-        dm_hierarchy->get_interpolation(level - 1), coarse, fine, fine);
+  virtual PetscErrorCode prolongate_add(std::size_t level, Vec coarse, Vec fine) {
+    return MatInterpolateAdd(dm_hierarchy->get_interpolation(level - 1), coarse, fine, fine);
   }
 
   std::vector<std::shared_ptr<LinearOperator>> ops;
