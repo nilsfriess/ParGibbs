@@ -1,44 +1,43 @@
 #include "parmgmc/common/helpers.hh"
 #include "parmgmc/common/petsc_helper.hh"
 #include "parmgmc/common/timer.hh"
+#include "parmgmc/dm_hierarchy.hh"
 #include "parmgmc/linear_operator.hh"
+#include "parmgmc/samplers/mgmc.hh"
 #include "parmgmc/samplers/multicolor_gibbs.hh"
-#include <array>
 
+#include <array>
 #include <memory>
+#include <random>
+
 #include <mpi.h>
 #include <petscdmda.h>
 #include <petscdmdatypes.h>
 #include <petscerror.h>
 #include <petscsystypes.h>
-#include <random>
 
 using namespace parmgmc;
 
 class ShiftedLaplaceFD {
 public:
-  ShiftedLaplaceFD(PetscInt verticesPerDim, PetscReal kappainv = 1.,
+  ShiftedLaplaceFD(PetscInt coarseVerticesPerDim, PetscInt refineLevels, PetscReal kappainv = 1.,
                    bool colorMatrixWithDM = true) {
     PetscFunctionBeginUser;
 
-    PetscCallVoid(DMDACreate2d(MPI_COMM_WORLD,
-                               DM_BOUNDARY_NONE,
-                               DM_BOUNDARY_NONE,
-                               DMDA_STENCIL_STAR,
-                               verticesPerDim,
-                               verticesPerDim,
-                               PETSC_DECIDE,
-                               PETSC_DECIDE,
-                               1,
-                               1,
-                               nullptr,
-                               nullptr,
-                               &da));
+    // Create coarse DM
+    DM da;
+    PetscCallVoid(DMDACreate2d(MPI_COMM_WORLD, DM_BOUNDARY_NONE, DM_BOUNDARY_NONE,
+                               DMDA_STENCIL_STAR, coarseVerticesPerDim, coarseVerticesPerDim,
+                               PETSC_DECIDE, PETSC_DECIDE, 1, 1, nullptr, nullptr, &da));
     PetscCallVoid(DMSetUp(da));
     PetscCallVoid(DMDASetUniformCoordinates(da, 0, 1, 0, 1, 0, 0));
 
+    // Create hierarchy
+    hierarchy = std::make_shared<DMHierarchy>(da, refineLevels, true);
+
+    // Create matrix corresponding to operator on fine DM
     Mat mat;
-    PetscCallVoid(DMCreateMatrix(da, &mat));
+    PetscCallVoid(DMCreateMatrix(hierarchy->get_fine(), &mat));
 
     // TODO: Maybe not needed?
     PetscCallVoid(MatSetOption(mat, MAT_USE_INODES, PETSC_FALSE));
@@ -48,13 +47,11 @@ public:
     std::array<MatStencil, 5> cols;
     std::array<PetscReal, 5> vals;
 
-    double h2inv = 1. / ((verticesPerDim - 1) * (verticesPerDim - 1));
-
-    dirichletRows.reserve(4 * verticesPerDim);
-
     DMDALocalInfo info;
-    PetscCallVoid(DMDAGetLocalInfo(da, &info));
+    PetscCallVoid(DMDAGetLocalInfo(hierarchy->get_fine(), &info));
 
+    dirichletRows.reserve(4 * info.mx);
+    double h2inv = 1. / ((info.mx - 1) * (info.mx - 1));
     const auto kappa2 = 1. / (kappainv * kappainv);
 
     for (PetscInt j = info.ys; j < info.ys + info.ym; j++) {
@@ -100,8 +97,8 @@ public:
             ++k;
           }
 
-          PetscCallVoid(MatSetValuesStencil(
-              mat, 1, &row, k, cols.data(), vals.data(), INSERT_VALUES));
+          PetscCallVoid(
+              MatSetValuesStencil(mat, 1, &row, k, cols.data(), vals.data(), INSERT_VALUES));
         }
       }
     }
@@ -112,12 +109,11 @@ public:
     // Dirichlet rows are in natural ordering, convert to global using the DM's
     // ApplicationOrdering
     AO ao;
-    PetscCallVoid(DMDAGetAO(da, &ao));
-    PetscCallVoid(
-        AOApplicationToPetsc(ao, dirichletRows.size(), dirichletRows.data()));
+    PetscCallVoid(DMDAGetAO(hierarchy->get_fine(), &ao));
+    PetscCallVoid(AOApplicationToPetsc(ao, dirichletRows.size(), dirichletRows.data()));
 
-    PetscCallVoid(MatZeroRowsColumns(
-        mat, dirichletRows.size(), dirichletRows.data(), 1., nullptr, nullptr));
+    PetscCallVoid(
+        MatZeroRowsColumns(mat, dirichletRows.size(), dirichletRows.data(), 1., nullptr, nullptr));
 
     PetscCallVoid(MatSetOption(mat, MAT_SPD, PETSC_TRUE));
 
@@ -131,22 +127,17 @@ public:
   }
 
   const std::shared_ptr<LinearOperator> &getOperator() const { return op; }
+  const std::shared_ptr<DMHierarchy> &getHierarchy() const { return hierarchy; }
 
-  const std::vector<PetscInt> &getDirichletRows() const {
-    return dirichletRows;
-  }
+  const std::vector<PetscInt> &getDirichletRows() const { return dirichletRows; }
 
-  ~ShiftedLaplaceFD() {
-    PetscFunctionBeginUser;
-
-    PetscCallVoid(DMDestroy(&da));
-
-    PetscFunctionReturnVoid();
-  }
+  DM getCoarseDM() const { return hierarchy->get_coarse(); }
+  DM getFineDM() const { return hierarchy->get_fine(); }
 
 private:
   std::shared_ptr<LinearOperator> op;
-  DM da;
+  std::shared_ptr<DMHierarchy> hierarchy;
+  // DM da;
 
   std::vector<PetscInt> dirichletRows;
 };
@@ -169,22 +160,17 @@ struct TimingResult {
 };
 
 template <typename Engine>
-PetscErrorCode testGibbsSampler(const ShiftedLaplaceFD &problem,
-                                PetscInt n_samples, Engine &engine,
-                                PetscScalar omega, GibbsSweepType sweepType,
-                                bool fixRhs, TimingResult &timingResult) {
+PetscErrorCode testGibbsSampler(const ShiftedLaplaceFD &problem, PetscInt nSamples, Engine &engine,
+                                PetscScalar omega, GibbsSweepType sweepType, bool fixRhs,
+                                TimingResult &timingResult) {
   PetscFunctionBeginUser;
 
   Vec sample, rhs;
   PetscCall(MatCreateVecs(problem.getOperator()->get_mat(), &sample, nullptr));
   PetscCall(VecDuplicate(sample, &rhs));
 
-  PetscCall(MatZeroRowsColumns(problem.getOperator()->get_mat(),
-                               problem.getDirichletRows().size(),
-                               problem.getDirichletRows().data(),
-                               1.,
-                               sample,
-                               rhs));
+  PetscCall(MatZeroRowsColumns(problem.getOperator()->get_mat(), problem.getDirichletRows().size(),
+                               problem.getDirichletRows().data(), 1., sample, rhs));
 
   PetscCall(fill_vec_rand(rhs, engine));
 
@@ -192,8 +178,7 @@ PetscErrorCode testGibbsSampler(const ShiftedLaplaceFD &problem,
 
   // Measure setup time
   timer.reset();
-  MulticolorGibbsSampler sampler(
-      problem.getOperator(), &engine, omega, sweepType);
+  MulticolorGibbsSampler sampler(problem.getOperator(), &engine, omega, sweepType);
 
   if (fixRhs)
     sampler.setFixedRhs(rhs);
@@ -203,7 +188,44 @@ PetscErrorCode testGibbsSampler(const ShiftedLaplaceFD &problem,
 
   // Measure sample time
   timer.reset();
-  for (PetscInt n = 0; n < n_samples; ++n)
+  for (PetscInt n = 0; n < nSamples; ++n)
+    PetscCall(sampler.sample(sample, rhs));
+
+  timingResult.sampleTime = timer.elapsed();
+  // Sampling done
+
+  // Cleanup
+  PetscCall(VecDestroy(&sample));
+  PetscCall(VecDestroy(&rhs));
+
+  PetscFunctionReturn(PETSC_SUCCESS);
+}
+
+template <typename Engine>
+PetscErrorCode testMGMCSampler(const ShiftedLaplaceFD &problem, PetscInt nSamples, Engine &engine,
+                               const MGMCParameters &params, TimingResult &timingResult) {
+  PetscFunctionBeginUser;
+
+  Vec sample, rhs;
+  PetscCall(MatCreateVecs(problem.getOperator()->get_mat(), &sample, nullptr));
+  PetscCall(VecDuplicate(sample, &rhs));
+
+  PetscCall(MatZeroRowsColumns(problem.getOperator()->get_mat(), problem.getDirichletRows().size(),
+                               problem.getDirichletRows().data(), 1., sample, rhs));
+
+  PetscCall(fill_vec_rand(rhs, engine));
+
+  Timer timer;
+
+  // Measure setup time
+  timer.reset();
+  MultigridSampler sampler(problem.getOperator(), problem.getHierarchy(), &engine, params);
+  timingResult.setupTime = timer.elapsed();
+  // Setup done
+
+  // Measure sample time
+  timer.reset();
+  for (PetscInt n = 0; n < nSamples; ++n)
     PetscCall(sampler.sample(sample, rhs));
 
   timingResult.sampleTime = timer.elapsed();
@@ -219,22 +241,17 @@ PetscErrorCode testGibbsSampler(const ShiftedLaplaceFD &problem,
 PetscErrorCode printResult(const std::string &name, TimingResult timing) {
   PetscFunctionBeginUser;
 
-  PetscCall(PetscPrintf(MPI_COMM_WORLD,
-                        "\n+++-------------------------------------------------"
-                        "-----------+++\n\n"));
+  PetscCall(PetscPrintf(MPI_COMM_WORLD, "\n+++-------------------------------------------------"
+                                        "-----------+++\n\n"));
   PetscCall(PetscPrintf(MPI_COMM_WORLD, "Name: %s\n", name.c_str()));
   PetscCall(PetscPrintf(MPI_COMM_WORLD, "Timing [s]:\n"));
-  PetscCall(PetscPrintf(
-      MPI_COMM_WORLD, "   Setup time:    %.4f\n", timing.setupTime));
-  PetscCall(PetscPrintf(
-      MPI_COMM_WORLD, "   Sampling time: %.4f\n", timing.sampleTime));
+  PetscCall(PetscPrintf(MPI_COMM_WORLD, "   Setup time:    %.4f\n", timing.setupTime));
+  PetscCall(PetscPrintf(MPI_COMM_WORLD, "   Sampling time: %.4f\n", timing.sampleTime));
   PetscCall(PetscPrintf(MPI_COMM_WORLD, "   -----------------------\n"));
-  PetscCall(PetscPrintf(MPI_COMM_WORLD,
-                        "   Total:         %.4f\n",
+  PetscCall(PetscPrintf(MPI_COMM_WORLD, "   Total:         %.4f\n",
                         timing.setupTime + timing.sampleTime));
-  PetscCall(PetscPrintf(MPI_COMM_WORLD,
-                        "\n+++-------------------------------------------------"
-                        "-----------+++\n"));
+  PetscCall(PetscPrintf(MPI_COMM_WORLD, "\n+++-------------------------------------------------"
+                                        "-----------+++\n"));
 
   PetscFunctionReturn(PETSC_SUCCESS);
 }
@@ -246,56 +263,85 @@ int main(int argc, char *argv[]) {
 
   PetscInt size = 9;
   PetscCall(PetscOptionsGetInt(nullptr, nullptr, "-size", &size, nullptr));
-  PetscInt n_samples = 1000;
-  PetscCall(
-      PetscOptionsGetInt(nullptr, nullptr, "-samples", &n_samples, nullptr));
-  PetscInt n_runs = 5;
-  PetscCall(PetscOptionsGetInt(nullptr, nullptr, "-runs", &n_runs, nullptr));
+  PetscInt nSamples = 1000;
+  PetscCall(PetscOptionsGetInt(nullptr, nullptr, "-samples", &nSamples, nullptr));
+  PetscInt nRuns = 5;
+  PetscCall(PetscOptionsGetInt(nullptr, nullptr, "-runs", &nRuns, nullptr));
+  PetscInt nRefine = 3;
+  PetscCall(PetscOptionsGetInt(nullptr, nullptr, "-refine", &nRefine, nullptr));
+
+  PetscBool runGibbs = PETSC_FALSE, runMGMC = PETSC_FALSE, runCholesky = PETSC_FALSE;
+  PetscCall(PetscOptionsGetBool(nullptr, nullptr, "-gibbs", &runGibbs, nullptr));
+  PetscCall(PetscOptionsGetBool(nullptr, nullptr, "-mgmc", &runMGMC, nullptr));
+  PetscCall(PetscOptionsGetBool(nullptr, nullptr, "-cholesky", &runCholesky, nullptr));
 
   PetscMPIInt mpisize;
   PetscCallMPI(MPI_Comm_size(MPI_COMM_WORLD, &mpisize));
+  PetscCall(PetscPrintf(MPI_COMM_WORLD, "##################################################"
+                                        "################\n"));
   PetscCall(PetscPrintf(MPI_COMM_WORLD,
-                        "##################################################"
-                        "################\n"));
-  PetscCall(PetscPrintf(
-      MPI_COMM_WORLD,
-      "####            Running strong scaling test suite           ######\n"));
-  PetscCall(PetscPrintf(MPI_COMM_WORLD,
-                        "##################################################"
-                        "################\n"));
-  PetscCall(PetscPrintf(MPI_COMM_WORLD,
-                        "Configuration: \n\tMPI rank(s):  %d\n\tProblem size: "
-                        "%dx%d = %d\n\tSamples:      %d\n\tRuns:         %d\n",
-                        mpisize,
-                        size,
-                        size,
-                        (size * size),
-                        n_samples,
-                        n_runs));
+                        "####            Running strong scaling test suite           ######\n"));
+  PetscCall(PetscPrintf(MPI_COMM_WORLD, "##################################################"
+                                        "################\n"));
 
-  ShiftedLaplaceFD problem(size);
+  if (!(runGibbs || runMGMC || runCholesky)) {
+    PetscCall(PetscPrintf(MPI_COMM_WORLD, "No sampler selected, not running any tests.\n"
+                                          "Pass at least one of\n"
+                                          "     -gibbs     -mgmc     -cholesky\n"
+                                          "to run the test with the respective sampler.\n"));
+    return 0;
+  }
+
+  ShiftedLaplaceFD problem(size, nRefine);
+  DMDALocalInfo fineInfo, coarseInfo;
+  PetscCall(DMDAGetLocalInfo(problem.getFineDM(), &fineInfo));
+  PetscCall(DMDAGetLocalInfo(problem.getCoarseDM(), &coarseInfo));
+
+  PetscCall(PetscPrintf(MPI_COMM_WORLD,
+                        "Configuration: \n"
+                        "\tMPI rank(s):           %d\n"
+                        "\tProblem size (coarse): %dx%d = %d\n"
+                        "\tProblem size (fine):   %dx%d = %d\n"
+                        "\tLevels:                %d\n"
+                        "\tSamples:               %d\n"
+                        "\tRuns:                  %d\n",
+                        mpisize, coarseInfo.mx, coarseInfo.mx, (coarseInfo.mx * coarseInfo.mx),
+                        fineInfo.mx, fineInfo.mx, (fineInfo.mx * fineInfo.mx), nRefine, nSamples,
+                        nRuns));
 
   std::mt19937 engine;
 
-  {
+  if (runGibbs) {
     TimingResult avg;
 
-    for (int i = 0; i < n_runs; ++i) {
+    for (int i = 0; i < nRuns; ++i) {
       TimingResult timing;
-      PetscCall(testGibbsSampler(problem,
-                                 n_samples,
-                                 engine,
-                                 1.,
-                                 GibbsSweepType::Forward,
-                                 true,
-                                 timing));
+      PetscCall(
+          testGibbsSampler(problem, nSamples, engine, 1., GibbsSweepType::Forward, true, timing));
 
       avg += timing;
     }
 
-    avg /= n_runs;
+    avg /= nRuns;
 
     PetscCall(printResult("Gibbs sampler, forward sweep, fixed rhs", avg));
+  }
+
+  if (runMGMC) {
+    TimingResult avg;
+
+    MGMCParameters params = MGMCParameters::Default();
+
+    for (int i = 0; i < nRuns; ++i) {
+      TimingResult timing;
+      PetscCall(testMGMCSampler(problem, nSamples, engine, params, timing));
+
+      avg += timing;
+    }
+
+    avg /= nRuns;
+
+    PetscCall(printResult("MGMC sampler", avg));
   }
 
   // {
