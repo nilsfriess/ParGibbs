@@ -207,9 +207,9 @@ PetscErrorCode testGibbsSampler(const ShiftedLaplaceFD &problem,
 PetscErrorCode printResult(const std::string &name, TimingResult timing) {
   PetscFunctionBeginUser;
 
-  PetscCall(PetscPrintf(
-      MPI_COMM_WORLD,
-      "\n#############################################################\n"));
+  PetscCall(PetscPrintf(MPI_COMM_WORLD,
+                        "\n+++-------------------------------------------------"
+                        "-----------+++\n\n"));
   PetscCall(PetscPrintf(MPI_COMM_WORLD, "Name: %s\n", name.c_str()));
   PetscCall(PetscPrintf(MPI_COMM_WORLD, "Timing:\n"));
   PetscCall(PetscPrintf(
@@ -220,9 +220,9 @@ PetscErrorCode printResult(const std::string &name, TimingResult timing) {
   PetscCall(PetscPrintf(MPI_COMM_WORLD,
                         "   Total:         %.4fs\n",
                         timing.setupTime + timing.sampleTime));
-  PetscCall(PetscPrintf(
-      MPI_COMM_WORLD,
-      "##############################################################\n"));
+  PetscCall(PetscPrintf(MPI_COMM_WORLD,
+                        "\n+++-------------------------------------------------"
+                        "-----------+++\n"));
 
   PetscFunctionReturn(PETSC_SUCCESS);
 }
@@ -232,22 +232,35 @@ int main(int argc, char *argv[]) {
 
   PetscFunctionBeginUser;
 
+  PetscInt size = 9;
+  PetscCall(PetscOptionsGetInt(nullptr, nullptr, "-size", &size, nullptr));
+  PetscInt n_samples = 1000;
+  PetscCall(
+      PetscOptionsGetInt(nullptr, nullptr, "-samples", &n_samples, nullptr));
+
   PetscMPIInt mpisize;
   PetscCallMPI(MPI_Comm_size(MPI_COMM_WORLD, &mpisize));
   PetscCall(PetscPrintf(MPI_COMM_WORLD,
-                        "Running strong scaling tests on %d MPI rank(s)\n",
-                        mpisize));
-
-  PetscInt size = 9;
-  PetscCall(PetscOptionsGetInt(nullptr, nullptr, "-size", &size, nullptr));
+                        "##################################################"
+                        "################\n"));
+  PetscCall(PetscPrintf(
+      MPI_COMM_WORLD,
+      "####            Running strong scaling test suite           ######\n"));
+  PetscCall(PetscPrintf(MPI_COMM_WORLD,
+                        "##################################################"
+                        "################\n"));
+  PetscCall(PetscPrintf(MPI_COMM_WORLD,
+                        "Configuration: \n\tMPI rank(s):  %d\n\tProblem size: "
+                        "%dx%d = %d\n\tSamples:      %d\n",
+                        mpisize,
+                        size,
+                        size,
+                        (size * size),
+                        n_samples));
 
   ShiftedLaplaceFD problem(size);
 
   std::mt19937 engine;
-
-  PetscInt n_samples = 1000;
-  PetscCall(
-      PetscOptionsGetInt(nullptr, nullptr, "-samples", &n_samples, nullptr));
 
   {
     TimingResult timing;
@@ -257,31 +270,31 @@ int main(int argc, char *argv[]) {
     PetscCall(printResult("Gibbs sampler, forward sweep, fixed rhs", timing));
   }
 
-  {
-    TimingResult timing;
-    PetscCall(testGibbsSampler(problem,
-                               n_samples,
-                               engine,
-                               1.,
-                               GibbsSweepType::Forward,
-                               false,
-                               timing));
+  // {
+  //   TimingResult timing;
+  //   PetscCall(testGibbsSampler(problem,
+  //                              n_samples,
+  //                              engine,
+  //                              1.,
+  //                              GibbsSweepType::Forward,
+  //                              false,
+  //                              timing));
 
-    PetscCall(
-        printResult("Gibbs sampler, forward sweep, nonfixed rhs", timing));
-  }
+  //   PetscCall(
+  //       printResult("Gibbs sampler, forward sweep, nonfixed rhs", timing));
+  // }
 
-  {
-    TimingResult timing;
-    PetscCall(testGibbsSampler(problem,
-                               n_samples,
-                               engine,
-                               1.,
-                               GibbsSweepType::Symmetric,
-                               true,
-                               timing));
+  // {
+  //   TimingResult timing;
+  //   PetscCall(testGibbsSampler(problem,
+  //                              n_samples,
+  //                              engine,
+  //                              1.,
+  //                              GibbsSweepType::Symmetric,
+  //                              true,
+  //                              timing));
 
-    PetscCall(
-        printResult("Gibbs sampler, symmetric sweep, nonfixed rhs", timing));
-  }
+  //   PetscCall(
+  //       printResult("Gibbs sampler, symmetric sweep, nonfixed rhs", timing));
+  // }
 }
