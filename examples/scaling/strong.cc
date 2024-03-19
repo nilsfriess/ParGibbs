@@ -16,6 +16,8 @@
 #include <petscerror.h>
 #include <petscsystypes.h>
 
+#include <pcg_random.hpp>
+
 using namespace parmgmc;
 
 class ShiftedLaplaceFD {
@@ -275,8 +277,10 @@ int main(int argc, char *argv[]) {
   PetscCall(PetscOptionsGetBool(nullptr, nullptr, "-mgmc", &runMGMC, nullptr));
   PetscCall(PetscOptionsGetBool(nullptr, nullptr, "-cholesky", &runCholesky, nullptr));
 
-  PetscMPIInt mpisize;
+  PetscMPIInt mpisize, mpirank;
   PetscCallMPI(MPI_Comm_size(MPI_COMM_WORLD, &mpisize));
+  PetscCallMPI(MPI_Comm_rank(MPI_COMM_WORLD, &mpirank));
+
   PetscCall(PetscPrintf(MPI_COMM_WORLD, "##################################################"
                                         "################\n"));
   PetscCall(PetscPrintf(MPI_COMM_WORLD,
@@ -297,6 +301,19 @@ int main(int argc, char *argv[]) {
   PetscCall(DMDAGetLocalInfo(problem.getFineDM(), &fineInfo));
   PetscCall(DMDAGetLocalInfo(problem.getCoarseDM(), &coarseInfo));
 
+  pcg32 engine;
+
+  int seed;
+  if (mpirank == 0) {
+    seed = std::random_device{}();
+    PetscOptionsGetInt(nullptr, nullptr, "-seed", &seed, nullptr);
+  }
+
+  // Send seed to all other processes
+  MPI_Bcast(&seed, 1, MPI_INT, 0, MPI_COMM_WORLD);
+  engine.seed(seed);
+  engine.set_stream(mpirank);
+
   PetscCall(PetscPrintf(MPI_COMM_WORLD,
                         "Configuration: \n"
                         "\tMPI rank(s):           %d\n"
@@ -304,12 +321,11 @@ int main(int argc, char *argv[]) {
                         "\tProblem size (fine):   %dx%d = %d\n"
                         "\tLevels:                %d\n"
                         "\tSamples:               %d\n"
-                        "\tRuns:                  %d\n",
+                        "\tRuns:                  %d\n"
+                        "\tRandom Seed:           %d\n",
                         mpisize, coarseInfo.mx, coarseInfo.mx, (coarseInfo.mx * coarseInfo.mx),
                         fineInfo.mx, fineInfo.mx, (fineInfo.mx * fineInfo.mx), nRefine, nSamples,
-                        nRuns));
-
-  std::mt19937 engine;
+                        nRuns, seed));
 
   if (runGibbs) {
     TimingResult avg;
