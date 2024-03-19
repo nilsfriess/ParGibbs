@@ -152,6 +152,18 @@ private:
 };
 
 struct TimingResult {
+  TimingResult operator+=(const TimingResult &other) {
+    setupTime += other.setupTime;
+    sampleTime += other.sampleTime;
+    return *this;
+  }
+
+  TimingResult operator/=(double d) {
+    setupTime /= d;
+    sampleTime /= d;
+    return *this;
+  }
+
   double setupTime = 0;
   double sampleTime = 0;
 };
@@ -211,14 +223,14 @@ PetscErrorCode printResult(const std::string &name, TimingResult timing) {
                         "\n+++-------------------------------------------------"
                         "-----------+++\n\n"));
   PetscCall(PetscPrintf(MPI_COMM_WORLD, "Name: %s\n", name.c_str()));
-  PetscCall(PetscPrintf(MPI_COMM_WORLD, "Timing:\n"));
+  PetscCall(PetscPrintf(MPI_COMM_WORLD, "Timing [s]:\n"));
   PetscCall(PetscPrintf(
-      MPI_COMM_WORLD, "   Setup time:    %.4fs\n", timing.setupTime));
+      MPI_COMM_WORLD, "   Setup time:    %.4f\n", timing.setupTime));
   PetscCall(PetscPrintf(
-      MPI_COMM_WORLD, "   Sampling time: %.4fs\n", timing.sampleTime));
+      MPI_COMM_WORLD, "   Sampling time: %.4f\n", timing.sampleTime));
   PetscCall(PetscPrintf(MPI_COMM_WORLD, "   -----------------------\n"));
   PetscCall(PetscPrintf(MPI_COMM_WORLD,
-                        "   Total:         %.4fs\n",
+                        "   Total:         %.4f\n",
                         timing.setupTime + timing.sampleTime));
   PetscCall(PetscPrintf(MPI_COMM_WORLD,
                         "\n+++-------------------------------------------------"
@@ -237,6 +249,8 @@ int main(int argc, char *argv[]) {
   PetscInt n_samples = 1000;
   PetscCall(
       PetscOptionsGetInt(nullptr, nullptr, "-samples", &n_samples, nullptr));
+  PetscInt n_runs = 5;
+  PetscCall(PetscOptionsGetInt(nullptr, nullptr, "-runs", &n_runs, nullptr));
 
   PetscMPIInt mpisize;
   PetscCallMPI(MPI_Comm_size(MPI_COMM_WORLD, &mpisize));
@@ -251,23 +265,37 @@ int main(int argc, char *argv[]) {
                         "################\n"));
   PetscCall(PetscPrintf(MPI_COMM_WORLD,
                         "Configuration: \n\tMPI rank(s):  %d\n\tProblem size: "
-                        "%dx%d = %d\n\tSamples:      %d\n",
+                        "%dx%d = %d\n\tSamples:      %d\n\tRuns:         %d\n",
                         mpisize,
                         size,
                         size,
                         (size * size),
-                        n_samples));
+                        n_samples,
+                        n_runs));
 
   ShiftedLaplaceFD problem(size);
 
   std::mt19937 engine;
 
   {
-    TimingResult timing;
-    PetscCall(testGibbsSampler(
-        problem, n_samples, engine, 1., GibbsSweepType::Forward, true, timing));
+    TimingResult avg;
 
-    PetscCall(printResult("Gibbs sampler, forward sweep, fixed rhs", timing));
+    for (int i = 0; i < n_runs; ++i) {
+      TimingResult timing;
+      PetscCall(testGibbsSampler(problem,
+                                 n_samples,
+                                 engine,
+                                 1.,
+                                 GibbsSweepType::Forward,
+                                 true,
+                                 timing));
+
+      avg += timing;
+    }
+
+    avg /= n_runs;
+
+    PetscCall(printResult("Gibbs sampler, forward sweep, fixed rhs", avg));
   }
 
   // {
