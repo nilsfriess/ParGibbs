@@ -40,7 +40,7 @@ struct MGMCParameters {
 
   static MGMCParameters Default() {
     MGMCParameters params;
-    params.n_smooth = 1;
+    params.n_smooth = 2;
     params.smoothing_type = MGMCSmoothingType::ForwardBackward;
     params.cycle_type = MGMCCycleType::V;
 #if PETSC_HAVE_MKL_CPARDISO && PETSC_HAVE_MKL_PARDISO
