@@ -24,7 +24,7 @@ public:
         means(nChains, 0), squareDiffs(nChains, 0) {
     PetscFunctionBeginUser;
 
-    // samplers.reserve(n_chains);
+    samplers.reserve(nChains);
     for (std::size_t n = 0; n < nChains; ++n) {
       samplers.emplace_back(std::forward<Args>(samplerArgs)...);
 
