@@ -54,37 +54,6 @@ struct MGMCParameters {
 
 template <class Engine, class Smoother = MulticolorGibbsSampler<Engine>> class MultigridSampler {
 public:
-  // /** Construct a Multigrid sampler using a given hierarchy of DMs and a
-  // matrix
-  //  *  assembly routine. For each level (the number of levels is determined by
-  //  the
-  //  *  number of DMs in the `dm_hierarchy`) the assembly routine is called
-  //  with
-  //  *  the corresponding DM as its argument. The signature of the assembly
-  //  *  function should be `PetscErrorCode assembler(DM, Mat*)`. The Mat must
-  //  *  be created (e.g. using DMCreateMatrix) by the assembly function. */
-  // template <class Assembler>
-  // MultigridSampler(const std::shared_ptr<DMHierarchy> &dm_hierarchy,
-  //                  Assembler &&assembler, Engine *engine,
-  //                  const MGMCParameters &params)
-  //     : dm_hierarchy{dm_hierarchy}, engine{engine},
-  //       n_levels{dm_hierarchy->num_levels()}, n_smooth{params.n_smooth},
-  //       smoothing_type{params.smoothing_type},
-  //       cycles{static_cast<unsigned int>(params.cycle_type)} {
-  //   PetscFunctionBeginUser;
-
-  //   ops.resize(n_levels);
-  //   for (std::size_t level = 0; level < n_levels; level++) {
-  //     Mat mat;
-  //     PetscCallVoid(assembler(dm_hierarchy->get_dm(level), &mat));
-  //     ops[level] = std::make_shared<LinearOperator>(mat);
-  //   }
-
-  //   PetscCallVoid(init_vecs_and_smoothers(engine));
-
-  //   PetscFunctionReturnVoid();
-  // }
-
   /* Construct a Multigrid sampler using a given linear operator and a hierarchy
    * of DMs. The operator must be an operator on the finest DM in the
    * hierarchy, the remaining operators are created by Galerkin projection
