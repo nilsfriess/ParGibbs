@@ -11,47 +11,47 @@ struct PetscHelper {
     static PetscHelper helper(&argc, &argv, file, help);
   }
 
-  static PetscErrorCode begin_rng_event() {
+  static PetscErrorCode beginRngEvent() {
     PetscFunctionBeginUser;
 
-    PetscLogEvent rng_event = PetscHelper::get_rng_event();
+    PetscLogEvent rngEvent = PetscHelper::getRngEvent();
     PetscCall(
-        PetscLogEventBegin(rng_event, nullptr, nullptr, nullptr, nullptr));
+        PetscLogEventBegin(rngEvent, nullptr, nullptr, nullptr, nullptr));
 
     PetscFunctionReturn(PETSC_SUCCESS);
   }
 
-  static PetscErrorCode end_rng_event() {
+  static PetscErrorCode endRngEvent() {
     PetscFunctionBeginUser;
 
-    PetscLogEvent rng_event = PetscHelper::get_rng_event();
-    PetscCall(PetscLogEventEnd(rng_event, nullptr, nullptr, nullptr, nullptr));
+    PetscLogEvent rngEvent = PetscHelper::getRngEvent();
+    PetscCall(PetscLogEventEnd(rngEvent, nullptr, nullptr, nullptr, nullptr));
 
     PetscFunctionReturn(PETSC_SUCCESS);
   }
 
-  static PetscErrorCode begin_gibbs_event() {
+  static PetscErrorCode beginGibbsEvent() {
     PetscFunctionBeginUser;
 
-    PetscLogEvent gibbs_event = PetscHelper::get_gibbs_event();
+    PetscLogEvent gibbsEvent = PetscHelper::getGibbsEvent();
     PetscCall(
-        PetscLogEventBegin(gibbs_event, nullptr, nullptr, nullptr, nullptr));
+        PetscLogEventBegin(gibbsEvent, nullptr, nullptr, nullptr, nullptr));
 
     PetscFunctionReturn(PETSC_SUCCESS);
   }
 
-  static PetscErrorCode end_gibbs_event() {
+  static PetscErrorCode endGibbsEvent() {
     PetscFunctionBeginUser;
 
-    PetscLogEvent gibbs_event = PetscHelper::get_gibbs_event();
+    PetscLogEvent gibbsEvent = PetscHelper::getGibbsEvent();
     PetscCall(
-        PetscLogEventEnd(gibbs_event, nullptr, nullptr, nullptr, nullptr));
+        PetscLogEventEnd(gibbsEvent, nullptr, nullptr, nullptr, nullptr));
 
     PetscFunctionReturn(PETSC_SUCCESS);
   }
 
-  static PetscLogEvent get_rng_event() {
-    static PetscLogEvent rng_event = []() {
+  static PetscLogEvent getRngEvent() {
+    static PetscLogEvent rngEvent = []() {
       PetscClassId classid;
       PetscLogEvent event;
       PetscClassIdRegister("ParMGMC", &classid);
@@ -60,11 +60,11 @@ struct PetscHelper {
       return event;
     }();
 
-    return rng_event;
+    return rngEvent;
   }
 
-  static PetscLogEvent get_gibbs_event() {
-    static PetscLogEvent gibbs_event = []() {
+  static PetscLogEvent getGibbsEvent() {
+    static PetscLogEvent gibbsEvent = []() {
       PetscClassId classid;
       PetscLogEvent event;
       PetscClassIdRegister("ParMGMC", &classid);
@@ -73,7 +73,7 @@ struct PetscHelper {
       return event;
     }();
 
-    return gibbs_event;
+    return gibbsEvent;
   }
 
   ~PetscHelper() { PetscFinalize(); }
@@ -87,7 +87,7 @@ private:
     PetscFunctionReturnVoid();
   }
 
-  inline static bool rng_event_registered = false;
-  inline static bool gibbs_event_registered = false;
+  inline static bool rngEventRegistered = false;
+  inline static bool gibbsEventRegistered = false;
 };
 } // namespace parmgmc

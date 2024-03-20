@@ -1,5 +1,6 @@
 ---
 Language:        Cpp
 BasedOnStyle:  LLVM
-BinPackArguments: false
-# BinPackParameters: false
+BinPackArguments: true
+BinPackParameters: true
+ColumnLimit: 100

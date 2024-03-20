@@ -22,7 +22,7 @@
 namespace parmgmc {
 class Coloring {
 public:
-  Coloring(Mat mat, MatColoringType coloring_type = MATCOLORINGJP) {
+  Coloring(Mat mat, MatColoringType coloringType = MATCOLORINGJP) {
     PetscFunctionBeginUser;
 
     // Don't create coloring if running sequentially
@@ -32,10 +32,10 @@ public:
       PetscInt start, end;
       PetscCallVoid(MatGetOwnershipRange(mat, &start, &end));
 
-      color_indices.resize(1);
-      color_indices[0].resize(end - start);
+      colorIndices.resize(1);
+      colorIndices[0].resize(end - start);
 
-      std::iota(color_indices[0].begin(), color_indices[0].end(), start);
+      std::iota(colorIndices[0].begin(), colorIndices[0].end(), start);
 
       PetscFunctionReturnVoid();
     }
@@ -45,7 +45,7 @@ public:
     MatColoring mc;
     PetscCallVoid(MatColoringCreate(mat, &mc));
     PetscCallVoid(MatColoringSetDistance(mc, 1));
-    PetscCallVoid(MatColoringSetType(mc, coloring_type));
+    PetscCallVoid(MatColoringSetType(mc, coloringType));
 
     ISColoring ic;
     PetscCallVoid(MatColoringApply(mc, &ic));
@@ -55,23 +55,23 @@ public:
     PetscInt ncolors;
     IS *isc;
     PetscCallVoid(ISColoringGetIS(ic, PETSC_USE_POINTER, &ncolors, &isc));
-    color_indices.resize(ncolors);
+    colorIndices.resize(ncolors);
     for (PetscInt i = 0; i < ncolors; ++i) {
       PetscInt nidx;
       const PetscInt *indices;
       PetscCallVoid(ISGetLocalSize(isc[i], &nidx));
       PetscCallVoid(ISGetIndices(isc[i], &indices));
-      color_indices[i].resize(nidx);
-      std::copy(indices, indices + nidx, color_indices[i].begin());
+      colorIndices[i].resize(nidx);
+      std::copy(indices, indices + nidx, colorIndices[i].begin());
       PetscCallVoid(ISRestoreIndices(isc[i], &indices));
     }
 
     PetscCallVoid(ISColoringDestroy(&ic));
     PetscCallVoid(MatColoringDestroy(&mc));
 
-    PetscCallVoid(create_scatters(mat));
+    PetscCallVoid(createScatters(mat));
 
-    PARMGMC_INFO << "Created matrix coloring with " << color_indices.size()
+    PARMGMC_INFO << "Created matrix coloring with " << colorIndices.size()
                  << " colors, took " << timer.elapsed() << " seconds.\n";
 
     PetscFunctionReturnVoid();
@@ -94,26 +94,26 @@ public:
     PetscCallVoid(DMDAGetAO(dm, &ao));
     PetscCallVoid(AOPetscToApplication(ao, indices.size(), indices.data()));
 
-    color_indices.resize(2);
-    color_indices[0].reserve((indices.size() + 1) / 2); // red vertices
-    color_indices[1].reserve((indices.size() + 1) / 2); // black vertices
+    colorIndices.resize(2);
+    colorIndices[0].reserve((indices.size() + 1) / 2); // red vertices
+    colorIndices[1].reserve((indices.size() + 1) / 2); // black vertices
 
     for (std::size_t i = 0; i < indices.size(); ++i) {
       if (indices[i] % 2 == 0)
-        color_indices[0].push_back(i);
+        colorIndices[0].push_back(i);
       else
-        color_indices[1].push_back(i);
+        colorIndices[1].push_back(i);
     }
 
-    PetscCallVoid(create_scatters(mat));
+    PetscCallVoid(createScatters(mat));
 
     PetscFunctionReturnVoid();
   }
 
   template <typename Handler>
-  auto for_each_idx_of_color(std::size_t color_idx, Handler &&h) const {
+  auto forEachIdxOfColor(std::size_t colorIdx, Handler &&h) const {
     PetscFunctionBeginUser;
-    for (auto idx : color_indices.at(color_idx)) {
+    for (auto idx : colorIndices.at(colorIdx)) {
       if constexpr (std::is_same_v<decltype(h(1)), void>)
         h(idx);
       else
@@ -125,29 +125,29 @@ public:
       PetscFunctionReturn(PETSC_SUCCESS);
   }
 
-  template <typename Handler> auto for_each_color(Handler &&h) const {
+  template <typename Handler> auto forEachColor(Handler &&h) const {
     PetscFunctionBeginUser;
-    for (std::size_t i = 0; i < color_indices.size(); ++i) {
-      if constexpr (std::is_same_v<decltype(h(0, color_indices[0])), void>)
-        h(i, color_indices[i]);
+    for (std::size_t i = 0; i < colorIndices.size(); ++i) {
+      if constexpr (std::is_same_v<decltype(h(0, colorIndices[0])), void>)
+        h(i, colorIndices[i]);
       else
-        PetscCall(h(i, color_indices[i]));
+        PetscCall(h(i, colorIndices[i]));
     }
-    if constexpr (std::is_same_v<decltype(h(0, color_indices[0])), void>)
+    if constexpr (std::is_same_v<decltype(h(0, colorIndices[0])), void>)
       PetscFunctionReturnVoid();
     else
       PetscFunctionReturn(PETSC_SUCCESS);
   }
 
-  template <typename Handler> auto for_each_color_reverse(Handler &&h) const {
+  template <typename Handler> auto forEachColorReverse(Handler &&h) const {
     PetscFunctionBeginUser;
-    for (int i = color_indices.size() - 1; i >= 0; --i) {
-      if constexpr (std::is_same_v<decltype(h(0, color_indices[0])), void>)
-        h(i, color_indices[i]);
+    for (int i = colorIndices.size() - 1; i >= 0; --i) {
+      if constexpr (std::is_same_v<decltype(h(0, colorIndices[0])), void>)
+        h(i, colorIndices[i]);
       else
-        PetscCall(h(i, color_indices[i]));
+        PetscCall(h(i, colorIndices[i]));
     }
-    if constexpr (std::is_same_v<decltype(h(0, color_indices[0])), void>)
+    if constexpr (std::is_same_v<decltype(h(0, colorIndices[0])), void>)
       PetscFunctionReturnVoid();
     else
       PetscFunctionReturn(PETSC_SUCCESS);
@@ -162,18 +162,18 @@ public:
   //   PetscFunctionReturn(PETSC_SUCCESS);
   // }
 
-  VecScatter get_scatter(std::size_t color_idx) const {
-    return vecscatters[color_idx];
+  [[nodiscard]] VecScatter getScatter(std::size_t colorIdx) const {
+    return vecscatters[colorIdx];
   }
 
-  Vec get_ghost_vec(std::size_t color_idx) const {
-    return ghost_vecs[color_idx];
+  [[nodiscard]] Vec getGhostVec(std::size_t colorIdx) const {
+    return ghostVecs[colorIdx];
   }
 
   ~Coloring() {
     PetscFunctionBeginUser;
 
-    for (auto &vec : ghost_vecs)
+    for (auto &vec : ghostVecs)
       PetscCallVoid(VecDestroy(&vec));
 
     for (auto &scatter : vecscatters)
@@ -183,7 +183,7 @@ public:
   }
 
 private:
-  PetscErrorCode create_scatters(Mat mat) {
+  PetscErrorCode createScatters(Mat mat) {
     PetscFunctionBeginUser;
 
     MatType type;
@@ -196,28 +196,28 @@ private:
        * matrix), we get all off-processor neighbors and create a VecScatter for
        * them. */
 
-      Mat Ao;
+      Mat ao;
       const PetscInt *colmap;
-      PetscCall(MatMPIAIJGetSeqAIJ(mat, nullptr, &Ao, &colmap));
+      PetscCall(MatMPIAIJGetSeqAIJ(mat, nullptr, &ao, &colmap));
 
       const PetscInt *rowptr, *colptr;
       PetscCall(
-          MatSeqAIJGetCSRAndMemType(Ao, &rowptr, &colptr, nullptr, nullptr));
+          MatSeqAIJGetCSRAndMemType(ao, &rowptr, &colptr, nullptr, nullptr));
 
       // Create a vector comptible with the matrix (= same shape as the samples
       // used later)
       Vec gvec;
-      PetscInt local_rows, global_rows;
-      PetscCall(MatGetSize(mat, &global_rows, nullptr));
-      PetscCall(MatGetLocalSize(mat, &local_rows, nullptr));
+      PetscInt localRows, globalRows;
+      PetscCall(MatGetSize(mat, &globalRows, nullptr));
+      PetscCall(MatGetLocalSize(mat, &localRows, nullptr));
       PetscCall(VecCreateMPIWithArray(
-          MPI_COMM_WORLD, 1, local_rows, global_rows, nullptr, &gvec));
+          MPI_COMM_WORLD, 1, localRows, globalRows, nullptr, &gvec));
 
-      for (std::size_t i = 0; i < color_indices.size(); ++i) {
-        std::vector<PetscInt> off_proc_idx;
-        for (auto row : color_indices[i]) {
+      for (std::size_t i = 0; i < colorIndices.size(); ++i) {
+        std::vector<PetscInt> offProcIdx;
+        for (auto row : colorIndices[i]) {
           for (PetscInt k = rowptr[row]; k < rowptr[row + 1]; ++k) {
-            off_proc_idx.push_back(colmap[colptr[k]]);
+            offProcIdx.push_back(colmap[colptr[k]]);
           }
         }
 
@@ -225,14 +225,14 @@ private:
         // a sequential vector
         IS is;
         PetscCall(ISCreateGeneral(PETSC_COMM_SELF,
-                                  off_proc_idx.size(),
-                                  off_proc_idx.data(),
+                                  offProcIdx.size(),
+                                  offProcIdx.data(),
                                   PETSC_COPY_VALUES,
                                   &is));
         PetscCall(VecCreateSeq(
-            MPI_COMM_SELF, off_proc_idx.size(), &ghost_vecs.emplace_back()));
+            MPI_COMM_SELF, offProcIdx.size(), &ghostVecs.emplace_back()));
         PetscCall(VecScatterCreate(
-            gvec, is, ghost_vecs[i], nullptr, &vecscatters.emplace_back()));
+            gvec, is, ghostVecs[i], nullptr, &vecscatters.emplace_back()));
         PetscCall(ISDestroy(&is));
       }
 
@@ -242,13 +242,13 @@ private:
     PetscFunctionReturn(PETSC_SUCCESS);
   }
 
-  std::vector<std::vector<PetscInt>> color_indices;
+  std::vector<std::vector<PetscInt>> colorIndices;
 
   /** Array of VecScatters to send/receive the values required for updating a
    * certain color. That is, on order to update the indices in color_indices[i],
    * one has to perform a VecScatterBegin/End using the VecScatter in
    * vescscatters[i]. */
   std::vector<VecScatter> vecscatters;
-  std::vector<Vec> ghost_vecs;
+  std::vector<Vec> ghostVecs;
 };
 } // namespace parmgmc

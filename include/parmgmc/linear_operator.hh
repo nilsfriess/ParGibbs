@@ -9,20 +9,20 @@
 #include "parmgmc/common/coloring.hh"
 
 namespace parmgmc {
-enum class PetscMatType { MPIAIJ, SEQAIJ };
+enum class PetscMatType { MPIAij, SEQAij };
 
 class LinearOperator {
 public:
-  explicit LinearOperator(Mat mat, bool transfer_ownership = true)
-      : mat{mat}, should_delete{transfer_ownership} {
+  explicit LinearOperator(Mat mat, bool transferOwnership = true)
+      : mat{mat}, shouldDelete{transferOwnership} {
     PetscFunctionBeginUser;
     MatType type;
     PetscCallVoid(MatGetType(mat, &type));
 
     if (std::strcmp(type, MATMPIAIJ) == 0)
-      mattype = PetscMatType::MPIAIJ;
+      mattype = PetscMatType::MPIAij;
     else if (std::strcmp(type, MATSEQAIJ) == 0)
-      mattype = PetscMatType::SEQAIJ;
+      mattype = PetscMatType::SEQAij;
     else
       PetscCheckAbort(false,
                       MPI_COMM_WORLD,
@@ -32,23 +32,23 @@ public:
     PetscFunctionReturnVoid();
   }
 
-  void color_matrix(MatColoringType coloring_type = MATCOLORINGGREEDY) {
-    coloring = std::make_unique<Coloring>(mat, coloring_type);
+  void colorMatrix(MatColoringType coloringType = MATCOLORINGGREEDY) {
+    coloring = std::make_unique<Coloring>(mat, coloringType);
   }
 
-  void color_matrix(DM dm) { coloring = std::make_unique<Coloring>(mat, dm); }
+  void colorMatrix(DM dm) { coloring = std::make_unique<Coloring>(mat, dm); }
 
-  Mat get_mat() const { return mat; }
-  Coloring *get_coloring() const { return coloring.get(); }
+  [[nodiscard]] Mat getMat() const { return mat; }
+  [[nodiscard]] Coloring *getColoring() const { return coloring.get(); }
 
-  bool has_coloring() const { return coloring != nullptr; }
+  [[nodiscard]] bool hasColoring() const { return coloring != nullptr; }
 
-  PetscMatType get_mat_type() const { return mattype; }
+  [[nodiscard]] PetscMatType getMatType() const { return mattype; }
 
   ~LinearOperator() {
     PetscFunctionBeginUser;
 
-    if (should_delete)
+    if (shouldDelete)
       PetscCallVoid(MatDestroy(&mat));
 
     PetscFunctionReturnVoid();
@@ -60,6 +60,6 @@ private:
 
   std::unique_ptr<Coloring> coloring;
 
-  bool should_delete;
+  bool shouldDelete;
 };
 } // namespace parmgmc

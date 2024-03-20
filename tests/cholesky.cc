@@ -46,40 +46,40 @@ TEST_CASE("Cholesky sampler computes samples with correct mean",
 
   pm::CholeskySampler sampler(op, &engine);
 
-  Vec sample, exp_mean, rhs, mean;
+  Vec sample, expMean, rhs, mean;
 
-  MatCreateVecs(mat, &exp_mean, nullptr);
+  MatCreateVecs(mat, &expMean, nullptr);
   MatCreateVecs(mat, &sample, nullptr);
   MatCreateVecs(mat, &rhs, nullptr);
   MatCreateVecs(mat, &mean, nullptr);
 
   // pm::fill_vec_rand(rhs, engine);
 
-  VecSet(exp_mean, 1.);
+  VecSet(expMean, 1.);
 
-  MatMult(mat, exp_mean, rhs);
+  MatMult(mat, expMean, rhs);
 
-  constexpr std::size_t n_samples = 300'000;
+  const std::size_t nSamples = 300'000;
 
-  for (std::size_t n = 0; n < n_samples; ++n) {
+  for (std::size_t n = 0; n < nSamples; ++n) {
     sampler.sample(sample, rhs);
 
-    VecAXPY(mean, 1. / n_samples, sample);
+    VecAXPY(mean, 1. / nSamples, sample);
   }
 
   PetscReal norm;
   VecNorm(mean, NORM_2, &norm);
 
-  PetscReal norm_expected;
-  VecNorm(exp_mean, NORM_2, &norm_expected);
+  PetscReal normExpected;
+  VecNorm(expMean, NORM_2, &normExpected);
 
-  REQUIRE_THAT(norm, WithinAbs(norm_expected, 1e-3));
+  REQUIRE_THAT(norm, WithinAbs(normExpected, 1e-3));
 
   // Cleanup
   VecDestroy(&mean);
   VecDestroy(&sample);
   VecDestroy(&rhs);
-  VecDestroy(&exp_mean);
+  VecDestroy(&expMean);
 }
 
 #endif

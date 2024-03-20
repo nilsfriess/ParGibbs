@@ -22,55 +22,55 @@
 
 namespace parmgmc {
 template <class Engine>
-inline PetscErrorCode fill_vec_rand(Vec vec, PetscInt size, Engine &engine) {
+inline PetscErrorCode fillVecRand(Vec vec, PetscInt size, Engine &engine) {
   static std::normal_distribution<PetscReal> dist;
 
   PetscFunctionBeginUser;
 
-  PetscCall(PetscHelper::begin_rng_event());
+  PetscCall(PetscHelper::beginRngEvent());
 
-  PetscScalar *r_arr;
-  PetscCall(VecGetArrayWrite(vec, &r_arr));
-  std::generate_n(r_arr, size, [&]() { return dist(engine); });
-  PetscCall(VecRestoreArrayWrite(vec, &r_arr));
+  PetscScalar *rArr;
+  PetscCall(VecGetArrayWrite(vec, &rArr));
+  std::generate_n(rArr, size, [&]() { return dist(engine); });
+  PetscCall(VecRestoreArrayWrite(vec, &rArr));
 
   // Estimated using perf
   PetscCall(PetscLogFlops(size * 27));
 
-  PetscCall(PetscHelper::end_rng_event());
+  PetscCall(PetscHelper::endRngEvent());
 
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
 template <class Engine>
-inline PetscErrorCode fill_vec_rand(Vec vec, Engine &engine) {
+inline PetscErrorCode fillVecRand(Vec vec, Engine &engine) {
   PetscFunctionBeginUser;
 
   PetscInt size;
   PetscCall(VecGetLocalSize(vec, &size));
 
-  PetscCall(fill_vec_rand(vec, size, engine));
+  PetscCall(fillVecRand(vec, size, engine));
 
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
-inline PetscErrorCode VecScatter_for_Mat(Mat m, VecScatter *scatter,
-                                         Vec sct_vec = nullptr) {
+inline PetscErrorCode vecScatterForMat(Mat m, VecScatter *scatter,
+                                         Vec sctVec = nullptr) {
   PetscFunctionBeginUser;
 
-  PetscInt first_row;
-  PetscCall(MatGetOwnershipRange(m, &first_row, NULL));
+  PetscInt firstRow;
+  PetscCall(MatGetOwnershipRange(m, &firstRow, nullptr));
 
-  Mat B;
+  Mat b;
   const PetscInt *colmap;
-  PetscCall(MatMPIAIJGetSeqAIJ(m, NULL, &B, &colmap));
+  PetscCall(MatMPIAIJGetSeqAIJ(m, nullptr, &b, &colmap));
 
-  const PetscInt *Bi, *Bj;
-  PetscCall(MatSeqAIJGetCSRAndMemType(B, &Bi, &Bj, NULL, NULL));
+  const PetscInt *bi, *bj;
+  PetscCall(MatSeqAIJGetCSRAndMemType(b, &bi, &bj, nullptr, nullptr));
 
-  PetscInt local_rows, global_rows;
-  PetscCall(MatGetSize(m, &global_rows, NULL));
-  PetscCall(MatGetLocalSize(m, &local_rows, NULL));
+  PetscInt localRows, globalRows;
+  PetscCall(MatGetSize(m, &globalRows, nullptr));
+  PetscCall(MatGetLocalSize(m, &localRows, nullptr));
 
   /* This array will have non-zero values at indices corresponding to ghost
      vertices. These are identified by looping over the rows of the
@@ -86,48 +86,48 @@ inline PetscErrorCode VecScatter_for_Mat(Mat m, VecScatter *scatter,
      ghost values have to be communicated during red Gibbs sweeps and which
      during black sweeps.
    */
-  std::vector<PetscInt> indices(global_rows, 0);
-  std::size_t nz_cols = 0;
-  for (PetscInt row = 0; row < local_rows; ++row) {
-    for (PetscInt k = Bi[row]; k < Bi[row + 1]; ++k) {
+  std::vector<PetscInt> indices(globalRows, 0);
+  std::size_t nzCols = 0;
+  for (PetscInt row = 0; row < localRows; ++row) {
+    for (PetscInt k = bi[row]; k < bi[row + 1]; ++k) {
       /* We have to use colmap here since B is compactified, i.e., its
        * non-zero columns are {0, ..., nz_cols} (see MatSetUpMultiply_MPIAIJ).
        */
-      if (!indices[colmap[Bj[k]]])
-        nz_cols++;
-      indices[colmap[Bj[k]]] = 1;
+      if (!indices[colmap[bj[k]]])
+        nzCols++;
+      indices[colmap[bj[k]]] = 1;
     }
   }
 
   // Form array of needed columns.
-  std::vector<PetscInt> ghost_arr(nz_cols);
+  std::vector<PetscInt> ghostArr(nzCols);
   PetscInt cnt = 0;
-  for (PetscInt i = 0; i < global_rows; ++i)
+  for (PetscInt i = 0; i < globalRows; ++i)
     if (indices[i])
-      ghost_arr[cnt++] = i;
+      ghostArr[cnt++] = i;
 
   IS from;
   PetscCall(ISCreateGeneral(MPI_COMM_WORLD,
-                            ghost_arr.size(),
-                            ghost_arr.data(),
+                            ghostArr.size(),
+                            ghostArr.data(),
                             PETSC_COPY_VALUES,
                             &from));
 
-  bool return_sct_vec = true;
-  if (sct_vec == nullptr)
-    return_sct_vec = false;
+  bool returnSctVec = true;
+  if (sctVec == nullptr)
+    returnSctVec = false;
 
   Vec gvec, lvec;
 
-  PetscCall(MatCreateVecs(B, &lvec, NULL));
+  PetscCall(MatCreateVecs(b, &lvec, nullptr));
   // Create global vec without allocating actualy memory
   PetscCall(VecCreateMPIWithArray(
-      MPI_COMM_WORLD, 1, local_rows, global_rows, nullptr, &gvec));
+      MPI_COMM_WORLD, 1, localRows, globalRows, nullptr, &gvec));
 
   PetscCall(VecScatterCreate(gvec, from, lvec, nullptr, scatter));
 
-  if (return_sct_vec)
-    sct_vec = lvec;
+  if (returnSctVec)
+    sctVec = lvec;
   else
     PetscCall(VecDestroy(&lvec));
 

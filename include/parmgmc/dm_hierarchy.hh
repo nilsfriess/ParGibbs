@@ -16,50 +16,50 @@ class DMHierarchy {
 public:
   // TODO: Add error handling when coarse DM does not have (2^n)-1 vertices per
   // dimension.
-  DMHierarchy(DM coarse_space, std::size_t n_levels,
-              bool transfer_ownership = true)
-      : n_levels{n_levels}, transfer_ownership{transfer_ownership} {
+  DMHierarchy(DM coarseSpace, std::size_t nLevels,
+              bool transferOwnership = true)
+      : nLevels{nLevels}, transferOwnership{transferOwnership} {
     PetscFunctionBeginUser;
 
-    PARMGMC_INFO << "Start setting up DMHierarchy with " << n_levels
+    PARMGMC_INFO << "Start setting up DMHierarchy with " << nLevels
                  << " levels.\n";
     Timer timer;
 
-    interpolations.resize(n_levels - 1);
+    interpolations.resize(nLevels - 1);
 
-    DM coarse_dm = coarse_space;
-    dms.push_back(coarse_dm);
+    DM coarseDm = coarseSpace;
+    dms.push_back(coarseDm);
 
-    for (std::size_t level = 0; level < n_levels - 1; level++) {
-      DM fine_dm;
-      PetscCallVoid(DMRefine(coarse_dm, MPI_COMM_WORLD, &fine_dm));
+    for (std::size_t level = 0; level < nLevels - 1; level++) {
+      DM fineDm;
+      PetscCallVoid(DMRefine(coarseDm, MPI_COMM_WORLD, &fineDm));
 
       PetscCallVoid(DMCreateInterpolation(
-          coarse_dm, fine_dm, &interpolations[level], NULL));
+          coarseDm, fineDm, &interpolations[level], nullptr));
 
-      dms.push_back(fine_dm);
-      coarse_dm = fine_dm;
+      dms.push_back(fineDm);
+      coarseDm = fineDm;
     }
 
     auto elapsed = timer.elapsed();
 
-    const auto num_vertices =
-        [](PetscInt dim, PetscInt M, PetscInt N, PetscInt P) {
-          PetscInt res = M;
+    const auto numVertices =
+        [](PetscInt dim, PetscInt m, PetscInt n, PetscInt p) {
+          PetscInt res = m;
           if (dim > 1)
-            res *= N;
+            res *= n;
           if (dim > 2)
-            res *= P;
+            res *= p;
           return res;
         };
 
-    PetscInt dim, M, N, P;
+    PetscInt dim, m, n, p;
 
-    PetscCallVoid(DMDAGetInfo(get_coarse(),
+    PetscCallVoid(DMDAGetInfo(getCoarse(),
                               &dim,
-                              &M,
-                              &N,
-                              &P,
+                              &m,
+                              &n,
+                              &p,
                               nullptr,
                               nullptr,
                               nullptr,
@@ -69,12 +69,12 @@ public:
                               nullptr,
                               nullptr,
                               nullptr));
-    auto coarse_vertices = num_vertices(dim, M, N, P);
-    PetscCallVoid(DMDAGetInfo(get_fine(),
+    auto coarseVertices = numVertices(dim, m, n, p);
+    PetscCallVoid(DMDAGetInfo(getFine(),
                               &dim,
-                              &M,
-                              &N,
-                              &P,
+                              &m,
+                              &n,
+                              &p,
                               nullptr,
                               nullptr,
                               nullptr,
@@ -84,37 +84,37 @@ public:
                               nullptr,
                               nullptr,
                               nullptr));
-    auto fine_vertices = num_vertices(dim, M, N, P);
+    auto fineVertices = numVertices(dim, m, n, p);
 
     PARMGMC_INFO << "Done setting up DMHierarchy (took " << elapsed
-                 << " seconds, finest level has " << fine_vertices
-                 << " vertices, coarsest has " << coarse_vertices << ").\n";
+                 << " seconds, finest level has " << fineVertices
+                 << " vertices, coarsest has " << coarseVertices << ").\n";
 
     PetscFunctionReturnVoid();
   }
 
   /* Get matrix that represents interpolation operator from level `level` to
    * level `level + 1`.*/
-  Mat get_interpolation(std::size_t level) const {
-    if (level >= n_levels - 1)
+  [[nodiscard]] Mat getInterpolation(std::size_t level) const {
+    if (level >= nLevels - 1)
       return nullptr;
     return interpolations[level];
   }
 
   /* Get DM on level `level`. The coarsest level is 0, the finest is level
    * `num_levels() - 1`. */
-  DM get_dm(std::size_t level) const {
-    if (level > n_levels - 1)
+  [[nodiscard]] DM getDm(std::size_t level) const {
+    if (level > nLevels - 1)
       return nullptr;
     return dms[level];
   }
 
-  DM get_coarse() const { return dms[0]; }
-  DM get_fine() const { return dms[n_levels - 1]; }
+  [[nodiscard]] DM getCoarse() const { return dms[0]; }
+  [[nodiscard]] DM getFine() const { return dms[nLevels - 1]; }
 
-  std::size_t num_levels() const { return n_levels; }
+  [[nodiscard]] std::size_t numLevels() const { return nLevels; }
 
-  PetscErrorCode print_info() const {
+  [[nodiscard]] PetscErrorCode printInfo() const {
     PetscFunctionBeginUser;
 
     for (auto dm : dms)
@@ -126,14 +126,14 @@ public:
   ~DMHierarchy() {
     PetscFunctionBeginUser;
 
-    if (transfer_ownership)
+    if (transferOwnership)
       PetscCallVoid(DMDestroy(&dms[0]));
 
-    for (std::size_t level = 1; level < n_levels; ++level)
+    for (std::size_t level = 1; level < nLevels; ++level)
       PetscCallVoid(DMDestroy(&dms[level]));
 
-    for (auto I : interpolations)
-      PetscCallVoid(MatDestroy(&I));
+    for (auto i : interpolations)
+      PetscCallVoid(MatDestroy(&i));
 
     PetscFunctionReturnVoid();
   }
@@ -142,8 +142,8 @@ private:
   std::vector<DM> dms;
   std::vector<Mat> interpolations;
 
-  std::size_t n_levels;
+  std::size_t nLevels;
 
-  bool transfer_ownership;
+  bool transferOwnership;
 };
 } // namespace parmgmc

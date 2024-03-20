@@ -18,169 +18,169 @@ template <class Sampler, class QOI> class SampleChain {
 
 public:
   template <typename... Args>
-  SampleChain(QOI qoi, std::size_t n_chains, Vec ex_sample,
-              Args &&...sampler_args)
-      : qoi{qoi}, curr_samples(n_chains, nullptr), samples(n_chains),
-        means(n_chains, 0), square_diffs(n_chains, 0) {
+  SampleChain(QOI qoi, std::size_t nChains, Vec exSample,
+              Args &&...samplerArgs)
+      : qoi{qoi}, currSamples(nChains, nullptr), samples(nChains),
+        means(nChains, 0), squareDiffs(nChains, 0) {
     PetscFunctionBeginUser;
 
-    samplers.reserve(n_chains);
-    for (std::size_t n = 0; n < n_chains; ++n) {
-      samplers.emplace_back(std::forward<Args>(sampler_args)...);
+    // samplers.reserve(n_chains);
+    for (std::size_t n = 0; n < nChains; ++n) {
+      samplers.emplace_back(std::forward<Args>(samplerArgs)...);
 
-      PetscCallVoid(VecDuplicate(ex_sample, &curr_samples[n]));
+      PetscCallVoid(VecDuplicate(exSample, &currSamples[n]));
     }
 
     PetscFunctionReturnVoid();
   }
 
-  PetscErrorCode sample(const Vec rhs, std::size_t n_steps = 1) {
+  PetscErrorCode sample(const Vec rhs, std::size_t nSteps = 1) {
     PetscFunctionBeginUser;
 
     for (std::size_t c = 0; c < samplers.size(); ++c) {
-      for (std::size_t n = 0; n < n_steps; ++n) {
-        PetscCall(samplers[c].sample(curr_samples[c], rhs, 1));
-        PetscCall(add_sample(curr_samples[c], c));
+      for (std::size_t n = 0; n < nSteps; ++n) {
+        PetscCall(samplers[c].sample(currSamples[c], rhs, 1));
+        PetscCall(addSample(currSamples[c], c));
       }
     }
 
     PetscFunctionReturn(PETSC_SUCCESS);
   }
 
-  PetscErrorCode set_sample(Vec sample) {
+  PetscErrorCode setSample(Vec sample) {
     PetscFunctionBeginUser;
 
     for (std::size_t n = 0; n < samplers.size(); ++n)
-      PetscCall(set_sample(sample, n));
+      PetscCall(setSample(sample, n));
 
     PetscFunctionReturn(PETSC_SUCCESS);
   }
 
-  PetscErrorCode set_sample(Vec sample, std::size_t n_chain) {
+  PetscErrorCode setSample(Vec sample, std::size_t nChain) {
     PetscFunctionBeginUser;
 
-    PetscCall(VecCopy(sample, curr_samples[n_chain]));
-    PetscCall(add_sample(curr_samples[n_chain], n_chain));
+    PetscCall(VecCopy(sample, currSamples[nChain]));
+    PetscCall(addSample(currSamples[nChain], nChain));
 
     PetscFunctionReturn(PETSC_SUCCESS);
   }
 
-  DataT get_mean() const {
+  [[nodiscard]] DataT getMean() const {
     DataT mean = 0;
     for (auto m : means)
       mean += 1. / means.size() * m;
     return mean;
   }
 
-  DataT get_var() const {
+  [[nodiscard]] DataT getVar() const {
     DataT var = 0;
-    for (auto diff : square_diffs)
-      var += 1. / (square_diffs.size() - 1.) * diff;
+    for (auto diff : squareDiffs)
+      var += 1. / (squareDiffs.size() - 1.) * diff;
     return var;
   }
 
-  DataT get_var(std::size_t n_chain) const {
-    return 1. / (samples[n_chain].size() - 1) * square_diffs[n_chain];
+  [[nodiscard]] DataT getVar(std::size_t nChain) const {
+    return 1. / (samples[nChain].size() - 1) * squareDiffs[nChain];
   }
 
-  DataT get_mean(std::size_t n_chain) const { return means[n_chain]; }
+  [[nodiscard]] DataT getMean(std::size_t nChain) const { return means[nChain]; }
 
   void reset() {
     for (auto &chain : samples)
       chain.clear();
     for (auto &mean : means)
       mean = 0;
-    for (auto &diff : square_diffs)
+    for (auto &diff : squareDiffs)
       diff = 0;
   }
 
-  DataT gelman_rubin() const {
+  [[nodiscard]] DataT gelmanRubin() const {
     if (samplers.size() < 2) {
       throw std::runtime_error(
           "Need at least 2 chains to compute Gelman-Rubin diagonostic.");
     }
 
-    const auto mean_of_means = get_mean();
-    const auto mean_of_vars = get_var();
+    const auto meanOfMeans = getMean();
+    const auto meanOfVars = getVar();
 
-    double var_of_means = 0;
+    double varOfMeans = 0;
     for (auto m : means)
-      var_of_means += 1. / (samplers.size() - 1) * (m - mean_of_means) *
-                      (m - mean_of_means);
+      varOfMeans += 1. / (samplers.size() - 1) * (m - meanOfMeans) *
+                      (m - meanOfMeans);
 
     const auto n = samples[0].size();
     // return std::sqrt(((n - 1.) / n * mean_of_vars + var_of_means) /
     //                  mean_of_vars);
-    return std::sqrt((n * var_of_means / mean_of_vars + n - 1) / n);
+    return std::sqrt((n * varOfMeans / meanOfVars + n - 1) / n);
   }
 
-  std::size_t integrated_autocorr_time(std::size_t n_chain = 0,
-                                       std::size_t window_size = 20) const {
-    const auto total_samples = samples[n_chain].size();
-    if (window_size > total_samples)
-      return total_samples;
+  [[nodiscard]] std::size_t integratedAutocorrTime(std::size_t nChain = 0,
+                                       std::size_t windowSize = 30) const {
+    const auto totalSamples = samples[nChain].size();
+    if (windowSize > totalSamples)
+      return totalSamples;
 
-    const auto m = get_mean();
+    const auto m = getMean();
 
     const auto rho = [&](std::size_t s) -> double {
       double sum = 0;
-      for (std::size_t j = 1; j < total_samples - s; ++j)
-        sum += (samples[n_chain][j] - m) * (samples[n_chain][j + s] - m);
-      return 1. / (total_samples - s) * sum;
+      for (std::size_t j = 1; j < totalSamples - s; ++j)
+        sum += (samples[nChain][j] - m) * (samples[nChain][j + s] - m);
+      return 1. / (totalSamples - s) * sum;
     };
 
     double sum = 0;
-    const auto rho_zero = rho(0);
-    for (std::size_t s = 1; s < window_size; ++s)
-      sum += rho(s) / rho_zero;
+    const auto rhoZero = rho(0);
+    for (std::size_t s = 1; s < windowSize; ++s)
+      sum += rho(s) / rhoZero;
     const auto tau = static_cast<std::size_t>(std::ceil(1 + 2 * sum));
     return std::max(1UL, tau);
   }
 
-  DataT get_mean_error(std::size_t n_chain = 0) const {
+  [[nodiscard]] DataT getMeanError(std::size_t nChain = 0) const {
     return std::sqrt(
-        ((1.0 * integrated_autocorr_time(n_chain)) / samples[n_chain].size()) *
-        get_var(n_chain) / get_mean(n_chain));
+        ((1.0 * integratedAutocorrTime(nChain)) / samples[nChain].size()) *
+        getVar(nChain) / getMean(nChain));
   }
 
-  bool converged(DataT tol = 1.01) const {
-    const auto gr = gelman_rubin();
+  [[nodiscard]] bool converged(DataT tol = 1.01) const {
+    const auto gr = gelmanRubin();
     return gr < tol;
   }
 
-  std::size_t get_n_chains() const { return samplers.size(); }
+  [[nodiscard]] std::size_t getNChains() const { return samplers.size(); }
 
-  const Sampler &get_sampler(std::size_t n_chain = 0) const {
-    return samplers[n_chain];
+  [[nodiscard]] const Sampler &getSampler(std::size_t nChain = 0) const {
+    return samplers[nChain];
   }
 
-  Sampler &get_sampler(std::size_t n_chain = 0) { return samplers[n_chain]; }
+  Sampler &getSampler(std::size_t nChain = 0) { return samplers[nChain]; }
 
   ~SampleChain() {
     PetscFunctionBeginUser;
-    for (auto &v : curr_samples)
+    for (auto &v : currSamples)
       PetscCallVoid(VecDestroy(&v));
     PetscFunctionReturnVoid();
   }
 
 private:
-  PetscErrorCode add_sample(Vec sample, std::size_t chain) {
+  PetscErrorCode addSample(Vec sample, std::size_t chain) {
     PetscFunctionBeginUser;
 
     DataT q;
     PetscCall(qoi(sample, &q));
     samples[chain].push_back(q);
 
-    const auto n_samples = samples[chain].size();
+    const auto nSamples = samples[chain].size();
 
-    const auto mean_before = means[chain];
-    if (n_samples == 0) {
+    const auto meanBefore = means[chain];
+    if (nSamples == 0) {
       means[chain] = q;
-      square_diffs[chain] = 0;
+      squareDiffs[chain] = 0;
     } else {
       means[chain] =
-          (1. / n_samples) * q + (n_samples - 1.) / n_samples * means[chain];
-      square_diffs[chain] += (q - mean_before) * (q - means[chain]);
+          (1. / nSamples) * q + (nSamples - 1.) / nSamples * means[chain];
+      squareDiffs[chain] += (q - meanBefore) * (q - means[chain]);
     }
 
     PetscFunctionReturn(PETSC_SUCCESS);
@@ -188,12 +188,12 @@ private:
 
   QOI qoi;
 
-  std::vector<Vec> curr_samples;
+  std::vector<Vec> currSamples;
 
   std::vector<Sampler> samplers;
   std::vector<std::vector<DataT>> samples;
 
   std::vector<DataT> means;
-  std::vector<DataT> square_diffs;
+  std::vector<DataT> squareDiffs;
 };
 } // namespace parmgmc

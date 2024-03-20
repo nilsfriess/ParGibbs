@@ -26,7 +26,7 @@ using MGMC =
 template <class Engine> class ShiftedLaplaceMGMC : public MGMC<Engine> {
 public:
   ShiftedLaplaceMGMC(mfem::ParFiniteElementSpaceHierarchy &fespaces,
-                     const mfem::Array<int> &ess_bdr, Engine *engine,
+                     const mfem::Array<int> &essBdr, Engine *engine,
                      const parmgmc::MGMCParameters &params, double kappainv)
       : MGMC<Engine>(params, fespaces.GetNumLevels(), engine),
         fespaces{fespaces} {
@@ -46,12 +46,15 @@ public:
 
       forms[l]->SetOperatorType(mfem::Operator::PETSC_MATAIJ);
 
-      mfem::Array<int> ess_tdofs;
-      fespaces.GetFESpaceAtLevel(l).GetEssentialTrueDofs(ess_bdr, ess_tdofs);
+      mfem::Array<int> essTdofs;
+      fespaces.GetFESpaceAtLevel(l).GetEssentialTrueDofs(essBdr, essTdofs);
 
-      auto *A = new mfem::PetscParMatrix;
-      forms[l]->FormSystemMatrix(ess_tdofs, *A);
-      this->ops[l] = std::make_shared<parmgmc::LinearOperator>(*A, false);
+      auto *a = new mfem::PetscParMatrix;
+      forms[l]->FormSystemMatrix(essTdofs, *a);
+      this->ops[l] = std::make_shared<parmgmc::LinearOperator>(*a, false);
+
+      MatSetOption(*a, MAT_SPD, PETSC_TRUE);
+
       // this->ops[l]->color_matrix();
     }
   }
@@ -65,7 +68,7 @@ public:
     return PETSC_SUCCESS;
   }
 
-  PetscErrorCode prolongate_add(std::size_t level, Vec coarse,
+  PetscErrorCode prolongateAdd(std::size_t level, Vec coarse,
                                 Vec fine) override {
     mfem::PetscParVector xc(coarse, true);
     mfem::PetscParVector xf(fine, true);
@@ -83,19 +86,19 @@ private:
 int main(int argc, char *argv[]) {
   parmgmc::PetscHelper::init(argc, argv);
 
-  std::string mesh_file("../data/star.mesh");
+  std::string meshFile("../data/star.mesh");
 
   mfem::OptionsParser args(argc, argv);
-  args.AddOption(&mesh_file, "-m", "--mesh", "Mesh file to use");
+  args.AddOption(&meshFile, "-m", "--mesh", "Mesh file to use");
 
-  int n_levels = 3;
-  args.AddOption(&n_levels, "-l", "--levels", "Number of Multigrid levels");
+  int nLevels = 3;
+  args.AddOption(&nLevels, "-l", "--levels", "Number of Multigrid levels");
 
   double kappainv = 1.;
   args.AddOption(&kappainv, "-k", "--kappainv", "Correlation length kappa");
 
-  int n_samples = 10;
-  args.AddOption(&n_samples, "-n", "--samples", "Number of samples");
+  int nSamples = 10;
+  args.AddOption(&nSamples, "-n", "--samples", "Number of samples");
 
   args.Parse();
   // if (!args.Good()) {
@@ -103,14 +106,14 @@ int main(int argc, char *argv[]) {
   //   return 1;
   // }
 
-  mfem::Mesh mesh(mesh_file, 1, 1);
+  mfem::Mesh mesh(meshFile, 1, 1);
   const auto dim = mesh.Dimension();
 
   /* Refine the serial mesh such that the refined mesh has at most 1000
    * elements. */
-  int ref_levels =
+  int refLevels =
       std::floor(std::log(1000. / mesh.GetNE()) / std::log(2) / dim);
-  for (int l = 0; l < ref_levels; l++)
+  for (int l = 0; l < refLevels; l++)
     mesh.UniformRefinement();
 
   mfem::ParMesh pmesh(MPI_COMM_WORLD, mesh);
@@ -120,20 +123,20 @@ int main(int argc, char *argv[]) {
 
   const int order = 1;
   mfem::H1_FECollection fec(order, dim);
-  mfem::ParFiniteElementSpace coarse_fespace(&pmesh, &fec);
+  mfem::ParFiniteElementSpace coarseFespace(&pmesh, &fec);
 
   mfem::ParFiniteElementSpaceHierarchy fespaces(
-      &pmesh, &coarse_fespace, false, false);
-  for (int l = 0; l < n_levels - 1; ++l)
+      &pmesh, &coarseFespace, false, false);
+  for (int l = 0; l < nLevels - 1; ++l)
     fespaces.AddUniformlyRefinedLevel();
 
   PetscPrintf(MPI_COMM_WORLD,
               "Number of FE unknowns: %d\n",
               fespaces.GetFinestFESpace().GlobalTrueVSize());
 
-  mfem::Array<int> ess_bdr(pmesh.bdr_attributes.Max());
+  mfem::Array<int> essBdr(pmesh.bdr_attributes.Max());
   if (pmesh.bdr_attributes.Size())
-    ess_bdr = 1;
+    essBdr = 1;
 
   pcg32 engine;
   {
@@ -143,7 +146,7 @@ int main(int argc, char *argv[]) {
     int seed;
     if (rank == 0) {
       seed = std::random_device{}();
-      PetscOptionsGetInt(NULL, NULL, "-seed", &seed, NULL);
+      PetscOptionsGetInt(nullptr, nullptr, "-seed", &seed, nullptr);
     }
 
     // Send seed to all other processes
@@ -153,24 +156,24 @@ int main(int argc, char *argv[]) {
   }
 
   parmgmc::MGMCParameters params;
-  params.n_smooth = 1;
-  params.cycle_type = parmgmc::MGMCCycleType::V;
-  params.smoothing_type = parmgmc::MGMCSmoothingType::ForwardBackward;
-  params.coarse_sampler_type = parmgmc::MGMCCoarseSamplerType::Cholesky;
+  params.nSmooth = 1;
+  params.cycleType = parmgmc::MGMCCycleType::V;
+  params.smoothingType = parmgmc::MGMCSmoothingType::ForwardBackward;
+  params.coarseSamplerType = parmgmc::MGMCCoarseSamplerType::Cholesky;
 
-  ShiftedLaplaceMGMC sampler(fespaces, ess_bdr, &engine, params, kappainv);
+  ShiftedLaplaceMGMC sampler(fespaces, essBdr, &engine, params, kappainv);
 
   mfem::PetscParVector sample(&fespaces.GetFinestFESpace());
   mfem::PetscParVector rhs(sample);
 
-  mfem::PetscParVector tgt_mean(sample);
+  mfem::PetscParVector tgtMean(sample);
   // tgt_mean.Randomize();
-  tgt_mean = 0;
+  tgtMean = 5;
 
   sample = 0;
 
-  MatMult(sampler.get_operator(fespaces.GetFinestLevelIndex())->get_mat(),
-          tgt_mean,
+  MatMult(sampler.getOperator(fespaces.GetFinestLevelIndex())->getMat(),
+          tgtMean,
           rhs);
 
   mfem::PetscParVector mean(sample);
@@ -178,19 +181,19 @@ int main(int argc, char *argv[]) {
 
   mfem::PetscParVector err(mean);
 
-  const int n_save_samples = 5;
-  std::vector<mfem::ParGridFunction> save_samples;
+  const int nSaveSamples = 5;
+  std::vector<mfem::ParGridFunction> saveSamples;
 
-  for (int n = 0; n < n_samples; ++n) {
+  for (int n = 0; n < nSamples; ++n) {
     sampler.sample(sample, rhs, 1);
 
-    mean.Add(1. / n_samples, sample);
+    mean.Add(1. / nSamples, sample);
 
-    VecWAXPY(err, -1, mean, tgt_mean);
+    VecWAXPY(err, -1, mean, tgtMean);
 
-    if (n_samples - n <= n_save_samples) {
-      save_samples.emplace_back(&fespaces.GetFinestFESpace());
-      save_samples.back().SetFromTrueDofs(sample);
+    if (nSamples - n <= nSaveSamples) {
+      saveSamples.emplace_back(&fespaces.GetFinestFESpace());
+      saveSamples.back().SetFromTrueDofs(sample);
     }
 
     PetscPrintf(MPI_COMM_WORLD, "%f\n", err.Normlinf());
@@ -206,8 +209,8 @@ int main(int argc, char *argv[]) {
     mfem::ParaViewDataCollection pd("Star", fespace.GetParMesh());
     pd.SetPrefixPath("ParaView");
 
-    for (std::size_t i = 0; i < save_samples.size(); ++i)
-      pd.RegisterField("Sample " + std::to_string(i), &save_samples[i]);
+    for (std::size_t i = 0; i < saveSamples.size(); ++i)
+      pd.RegisterField("Sample " + std::to_string(i), &saveSamples[i]);
 
     pd.RegisterField("Mean", &xmean);
     pd.SetLevelsOfDetail(order);

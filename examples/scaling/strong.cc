@@ -39,7 +39,7 @@ public:
 
     // Create matrix corresponding to operator on fine DM
     Mat mat;
-    PetscCallVoid(DMCreateMatrix(hierarchy->get_fine(), &mat));
+    PetscCallVoid(DMCreateMatrix(hierarchy->getFine(), &mat));
 
     // TODO: Maybe not needed?
     PetscCallVoid(MatSetOption(mat, MAT_USE_INODES, PETSC_FALSE));
@@ -50,7 +50,7 @@ public:
     std::array<PetscReal, 5> vals;
 
     DMDALocalInfo info;
-    PetscCallVoid(DMDAGetLocalInfo(hierarchy->get_fine(), &info));
+    PetscCallVoid(DMDAGetLocalInfo(hierarchy->getFine(), &info));
 
     dirichletRows.reserve(4 * info.mx);
     double h2inv = 1. / ((info.mx - 1) * (info.mx - 1));
@@ -111,7 +111,7 @@ public:
     // Dirichlet rows are in natural ordering, convert to global using the DM's
     // ApplicationOrdering
     AO ao;
-    PetscCallVoid(DMDAGetAO(hierarchy->get_fine(), &ao));
+    PetscCallVoid(DMDAGetAO(hierarchy->getFine(), &ao));
     PetscCallVoid(AOApplicationToPetsc(ao, dirichletRows.size(), dirichletRows.data()));
 
     PetscCallVoid(
@@ -121,20 +121,20 @@ public:
 
     op = std::make_shared<LinearOperator>(mat, true);
     if (colorMatrixWithDM)
-      op->color_matrix(da);
+      op->colorMatrix(da);
     else
-      op->color_matrix();
+      op->colorMatrix();
 
     PetscFunctionReturnVoid();
   }
 
-  const std::shared_ptr<LinearOperator> &getOperator() const { return op; }
-  const std::shared_ptr<DMHierarchy> &getHierarchy() const { return hierarchy; }
+  [[nodiscard]] const std::shared_ptr<LinearOperator> &getOperator() const { return op; }
+  [[nodiscard]] const std::shared_ptr<DMHierarchy> &getHierarchy() const { return hierarchy; }
 
-  const std::vector<PetscInt> &getDirichletRows() const { return dirichletRows; }
+  [[nodiscard]] const std::vector<PetscInt> &getDirichletRows() const { return dirichletRows; }
 
-  DM getCoarseDM() const { return hierarchy->get_coarse(); }
-  DM getFineDM() const { return hierarchy->get_fine(); }
+  [[nodiscard]] DM getCoarseDM() const { return hierarchy->getCoarse(); }
+  [[nodiscard]] DM getFineDM() const { return hierarchy->getFine(); }
 
 private:
   std::shared_ptr<LinearOperator> op;
@@ -168,13 +168,13 @@ PetscErrorCode testGibbsSampler(const ShiftedLaplaceFD &problem, PetscInt nSampl
   PetscFunctionBeginUser;
 
   Vec sample, rhs;
-  PetscCall(MatCreateVecs(problem.getOperator()->get_mat(), &sample, nullptr));
+  PetscCall(MatCreateVecs(problem.getOperator()->getMat(), &sample, nullptr));
   PetscCall(VecDuplicate(sample, &rhs));
 
-  PetscCall(MatZeroRowsColumns(problem.getOperator()->get_mat(), problem.getDirichletRows().size(),
+  PetscCall(MatZeroRowsColumns(problem.getOperator()->getMat(), problem.getDirichletRows().size(),
                                problem.getDirichletRows().data(), 1., sample, rhs));
 
-  PetscCall(fill_vec_rand(rhs, engine));
+  PetscCall(fillVecRand(rhs, engine));
 
   Timer timer;
 
@@ -209,13 +209,13 @@ PetscErrorCode testMGMCSampler(const ShiftedLaplaceFD &problem, PetscInt nSample
   PetscFunctionBeginUser;
 
   Vec sample, rhs;
-  PetscCall(MatCreateVecs(problem.getOperator()->get_mat(), &sample, nullptr));
+  PetscCall(MatCreateVecs(problem.getOperator()->getMat(), &sample, nullptr));
   PetscCall(VecDuplicate(sample, &rhs));
 
-  PetscCall(MatZeroRowsColumns(problem.getOperator()->get_mat(), problem.getDirichletRows().size(),
+  PetscCall(MatZeroRowsColumns(problem.getOperator()->getMat(), problem.getDirichletRows().size(),
                                problem.getDirichletRows().data(), 1., sample, rhs));
 
-  PetscCall(fill_vec_rand(rhs, engine));
+  PetscCall(fillVecRand(rhs, engine));
 
   Timer timer;
 
@@ -346,7 +346,7 @@ int main(int argc, char *argv[]) {
   if (runMGMC) {
     TimingResult avg;
 
-    MGMCParameters params = MGMCParameters::Default();
+    MGMCParameters params = MGMCParameters::defaultParams();
 
     for (int i = 0; i < nRuns; ++i) {
       TimingResult timing;

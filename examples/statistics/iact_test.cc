@@ -27,53 +27,46 @@
 using namespace parmgmc;
 
 template <class Chain>
-inline PetscErrorCode iact(const std::string &name, Chain &chain,
-                           Vec sample_rhs) {
+inline PetscErrorCode iact(const std::string &name, Chain &chain, Vec sampleRhs) {
   PetscFunctionBeginUser;
 
   Timer timer;
 
-  Vec initial_sample;
-  PetscCall(VecDuplicate(sample_rhs, &initial_sample));
+  Vec initialSample;
+  PetscCall(VecDuplicate(sampleRhs, &initialSample));
 
-  for (std::size_t n = 0; n < chain.get_n_chains(); ++n) {
-    PetscCall(VecSet(initial_sample, (n + 1) * 10));
-    chain.set_sample(initial_sample, n);
+  for (std::size_t n = 0; n < chain.getNChains(); ++n) {
+    PetscCall(VecSet(initialSample, (n + 1) * 10));
+    chain.setSample(initialSample, n);
   }
-  PetscCall(VecDestroy(&initial_sample));
+  PetscCall(VecDestroy(&initialSample));
 
-  PetscInt n_burnin = 20;
-  PetscOptionsGetInt(nullptr, nullptr, "-n_burnin", &n_burnin, nullptr);
+  PetscInt nBurnin = 20;
+  PetscOptionsGetInt(nullptr, nullptr, "-n_burnin", &nBurnin, nullptr);
 
   PetscPrintf(MPI_COMM_WORLD, "Starting burnin...");
   timer.reset();
-  PetscCall(chain.sample(sample_rhs, n_burnin));
+  PetscCall(chain.sample(sampleRhs, nBurnin));
   PetscPrintf(MPI_COMM_WORLD, "Done. Took %f seconds.\n", timer.elapsed());
   chain.reset();
 
-  PetscInt n_samples = 20;
-  PetscOptionsGetInt(nullptr, nullptr, "-n_samples", &n_samples, nullptr);
+  PetscInt nSamples = 20;
+  PetscOptionsGetInt(nullptr, nullptr, "-n_samples", &nSamples, nullptr);
 
   PetscPrintf(MPI_COMM_WORLD, "Starting sampling...");
   timer.reset();
-  PetscCall(chain.sample(sample_rhs, n_samples));
+  PetscCall(chain.sample(sampleRhs, nSamples));
   auto elapsed = timer.elapsed();
 
-  auto chain_iact = chain.integrated_autocorr_time();
+  auto chainIACT = chain.integratedAutocorrTime();
 
   PetscPrintf(MPI_COMM_WORLD,
               "Done. Took %f seconds, %f seconds per sample, %f seconds per "
               "independent sample.\n",
-              elapsed,
-              elapsed / n_samples,
-              chain_iact * elapsed / n_samples);
+              elapsed, elapsed / nSamples, chainIACT * elapsed / nSamples);
 
-  PetscCall(PetscPrintf(MPI_COMM_WORLD,
-                        "%s IACT: %zu (has %sconverged, R = %f)\n",
-                        name.c_str(),
-                        chain_iact,
-                        chain.converged() ? "" : "not ",
-                        chain.gelman_rubin()));
+  PetscCall(PetscPrintf(MPI_COMM_WORLD, "%s IACT: %zu (has %sconverged, R = %f)\n", name.c_str(),
+                        chainIACT, chain.converged() ? "" : "not ", chain.gelmanRubin()));
 
   PetscFunctionReturn(PETSC_SUCCESS);
 }
@@ -92,45 +85,35 @@ int main(int argc, char *argv[]) {
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
   // Setup DM hierarchy
-  std::shared_ptr<DMHierarchy> dm_hierarchy;
+  std::shared_ptr<DMHierarchy> dmHierarchy;
   {
-    const PetscInt dof_per_node = 1;
-    const PetscInt stencil_width = 1;
+    const PetscInt dofPerNode = 1;
+    const PetscInt stencilWidth = 1;
 
-    int n_vertices = 5;
-    PetscOptionsGetInt(nullptr, nullptr, "-n_vertices", &n_vertices, nullptr);
+    int nVertices = 5;
+    PetscOptionsGetInt(nullptr, nullptr, "-n_vertices", &nVertices, nullptr);
 
-    Coordinate lower_left{0, 0};
-    Coordinate upper_right{1, 1};
+    Coordinate lowerLeft{0, 0};
+    Coordinate upperRight{1, 1};
 
     DM dm;
-    PetscCall(DMDACreate2d(PETSC_COMM_WORLD,
-                           DM_BOUNDARY_NONE,
-                           DM_BOUNDARY_NONE,
-                           DMDA_STENCIL_STAR,
-                           n_vertices,
-                           n_vertices,
-                           PETSC_DECIDE,
-                           PETSC_DECIDE,
-                           dof_per_node,
-                           stencil_width,
-                           nullptr,
-                           nullptr,
-                           &dm));
+    PetscCall(DMDACreate2d(PETSC_COMM_WORLD, DM_BOUNDARY_NONE, DM_BOUNDARY_NONE, DMDA_STENCIL_STAR,
+                           nVertices, nVertices, PETSC_DECIDE, PETSC_DECIDE, dofPerNode,
+                           stencilWidth, nullptr, nullptr, &dm));
 
     PetscCall(DMSetUp(dm));
-    PetscCall(DMDASetUniformCoordinates(
-        dm, lower_left.x, upper_right.x, lower_left.y, upper_right.y, 0, 0));
+    PetscCall(DMDASetUniformCoordinates(dm, lowerLeft.x, upperRight.x, lowerLeft.y,
+                                        upperRight.y, 0, 0));
 
-    PetscInt n_levels = 5;
-    PetscOptionsGetInt(nullptr, nullptr, "-n_levels", &n_levels, nullptr);
+    PetscInt nLevels = 5;
+    PetscOptionsGetInt(nullptr, nullptr, "-n_levels", &nLevels, nullptr);
 
-    dm_hierarchy = std::make_shared<DMHierarchy>(dm, n_levels);
+    dmHierarchy = std::make_shared<DMHierarchy>(dm, nLevels);
     // PetscCall(dm_hierarchy->print_info());
   }
 
-  int n_chains = 8;
-  PetscOptionsGetInt(nullptr, nullptr, "-n_chains", &n_chains, nullptr);
+  int nChains = 8;
+  PetscOptionsGetInt(nullptr, nullptr, "-n_chains", &nChains, nullptr);
 
   // Setup random number generator
   pcg32 engine;
@@ -148,21 +131,21 @@ int main(int argc, char *argv[]) {
   }
 
   // RHS used in samplers
-  Vec sample_rhs;
-  PetscCall(DMCreateGlobalVector(dm_hierarchy->get_fine(), &sample_rhs));
-  PetscCall(fill_vec_rand(sample_rhs, engine));
+  Vec sampleRhs;
+  PetscCall(DMCreateGlobalVector(dmHierarchy->getFine(), &sampleRhs));
+  PetscCall(fillVecRand(sampleRhs, engine));
 
   NormQOI qoi;
 
-  PetscInt n_smooth = 2;
-  PetscOptionsGetInt(nullptr, nullptr, "-n_smooth", &n_smooth, nullptr);
+  PetscInt nSmooth = 2;
+  PetscOptionsGetInt(nullptr, nullptr, "-n_smooth", &nSmooth, nullptr);
 
   MGMCParameters params;
-  params.n_smooth = n_smooth;
-  params.cycle_type = MGMCCycleType::V;
-  params.smoothing_type = MGMCSmoothingType::Symmetric;
+  params.nSmooth = nSmooth;
+  params.cycleType = MGMCCycleType::V;
+  params.smoothingType = MGMCSmoothingType::ForwardBackward;
 #if PETSC_HAVE_MKL_CPARDISO && PETSC_HAVE_MKL_PARDISO
-  params.coarse_sampler_type = MGMCCoarseSamplerType::Cholesky;
+  params.coarseSamplerType = MGMCCoarseSamplerType::Cholesky;
 #else
   params.coarse_sampler_type = MGMCCoarseSamplerType::Standard;
 #endif
@@ -173,19 +156,13 @@ int main(int argc, char *argv[]) {
 
     // Setup fine operator
     Mat mat;
-    PetscCall(assemble(dm_hierarchy->get_fine(), &mat));
-    auto linear_operator = std::make_shared<LinearOperator>(mat);
+    PetscCall(assemble(dmHierarchy->getFine(), &mat));
+    auto linearOperator = std::make_shared<LinearOperator>(mat);
 
     using Chain = SampleChain<MultigridSampler<pcg32>, NormQOI>;
-    Chain chain(qoi,
-                n_chains,
-                sample_rhs,
-                linear_operator,
-                dm_hierarchy,
-                &engine,
-                params);
+    Chain chain(qoi, nChains, sampleRhs, linearOperator, dmHierarchy, &engine, params);
 
-    PetscCall(iact("MGMC", chain, sample_rhs));
+    PetscCall(iact("MGMC", chain, sampleRhs));
   }
 
   // Setup Gibbs sampler
@@ -194,23 +171,18 @@ int main(int argc, char *argv[]) {
 
     // Setup fine operator
     Mat mat;
-    PetscCall(assemble(dm_hierarchy->get_fine(), &mat));
-    auto linear_operator = std::make_shared<LinearOperator>(mat);
+    PetscCall(assemble(dmHierarchy->getFine(), &mat));
+    auto linearOperator = std::make_shared<LinearOperator>(mat);
     // linear_operator->color_matrix(dm_hierarchy->get_fine());
 
     PetscReal omega = 1.; // SOR parameter
     PetscOptionsGetReal(nullptr, nullptr, "-omega", &omega, nullptr);
 
     using Chain = SampleChain<MulticolorGibbsSampler<pcg32>, NormQOI>;
-    Chain chain(qoi,
-                n_chains,
-                sample_rhs,
-                linear_operator,
-                &engine,
-                omega,
+    Chain chain(qoi, nChains, sampleRhs, linearOperator, &engine, omega,
                 GibbsSweepType::Symmetric);
 
-    PetscCall(iact("Gibbs", chain, sample_rhs));
+    PetscCall(iact("Gibbs", chain, sampleRhs));
   }
 
 #if PETSC_HAVE_MKL_CPARDISO && PETSC_HAVE_MKL_PARDISO
@@ -220,17 +192,17 @@ int main(int argc, char *argv[]) {
 
     // Setup fine operator
     Mat mat;
-    PetscCall(assemble(dm_hierarchy->get_fine(), &mat));
-    auto linear_operator = std::make_shared<LinearOperator>(mat);
+    PetscCall(assemble(dmHierarchy->getFine(), &mat));
+    auto linearOperator = std::make_shared<LinearOperator>(mat);
 
     using Chain = SampleChain<CholeskySampler<pcg32>, NormQOI>;
-    Chain chain(qoi, n_chains, sample_rhs, linear_operator, &engine);
+    Chain chain(qoi, nChains, sampleRhs, linearOperator, &engine);
 
-    PetscCall(iact("Cholesky", chain, sample_rhs));
+    PetscCall(iact("Cholesky", chain, sampleRhs));
   }
 #endif
 
-  PetscCall(VecDestroy(&sample_rhs));
+  PetscCall(VecDestroy(&sampleRhs));
 
   PetscFunctionReturn(PETSC_SUCCESS);
 }
