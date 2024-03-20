@@ -1,6 +1,7 @@
 #include "catch2/catch_test_macros.hpp"
 #include "catch2/matchers/catch_matchers_floating_point.hpp"
 
+#include "parmgmc/common/helpers.hh"
 #include "parmgmc/dm_hierarchy.hh"
 #include "parmgmc/linear_operator.hh"
 #include "parmgmc/samplers/mgmc.hh"
@@ -20,23 +21,22 @@ using namespace Catch::Matchers;
 // TODO: This test is currently not run, since it takes ages and still sometimes
 // fails (i.e., we would need even more samples)
 TEST_CASE("MGMC sampler converges to target mean", "[.]") {
-  constexpr std::size_t n_levels = 3;
+  constexpr std::size_t N_LEVELS = 3;
 
   auto dm = create_test_dm(3);
-  auto dm_hierarchy = std::make_shared<pm::DMHierarchy>(dm, n_levels);
+  auto dmHierarchy = std::make_shared<pm::DMHierarchy>(dm, N_LEVELS);
 
-  auto [mat, dirichletRows] = create_test_mat(dm_hierarchy->get_fine());
+  auto [mat, dirichletRows] = create_test_mat(dmHierarchy->getFine());
   auto op = std::make_shared<pm::LinearOperator>(mat);
 
-  Vec sample, rhs, mean, exp_mean;
+  Vec sample, rhs, mean, expMean;
 
   MatCreateVecs(mat, &sample, nullptr);
   VecDuplicate(sample, &rhs);
   VecDuplicate(sample, &mean);
-  VecDuplicate(sample, &exp_mean);
+  VecDuplicate(sample, &expMean);
 
-  MatZeroRowsColumns(
-      mat, dirichletRows.size(), dirichletRows.data(), 1., sample, rhs);
+  MatZeroRowsColumns(mat, dirichletRows.size(), dirichletRows.data(), 1., sample, rhs);
 
   int rank = 0;
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
@@ -54,30 +54,30 @@ TEST_CASE("MGMC sampler converges to target mean", "[.]") {
     engine.set_stream(rank);
   }
 
-  pm::MultigridSampler sampler(op, dm_hierarchy, &engine);
+  pm::MultigridSampler sampler(op, dmHierarchy, &engine);
 
-  pm::fill_vec_rand(exp_mean, engine);
-  MatMult(mat, exp_mean, rhs);
+  pm::fillVecRand(expMean, engine);
+  MatMult(mat, expMean, rhs);
 
-  constexpr std::size_t n_samples = 500'000;
+  constexpr std::size_t N_SAMPLES = 500'000;
 
-  for (std::size_t n = 0; n < n_samples; ++n) {
+  for (std::size_t n = 0; n < N_SAMPLES; ++n) {
     sampler.sample(sample, rhs);
 
-    VecAXPY(mean, 1. / n_samples, sample);
+    VecAXPY(mean, 1. / N_SAMPLES, sample);
   }
 
   PetscReal norm;
   VecNorm(mean, NORM_2, &norm);
 
-  PetscReal norm_expected;
-  VecNorm(exp_mean, NORM_2, &norm_expected);
+  PetscReal normExpected;
+  VecNorm(expMean, NORM_2, &normExpected);
 
-  REQUIRE_THAT(norm, WithinRel(norm_expected, 0.001));
+  REQUIRE_THAT(norm, WithinRel(normExpected, 0.001));
 
   // Cleanup
   VecDestroy(&mean);
   VecDestroy(&sample);
   VecDestroy(&rhs);
-  VecDestroy(&exp_mean);
+  VecDestroy(&expMean);
 }

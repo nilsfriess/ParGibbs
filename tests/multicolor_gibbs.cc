@@ -22,13 +22,12 @@
 using namespace Catch::Matchers;
 namespace pm = parmgmc;
 
-TEST_CASE("Symmetric sweep is the same as forward+backward sweep",
-          "[.][seq][mpi]") {
+TEST_CASE("Symmetric sweep is the same as forward+backward sweep", "[.][seq][mpi]") {
   std::mt19937_64 engine(Catch::getSeed());
 
   auto mat = create_test_mat(9);
   auto op = std::make_shared<pm::LinearOperator>(mat);
-  op->color_matrix();
+  op->colorMatrix();
 
   pm::MulticolorGibbsSampler sampler(op, &engine);
 
@@ -108,26 +107,24 @@ TEST_CASE("Gibbs sampler converges to target mean", "[.][seq][mpi]") {
   VecDuplicate(sample, &rhs);
   VecDuplicate(sample, &mean);
 
-  pm::fill_vec_rand(rhs, engine);
+  pm::fillVecRand(rhs, engine);
 
-  MatZeroRowsColumns(
-      mat, dirichletRows.size(), dirichletRows.data(), 1., sample, rhs);
+  MatZeroRowsColumns(mat, dirichletRows.size(), dirichletRows.data(), 1., sample, rhs);
 
-  op->color_matrix(dm);
+  op->colorMatrix(dm);
 
-  pm::MulticolorGibbsSampler sampler(
-      op, &engine, 1., pm::GibbsSweepType::Forward);
+  pm::MulticolorGibbsSampler sampler(op, &engine, 1., pm::GibbsSweepType::Forward);
   sampler.setFixedRhs(rhs);
 
-  constexpr std::size_t n_burnin = 10'000;
-  constexpr std::size_t n_samples = 1'000'000;
+  constexpr std::size_t N_BURNIN = 10'000;
+  constexpr std::size_t N_SAMPLES = 1'000'000;
 
-  sampler.sample(sample, rhs, n_burnin);
+  sampler.sample(sample, rhs, N_BURNIN);
 
-  for (std::size_t n = 0; n < n_samples; ++n) {
+  for (std::size_t n = 0; n < N_SAMPLES; ++n) {
     sampler.sample(sample, rhs);
 
-    VecAXPY(mean, 1. / n_samples, sample);
+    VecAXPY(mean, 1. / N_SAMPLES, sample);
   }
 
   // PetscViewer viewer;
@@ -137,30 +134,30 @@ TEST_CASE("Gibbs sampler converges to target mean", "[.][seq][mpi]") {
   // PetscViewerDestroy(&viewer);
 
   // Compute expected mean = A^{-1} * rhs
-  Vec exp_mean;
-  VecDuplicate(mean, &exp_mean);
+  Vec expMean;
+  VecDuplicate(mean, &expMean);
 
   KSP ksp;
   KSPCreate(PETSC_COMM_WORLD, &ksp);
   KSPSetFromOptions(ksp);
   KSPSetOperators(ksp, mat, mat);
-  KSPSolve(ksp, rhs, exp_mean);
+  KSPSolve(ksp, rhs, expMean);
   KSPDestroy(&ksp);
 
-  PetscReal norm_expected;
-  VecNorm(exp_mean, NORM_INFINITY, &norm_expected);
+  PetscReal normExpected;
+  VecNorm(expMean, NORM_INFINITY, &normExpected);
 
-  PetscReal norm_computed;
-  VecNorm(mean, NORM_INFINITY, &norm_computed);
+  PetscReal normComputed;
+  VecNorm(mean, NORM_INFINITY, &normComputed);
 
   // VecView(sample, PETSC_VIEWER_STDOUT_WORLD);
   // VecView(exp_mean, PETSC_VIEWER_STDOUT_WORLD);
 
-  REQUIRE_THAT(norm_computed, WithinRel(norm_expected, 0.01));
+  REQUIRE_THAT(normComputed, WithinRel(normExpected, 0.01));
 
   // Cleanup
   VecDestroy(&mean);
   VecDestroy(&sample);
   VecDestroy(&rhs);
-  VecDestroy(&exp_mean);
+  VecDestroy(&expMean);
 }
