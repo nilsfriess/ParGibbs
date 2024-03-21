@@ -41,7 +41,7 @@ public:
       PetscMPIInt mpisize;
       MPI_Comm_size(MPI_COMM_WORLD, &mpisize);
 
-      PetscInt localSize = 1000;
+      PetscInt localSize = coarseVerticesPerDim * coarseVerticesPerDim;
       PetscInt targetGlobalSize = mpisize * localSize;
 
       globalVerticesPerDim = nextPower2((unsigned int)std::sqrt(targetGlobalSize)) + 1;
