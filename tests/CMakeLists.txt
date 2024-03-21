@@ -27,7 +27,8 @@ add_executable(tests
   linear_operator.cc
   coloring.cc
   cholesky.cc
-  mgmc.cc)
+  mgmc.cc
+  hogwild.cc)
 target_include_directories(tests SYSTEM PRIVATE ${pcgcpp_INCLDUE_DIR})
 target_link_libraries(tests PRIVATE Catch2::Catch2 parmgmc)
 catch_discover_tests(tests)

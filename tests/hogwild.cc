@@ -49,6 +49,7 @@ TEST_CASE("Hogwild sampler converges to target mean", "[.][seq][mpi][hg]") {
   op->colorMatrix(dm);
 
   pm::HogwildGibbsSampler sampler(op, &engine);
+  sampler.fixRhs(rhs);
 
   constexpr std::size_t N_BURNIN = 10'000;
   constexpr std::size_t N_SAMPLES = 1'000'000;
