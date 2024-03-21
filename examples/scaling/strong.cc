@@ -21,16 +21,36 @@
 
 using namespace parmgmc;
 
+PetscInt nextPower2(PetscInt num) {
+  PetscInt power = 1;
+  while (power < num)
+    power *= 2;
+  return power;
+}
+
 class ShiftedLaplaceFD {
 public:
   ShiftedLaplaceFD(PetscInt coarseVerticesPerDim, PetscInt refineLevels, PetscReal kappainv = 1.,
-                   bool colorMatrixWithDM = true) {
+                   bool colorMatrixWithDM = true, bool strong = true) {
     PetscFunctionBeginUser;
+
+    PetscInt globalVerticesPerDim;
+    if (strong) {
+      globalVerticesPerDim = coarseVerticesPerDim;
+    } else {
+      PetscMPIInt mpisize;
+      MPI_Comm_size(MPI_COMM_WORLD, &mpisize);
+
+      PetscInt localSize = 1000;
+      PetscInt targetGlobalSize = mpisize * localSize;
+
+      globalVerticesPerDim = nextPower2((unsigned int)std::sqrt(targetGlobalSize)) + 1;
+    }
 
     // Create coarse DM
     DM da;
     PetscCallVoid(DMDACreate2d(MPI_COMM_WORLD, DM_BOUNDARY_NONE, DM_BOUNDARY_NONE,
-                               DMDA_STENCIL_STAR, coarseVerticesPerDim, coarseVerticesPerDim,
+                               DMDA_STENCIL_STAR, globalVerticesPerDim, globalVerticesPerDim,
                                PETSC_DECIDE, PETSC_DECIDE, 1, 1, nullptr, nullptr, &da));
     PetscCallVoid(DMSetUp(da));
     PetscCallVoid(DMDASetUniformCoordinates(da, 0, 1, 0, 1, 0, 0));
@@ -52,6 +72,9 @@ public:
 
     DMDALocalInfo info;
     PetscCallVoid(DMDAGetLocalInfo(hierarchy->getFine(), &info));
+
+    PetscCallVoid(PetscPrintf(MPI_COMM_WORLD, "Local size: %d x %d = %d\n", info.xm, info.ym,
+                              (info.xm * info.ym)));
 
     dirichletRows.reserve(4 * info.mx);
     double h2inv = 1. / ((info.mx - 1) * (info.mx - 1));
@@ -314,6 +337,9 @@ int main(int argc, char *argv[]) {
   PetscInt nRefine = 3;
   PetscCall(PetscOptionsGetInt(nullptr, nullptr, "-refine", &nRefine, nullptr));
 
+  PetscBool weak = PETSC_TRUE;
+  PetscCall(PetscOptionsGetBool(nullptr, nullptr, "-weak", &weak, nullptr));
+
   PetscBool runGibbs = PETSC_FALSE, runMGMC = PETSC_FALSE, runCholesky = PETSC_FALSE,
             runHogwild = PETSC_FALSE;
   PetscCall(PetscOptionsGetBool(nullptr, nullptr, "-gibbs", &runGibbs, nullptr));
@@ -328,7 +354,7 @@ int main(int argc, char *argv[]) {
   PetscCall(PetscPrintf(MPI_COMM_WORLD, "##################################################"
                                         "################\n"));
   PetscCall(PetscPrintf(MPI_COMM_WORLD,
-                        "####            Running strong scaling test suite           ######\n"));
+                        "####               Running scaling test suite               ######\n"));
   PetscCall(PetscPrintf(MPI_COMM_WORLD, "##################################################"
                                         "################\n"));
 
@@ -340,7 +366,7 @@ int main(int argc, char *argv[]) {
     return 0;
   }
 
-  ShiftedLaplaceFD problem(size, nRefine);
+  ShiftedLaplaceFD problem(size, nRefine, 1., true, !weak);
   DMDALocalInfo fineInfo, coarseInfo;
   PetscCall(DMDAGetLocalInfo(problem.getFineDM(), &fineInfo));
   PetscCall(DMDAGetLocalInfo(problem.getCoarseDM(), &coarseInfo));
