@@ -3,6 +3,7 @@
 #include "parmgmc/common/timer.hh"
 #include "parmgmc/dm_hierarchy.hh"
 #include "parmgmc/linear_operator.hh"
+#include "parmgmc/samplers/hogwild.hh"
 #include "parmgmc/samplers/mgmc.hh"
 #include "parmgmc/samplers/multicolor_gibbs.hh"
 
@@ -204,6 +205,47 @@ PetscErrorCode testGibbsSampler(const ShiftedLaplaceFD &problem, PetscInt nSampl
 }
 
 template <typename Engine>
+PetscErrorCode testHogwildGibbsSampler(const ShiftedLaplaceFD &problem, PetscInt nSamples,
+                                       Engine &engine, bool fixRhs, TimingResult &timingResult) {
+  PetscFunctionBeginUser;
+
+  Vec sample, rhs;
+  PetscCall(MatCreateVecs(problem.getOperator()->getMat(), &sample, nullptr));
+  PetscCall(VecDuplicate(sample, &rhs));
+
+  PetscCall(MatZeroRowsColumns(problem.getOperator()->getMat(), problem.getDirichletRows().size(),
+                               problem.getDirichletRows().data(), 1., sample, rhs));
+
+  PetscCall(fillVecRand(rhs, engine));
+
+  Timer timer;
+
+  // Measure setup time
+  timer.reset();
+  HogwildGibbsSampler sampler(problem.getOperator(), &engine);
+
+  if (fixRhs)
+    sampler.fixRhs(rhs);
+
+  timingResult.setupTime = timer.elapsed();
+  // Setup done
+
+  // Measure sample time
+  timer.reset();
+  for (PetscInt n = 0; n < nSamples; ++n)
+    PetscCall(sampler.sample(sample, rhs));
+
+  timingResult.sampleTime = timer.elapsed();
+  // Sampling done
+
+  // Cleanup
+  PetscCall(VecDestroy(&sample));
+  PetscCall(VecDestroy(&rhs));
+
+  PetscFunctionReturn(PETSC_SUCCESS);
+}
+
+template <typename Engine>
 PetscErrorCode testMGMCSampler(const ShiftedLaplaceFD &problem, PetscInt nSamples, Engine &engine,
                                const MGMCParameters &params, TimingResult &timingResult) {
   PetscFunctionBeginUser;
@@ -272,10 +314,12 @@ int main(int argc, char *argv[]) {
   PetscInt nRefine = 3;
   PetscCall(PetscOptionsGetInt(nullptr, nullptr, "-refine", &nRefine, nullptr));
 
-  PetscBool runGibbs = PETSC_FALSE, runMGMC = PETSC_FALSE, runCholesky = PETSC_FALSE;
+  PetscBool runGibbs = PETSC_FALSE, runMGMC = PETSC_FALSE, runCholesky = PETSC_FALSE,
+            runHogwild = PETSC_FALSE;
   PetscCall(PetscOptionsGetBool(nullptr, nullptr, "-gibbs", &runGibbs, nullptr));
   PetscCall(PetscOptionsGetBool(nullptr, nullptr, "-mgmc", &runMGMC, nullptr));
   PetscCall(PetscOptionsGetBool(nullptr, nullptr, "-cholesky", &runCholesky, nullptr));
+  PetscCall(PetscOptionsGetBool(nullptr, nullptr, "-hogwild", &runHogwild, nullptr));
 
   PetscMPIInt mpisize, mpirank;
   PetscCallMPI(MPI_Comm_size(MPI_COMM_WORLD, &mpisize));
@@ -288,10 +332,10 @@ int main(int argc, char *argv[]) {
   PetscCall(PetscPrintf(MPI_COMM_WORLD, "##################################################"
                                         "################\n"));
 
-  if (!(runGibbs || runMGMC || runCholesky)) {
+  if (!(runGibbs || runMGMC || runCholesky || runHogwild)) {
     PetscCall(PetscPrintf(MPI_COMM_WORLD, "No sampler selected, not running any tests.\n"
                                           "Pass at least one of\n"
-                                          "     -gibbs     -mgmc     -cholesky\n"
+                                          "     -gibbs     -mgmc     -cholesky     -hogwild\n"
                                           "to run the test with the respective sampler.\n"));
     return 0;
   }
@@ -358,6 +402,21 @@ int main(int argc, char *argv[]) {
     avg /= nRuns;
 
     PetscCall(printResult("MGMC sampler", avg));
+  }
+
+  if (runHogwild) {
+    TimingResult avg;
+
+    for (int i = 0; i < nRuns; ++i) {
+      TimingResult timing;
+      PetscCall(testHogwildGibbsSampler(problem, nSamples, engine, true, timing));
+
+      avg += timing;
+    }
+
+    avg /= nRuns;
+
+    PetscCall(printResult("Hogwild Gibbs sampler, forward sweep, fixed rhs", avg));
   }
 
   // {
