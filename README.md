@@ -61,9 +61,9 @@ $ sudo apt update
 $ sudo apt install intel-oneapi-mkl intel-oneapi-mkl-devel
 
 ```
-This also currently requires PETSc to be built from source using a custom fork. Run 
+This also currently requires PETSc to be built from source from the current `main` branch. Run 
 ```bash
-$ git clone -b cpardiso_fw_bw_solve https://gitlab.com/nilsfriess/petsc.git petsc
+$ git clone -b main https://gitlab.com/petsc/petsc.git petsc
 ```
 to clone PETSc and configure and build it with
 ```bash
