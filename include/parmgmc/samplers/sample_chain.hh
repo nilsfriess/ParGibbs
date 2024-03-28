@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cassert>
+#include <cmath>
 #include <iostream>
 #include <stdexcept>
 #include <type_traits>
@@ -13,15 +14,13 @@
 namespace parmgmc {
 template <class Sampler, class QOI> class SampleChain {
   using DataT = typename QOI::DataT;
-  static_assert(std::is_floating_point_v<DataT>,
-                "DataT must be floating point type.");
+  static_assert(std::is_floating_point_v<DataT>, "DataT must be floating point type.");
 
 public:
   template <typename... Args>
-  SampleChain(QOI qoi, std::size_t nChains, Vec exSample,
-              Args &&...samplerArgs)
-      : qoi{qoi}, currSamples(nChains, nullptr), samples(nChains),
-        means(nChains, 0), squareDiffs(nChains, 0) {
+  SampleChain(QOI qoi, std::size_t nChains, Vec exSample, Args &&...samplerArgs)
+      : qoi{qoi}, currSamples(nChains, nullptr), samples(nChains), means(nChains, 0),
+        squareDiffs(nChains, 0) {
     PetscFunctionBeginUser;
 
     samplers.reserve(nChains);
@@ -96,8 +95,7 @@ public:
 
   [[nodiscard]] DataT gelmanRubin() const {
     if (samplers.size() < 2) {
-      throw std::runtime_error(
-          "Need at least 2 chains to compute Gelman-Rubin diagonostic.");
+      throw std::runtime_error("Need at least 2 chains to compute Gelman-Rubin diagonostic.");
     }
 
     const auto meanOfMeans = getMean();
@@ -105,8 +103,7 @@ public:
 
     double varOfMeans = 0;
     for (auto m : means)
-      varOfMeans += 1. / (samplers.size() - 1) * (m - meanOfMeans) *
-                      (m - meanOfMeans);
+      varOfMeans += 1. / (samplers.size() - 1) * (m - meanOfMeans) * (m - meanOfMeans);
 
     const auto n = samples[0].size();
     // return std::sqrt(((n - 1.) / n * mean_of_vars + var_of_means) /
@@ -114,19 +111,27 @@ public:
     return std::sqrt((n * varOfMeans / meanOfVars + n - 1) / n);
   }
 
-  [[nodiscard]] std::size_t integratedAutocorrTime(std::size_t nChain = 0,
-                                       std::size_t windowSize = 30) const {
+  [[nodiscard]] std::size_t integratedAutocorrTime(std::size_t windowSize = 30) const {
+    double d = 0;
+    for (std::size_t i = 0; i < getNChains(); ++i)
+      d += 1. / getNChains() * integratedAutocorrTime(i, windowSize);
+
+    return std::round(d);
+  }
+
+  [[nodiscard]] std::size_t integratedAutocorrTime(std::size_t nChain,
+                                                   std::size_t windowSize) const {
     const auto totalSamples = samples[nChain].size();
     if (windowSize > totalSamples)
       return totalSamples;
 
-    const auto m = getMean();
+    const auto m = getMean(nChain);
 
     const auto rho = [&](std::size_t s) -> double {
       double sum = 0;
-      for (std::size_t j = 1; j < totalSamples - s; ++j)
-        sum += (samples[nChain][j] - m) * (samples[nChain][j + s] - m);
-      return 1. / (totalSamples - s) * sum;
+      for (std::size_t j = 0; j < totalSamples - s; ++j)
+        sum += 1. / (totalSamples - s) * (samples[nChain][j] - m) * (samples[nChain][j + s] - m);
+      return sum;
     };
 
     double sum = 0;
@@ -138,9 +143,8 @@ public:
   }
 
   [[nodiscard]] DataT getMeanError(std::size_t nChain = 0) const {
-    return std::sqrt(
-        ((1.0 * integratedAutocorrTime(nChain)) / samples[nChain].size()) *
-        getVar(nChain) / getMean(nChain));
+    return std::sqrt(((1.0 * integratedAutocorrTime(nChain)) / samples[nChain].size()) *
+                     getVar(nChain) / getMean(nChain));
   }
 
   [[nodiscard]] bool converged(DataT tol = 1.01) const {
@@ -150,9 +154,7 @@ public:
 
   [[nodiscard]] std::size_t getNChains() const { return samplers.size(); }
 
-  [[nodiscard]] const Sampler &getSampler(std::size_t nChain = 0) const {
-    return samplers[nChain];
-  }
+  [[nodiscard]] const Sampler &getSampler(std::size_t nChain = 0) const { return samplers[nChain]; }
 
   Sampler &getSampler(std::size_t nChain = 0) { return samplers[nChain]; }
 
@@ -178,8 +180,7 @@ private:
       means[chain] = q;
       squareDiffs[chain] = 0;
     } else {
-      means[chain] =
-          (1. / nSamples) * q + (nSamples - 1.) / nSamples * means[chain];
+      means[chain] = (1. / nSamples) * q + (nSamples - 1.) / nSamples * means[chain];
       squareDiffs[chain] += (q - meanBefore) * (q - means[chain]);
     }
 

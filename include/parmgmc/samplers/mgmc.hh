@@ -165,7 +165,7 @@ private:
     if (coarseCholesky)
       coarseSampler = std::make_shared<CholeskySampler<Engine>>(ops[0], engine);
 #else
-    for (std::size_t level = 0; level < n_levels; ++level)
+    for (std::size_t level = 0; level < nLevels; ++level)
       smoothers.push_back(std::make_shared<Smoother>(ops[level], engine));
 #endif
 
@@ -188,7 +188,7 @@ private:
         currSmoother = smoothers[level].get();
       }
 #else
-      curr_smoother = smoothers[level].get();
+      currSmoother = smoothers[level].get();
 #endif
 
       // Pre smooth
@@ -227,9 +227,9 @@ private:
         PetscCall(smoothers[0]->sample(xs[0], bs[0], 2 * nSmooth));
       }
 #else
-      if (smoothing_type != MGMCSmoothingType::Symmetric)
+      if (smoothingType != MGMCSmoothingType::Symmetric)
         smoothers[0]->setSweepType(GibbsSweepType::Symmetric);
-      PetscCall(smoothers[0]->sample(xs[0], bs[0], 2 * n_smooth));
+      PetscCall(smoothers[0]->sample(xs[0], bs[0], 2 * nSmooth));
 #endif
     }
 
