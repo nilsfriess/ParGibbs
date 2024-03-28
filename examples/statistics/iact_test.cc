@@ -71,12 +71,11 @@ PetscErrorCode computeIACT(Sampler &sampler, PetscInt nSamples, Vec rhs, const T
 
     std::vector<double> qoiSamples(nSamples);
 
-    for (PetscInt n = 0; n < nSamples; ++n) {
+    for (PetscInt n = 1; n <= nSamples; ++n) {
       PetscCall(sampler.sample(sample, rhs));
 
       double q;
       PetscCall(qoi(sample, &q));
-
       qoiSamples[n] = q;
     }
 
@@ -182,23 +181,23 @@ int main(int argc, char *argv[]) {
 
   Vec direction;
   PetscCall(MatCreateVecs(problem.getOperator()->getMat(), &direction, nullptr));
-  PetscCall(fillVecRand(direction, engine));
-  PetscCall(VecNormalize(direction, nullptr));
+  PetscCall(VecSet(direction, 1.));
   TestQOI qoi(direction);
 
-  Vec rhs;
-  PetscCall(MatCreateVecs(problem.getOperator()->getMat(), &rhs, nullptr));
-  PetscCall(fillVecRand(rhs, engine));
-  PetscCall(VecScale(rhs, 100));
-
-  Vec boundaryCond;
+  Vec tgtMean, rhs, boundaryCond;
+  PetscCall(MatCreateVecs(problem.getOperator()->getMat(), &tgtMean, nullptr));
+  PetscCall(VecDuplicate(tgtMean, &rhs));
   PetscCall(VecDuplicate(rhs, &boundaryCond));
+
+  PetscCall(fillVecRand(tgtMean, engine));
   PetscCall(MatZeroRowsColumns(problem.getOperator()->getMat(), problem.getDirichletRows().size(),
-                               problem.getDirichletRows().data(), 1., boundaryCond, rhs));
+                               problem.getDirichletRows().data(), 1., boundaryCond, tgtMean));
+  PetscCall(MatMult(problem.getOperator()->getMat(), tgtMean, rhs));
+
   PetscCall(VecDestroy(&boundaryCond));
+  PetscCall(VecDestroy(&tgtMean));
 
   IACTResult res;
-
   if (runGibbs) {
     MulticolorGibbsSampler sampler(problem.getOperator(), &engine);
 
