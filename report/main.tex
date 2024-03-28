@@ -486,6 +486,17 @@ Other parallelisation strategies for Gauß-Seidel exploit that it is typically n
 \appendix
 \section{Reproducing the results}
 
+\section{Using a Gauß-Seidel implementation to implement a Gibbs sampler}
+Say we have access to a (parallel or sequential) Gauß-Seidel solver to solve the linear system
+$Ax = f$. The iteration can be written in matrix form as 
+\begin{equation*}
+    x^{(k+1)} = -D^{-1} L x^{(k+1)} - D^{-1}L^T x^{(k)} + D^{-1} f\,,
+\end{equation*}
+where $A = L + D + L^T$ with $L$ being the strictly lower triangular part of $A$, and $D$ being its diagonal. Let us compare this with the matrix form of a Gibbs sampler for generating a sequence of Gaussian samples $y^{(0)}, y^{(1)},\dotsc \sim \mathcal{N}(A^{-1}f, A^{-1})$ which is given by
+\begin{equation*}
+    y^{(k+1)} = - D^{-1} L y^{(k+1)} - D^{-1} L^T y^{(k)} + D^{-1} c^{(k)}\,,
+\end{equation*}
+with $c^{(k)} \sim \mathcal{N}(f, D)$. Thus, a Gauß-Seidel solver can be turned into a Gibbs sampler by repeatedly applying one Gauß-Seidel iteration to the linear system $Ax = c^{(k)}$.
 
 \printbibliography
 \end{document}
