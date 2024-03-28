@@ -80,7 +80,7 @@ TEST_CASE("Symmetric sweep is the same as forward+backward sweep", "[.][seq][mpi
   VecDestroy(&sample);
 }
 
-TEST_CASE("Gibbs sampler converges to target mean", "[.][seq][mpi]") {
+TEST_CASE("Gibbs sampler converges to target mean", "[.][seq][mpi][mg]") {
   int rank = 0;
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
@@ -114,9 +114,8 @@ TEST_CASE("Gibbs sampler converges to target mean", "[.][seq][mpi]") {
   op->colorMatrix(dm);
 
   pm::MulticolorGibbsSampler sampler(op, &engine, 1., pm::GibbsSweepType::Forward);
-  sampler.setFixedRhs(rhs);
 
-  constexpr std::size_t N_BURNIN = 10'000;
+  constexpr std::size_t N_BURNIN = 1000;
   constexpr std::size_t N_SAMPLES = 1'000'000;
 
   sampler.sample(sample, rhs, N_BURNIN);

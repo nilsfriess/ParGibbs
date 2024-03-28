@@ -194,8 +194,7 @@ private:
       // Pre smooth
       if (smoothingType != MGMCSmoothingType::Symmetric)
         currSmoother->setSweepType(GibbsSweepType::Forward);
-      PetscCall(currSmoother->setFixedRhs(bs[level]));
-      PetscCall(currSmoother->sample(xs[level], nullptr, nSmooth));
+      PetscCall(currSmoother->sample(xs[level], bs[level], nSmooth));
 
       // Restrict residual
       PetscCall(MatResidual(ops[level]->getMat(), bs[level], xs[level], rs[level]));
@@ -214,8 +213,7 @@ private:
       // Post smooth
       if (smoothingType != MGMCSmoothingType::Symmetric)
         currSmoother->setSweepType(GibbsSweepType::Backward);
-      PetscCall(currSmoother->setFixedRhs(bs[level]));
-      PetscCall(currSmoother->sample(xs[level], nullptr, nSmooth));
+      PetscCall(currSmoother->sample(xs[level], bs[level], nSmooth));
     } else {
       // Coarse level
 #if PETSC_HAVE_MKL_CPARDISO && PETSC_HAVE_MKL_PARDISO

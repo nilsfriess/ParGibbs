@@ -201,7 +201,6 @@ int main(int argc, char *argv[]) {
 
   if (runGibbs) {
     MulticolorGibbsSampler sampler(problem.getOperator(), &engine);
-    sampler.setFixedRhs(rhs);
 
     PetscCall(computeIACT(sampler, nSamples, rhs, qoi, engine, nRuns, res));
     PetscCall(printResults("Gibbs", res));

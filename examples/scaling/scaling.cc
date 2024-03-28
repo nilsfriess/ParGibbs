@@ -38,7 +38,7 @@ struct TimingResult {
 
 template <typename Engine>
 PetscErrorCode testGibbsSampler(const ShiftedLaplaceFD &problem, PetscInt nSamples, Engine &engine,
-                                PetscScalar omega, GibbsSweepType sweepType, bool fixRhs,
+                                PetscScalar omega, GibbsSweepType sweepType,
                                 TimingResult &timingResult) {
   PetscFunctionBeginUser;
 
@@ -56,9 +56,6 @@ PetscErrorCode testGibbsSampler(const ShiftedLaplaceFD &problem, PetscInt nSampl
   // Measure setup time
   timer.reset();
   MulticolorGibbsSampler sampler(problem.getOperator(), &engine, omega, sweepType);
-
-  if (fixRhs)
-    sampler.setFixedRhs(rhs);
 
   timingResult.setupTime = timer.elapsed();
   // Setup done
@@ -80,7 +77,7 @@ PetscErrorCode testGibbsSampler(const ShiftedLaplaceFD &problem, PetscInt nSampl
 
 template <typename Engine>
 PetscErrorCode testHogwildGibbsSampler(const ShiftedLaplaceFD &problem, PetscInt nSamples,
-                                       Engine &engine, bool fixRhs, TimingResult &timingResult) {
+                                       Engine &engine, TimingResult &timingResult) {
   PetscFunctionBeginUser;
 
   Vec sample, rhs;
@@ -97,9 +94,6 @@ PetscErrorCode testHogwildGibbsSampler(const ShiftedLaplaceFD &problem, PetscInt
   // Measure setup time
   timer.reset();
   HogwildGibbsSampler sampler(problem.getOperator(), &engine);
-
-  if (fixRhs)
-    sampler.fixRhs(rhs);
 
   timingResult.setupTime = timer.elapsed();
   // Setup done
@@ -253,8 +247,7 @@ int main(int argc, char *argv[]) {
 
     for (int i = 0; i < nRuns; ++i) {
       TimingResult timing;
-      PetscCall(
-          testGibbsSampler(problem, nSamples, engine, 1., GibbsSweepType::Forward, true, timing));
+      PetscCall(testGibbsSampler(problem, nSamples, engine, 1., GibbsSweepType::Forward, timing));
 
       avg += timing;
     }
@@ -286,7 +279,7 @@ int main(int argc, char *argv[]) {
 
     for (int i = 0; i < nRuns; ++i) {
       TimingResult timing;
-      PetscCall(testHogwildGibbsSampler(problem, nSamples, engine, true, timing));
+      PetscCall(testHogwildGibbsSampler(problem, nSamples, engine, timing));
 
       avg += timing;
     }
