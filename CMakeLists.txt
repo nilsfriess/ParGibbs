@@ -30,3 +30,11 @@ endif()
 if(${PARMGMC_ENABLE_TESTS})
   add_subdirectory(tests)
 endif()
+
+if(NOT DEFINED PARMGMC_ENABLE_PYTHON_BINDINGS)
+  set(PARMGMC_ENABLE_PYTHON_BINDINGS False)
+endif()
+
+if(${PARMGMC_ENABLE_PYTHON_BINDINGS})
+  add_subdirectory(python)
+endif()

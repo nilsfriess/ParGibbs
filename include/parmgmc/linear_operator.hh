@@ -11,7 +11,7 @@
 namespace parmgmc {
 enum class PetscMatType { MPIAij, SEQAij };
 
-class LinearOperator {
+class LinearOperator : public std::enable_shared_from_this<LinearOperator> {
 public:
   explicit LinearOperator(Mat mat, bool transferOwnership = true)
       : mat{mat}, shouldDelete{transferOwnership} {
@@ -24,15 +24,14 @@ public:
     else if (std::strcmp(type, MATSEQAIJ) == 0)
       mattype = PetscMatType::SEQAij;
     else
-      PetscCheckAbort(false,
-                      MPI_COMM_WORLD,
-                      PETSC_ERR_SUP,
+      PetscCheckAbort(false, MPI_COMM_WORLD, PETSC_ERR_SUP,
                       "Only MATMPIAIJ and MATSEQAIJ types are supported");
 
     PetscFunctionReturnVoid();
   }
 
-  void colorMatrix(MatColoringType coloringType = MATCOLORINGGREEDY) {
+  void colorMatrix() {
+    MatColoringType coloringType = MATCOLORINGGREEDY;
     coloring = std::make_unique<Coloring>(mat, coloringType);
   }
 
@@ -53,6 +52,8 @@ public:
 
     PetscFunctionReturnVoid();
   }
+
+  LinearOperator(LinearOperator &&) = default;
 
 private:
   Mat mat = nullptr;
