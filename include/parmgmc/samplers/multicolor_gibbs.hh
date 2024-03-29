@@ -23,7 +23,8 @@
 namespace parmgmc {
 enum class GibbsSweepType { Forward, Backward, Symmetric };
 
-template <class Engine> class MulticolorGibbsSampler {
+template <class Engine>
+class MulticolorGibbsSampler : public std::enable_shared_from_this<MulticolorGibbsSampler<Engine>> {
 public:
   MulticolorGibbsSampler(const std::shared_ptr<LinearOperator> &linearOperator, Engine *engine,
                          PetscReal omega = 1., GibbsSweepType sweepType = GibbsSweepType::Forward)
@@ -84,6 +85,17 @@ public:
 
     PetscFunctionReturnVoid();
   }
+
+  // MulticolorGibbsSampler(MulticolorGibbsSampler &&other) noexcept
+  //     : linearOperator{std::move(other.linearOperator)}, engine{other.engine},
+  //     omega{other.omega},
+  //       sqrtDiagOmega{other.sqrtDiagOmega}, invDiagOmega{other.invDiagOmega},
+  //       randVec{other.randVec}, randVecSize{other.randVecSize}, sweepType{other.sweepType},
+  //       diagPtrs{std::move(other.diagPtrs)} {
+  //   other.sqrtDiagOmega = nullptr;
+  //   other.invDiagOmega = nullptr;
+  //   other.randVec = nullptr;
+  // }
 
   void setSweepType(GibbsSweepType newType) { sweepType = newType; }
 
