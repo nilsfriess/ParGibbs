@@ -52,6 +52,9 @@ $ make examples
 ```
 to build the examples.
 
+## Python bindings
+The library has some experimental support for [usage from Python](python/README.md).
+
 ## Enabling the parallel Cholesky sampler
 The MGMC sampler can use a parallel Cholesky sampler on the coarsest level using the PETSc interface of Intel's oneAPI Math Kernel Library (MKL). On Ubuntu, the required packages can be installed using the following commands (for details, see [Intel's documentation](https://www.intel.com/content/www/us/en/developer/tools/oneapi/onemkl-download.html)):
 ``` bash
