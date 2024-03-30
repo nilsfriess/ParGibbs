@@ -9,6 +9,8 @@ We use `petsc4py` to access PETSc types from Python. Therefore, `petsc4py` has t
 ```
 
 ## A basic example
+Below is a simple Python script that demonstrates the usage.
+
 ```python
 from petsc4py import PETSc
 import pymgmc
