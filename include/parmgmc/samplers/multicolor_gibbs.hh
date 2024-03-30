@@ -225,7 +225,7 @@ private:
 
     PetscCall(VecRestoreArrayRead(invDiagOmega, &invDiagArr));
     PetscCall(VecRestoreArray(sample, &sampleArr));
-    PetscCall(VecRestoreArrayRead(rhs, &randArr));
+    PetscCall(VecRestoreArrayRead(randVec, &randArr));
 
     PetscCall(PetscHelper::endGibbsEvent());
 

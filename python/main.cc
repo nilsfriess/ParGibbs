@@ -1,11 +1,16 @@
+
 #include <pybind11/pybind11.h>
 #include <random>
 
+#include "parmgmc/common/helpers.hh"
 #include "parmgmc/dm_hierarchy.hh"
 #include "parmgmc/linear_operator.hh"
+#include "parmgmc/samplers/hogwild.hh"
 #include "parmgmc/samplers/mgmc.hh"
 #include "parmgmc/samplers/multicolor_gibbs.hh"
 #include "petsc_caster.hh"
+
+#include <petscerror.h>
 
 namespace py = pybind11;
 using namespace parmgmc;
@@ -15,6 +20,12 @@ PYBIND11_MODULE(pymgmc, m) {
   auto *engine = new Engine(std::random_device{}());
 
   m.def("seedEngine", [=](int seed) { engine->seed(seed); });
+
+  m.def("fillVecRand", [=](Vec v) {
+    PetscFunctionBeginUser;
+    PetscCallVoid(fillVecRand(v, *engine));
+    PetscFunctionReturnVoid();
+  });
 
   py::class_<LinearOperator, std::shared_ptr<LinearOperator>>(m, "LinearOperator")
       .def(py::init([](Mat m) { return std::make_shared<LinearOperator>(m, false); }))
@@ -52,6 +63,19 @@ PYBIND11_MODULE(pymgmc, m) {
         return std::make_shared<MGMCSampler>(fineOperator, dmHierarchy, engine);
       }))
       .def("sample", [](const std::shared_ptr<MGMCSampler> &self, Vec rhs, Vec sample) {
+        PetscFunctionBeginUser;
+
+        PetscCallVoid(self->sample(sample, rhs));
+
+        PetscFunctionReturnVoid();
+      });
+
+  using HogwildSampler = HogwildGibbsSampler<Engine>;
+  py::class_<HogwildSampler, std::shared_ptr<HogwildSampler>>(m, "HogwildSampler")
+      .def(py::init([=](const std::shared_ptr<LinearOperator> &op) {
+        return std::make_shared<HogwildSampler>(op, engine);
+      }))
+      .def("sample", [](const std::shared_ptr<HogwildSampler> &self, Vec rhs, Vec sample) {
         PetscFunctionBeginUser;
 
         PetscCallVoid(self->sample(sample, rhs));
