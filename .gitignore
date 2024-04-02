@@ -17,6 +17,11 @@ buildopt/
 *.out
 *.pdf
 *.run.xml
+*.pyg*
 *.synctex.gz
 
-*.~undo-tree~
+*~
+
+*.png
+
+compile_commands.json
