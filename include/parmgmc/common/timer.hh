@@ -8,7 +8,7 @@ public:
   Timer() { reset(); }
 
   void reset() { starttime = MPI_Wtime(); }
-  double elapsed() const { return MPI_Wtime() - starttime; }
+  [[nodiscard]] double elapsed() const { return MPI_Wtime() - starttime; }
 
 private:
   double starttime;

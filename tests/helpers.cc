@@ -1,7 +1,6 @@
 #include "parmgmc/common/helpers.hh"
-#include "parmgmc/common/petsc_helper.hh"
-#include "parmgmc/linear_operator.hh"
-#include "petscvec.h"
+
+#include <petscvec.h>
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
@@ -24,14 +23,14 @@ TEST_CASE("fill_vec_rand fills vector with N(0,1) samples", "[.][long]") {
 
   std::mt19937 engine;
 
-  const int n_samples = 1000000;
+  const int nSamples = 1000000;
 
   {
-    for (int n = 0; n < n_samples; ++n) {
+    for (int n = 0; n < nSamples; ++n) {
       // Function that takes size as parameter
-      parmgmc::fill_vec_rand(vec, size, engine);
+      parmgmc::fillVecRand(vec, size, engine);
 
-      VecAXPY(mean, 1. / n_samples, vec);
+      VecAXPY(mean, 1. / nSamples, vec);
     }
 
     double norm;
@@ -41,11 +40,11 @@ TEST_CASE("fill_vec_rand fills vector with N(0,1) samples", "[.][long]") {
   }
 
   {
-    for (int n = 0; n < n_samples; ++n) {
+    for (int n = 0; n < nSamples; ++n) {
       // Function that doesn't take size as parameter
-      parmgmc::fill_vec_rand(vec, engine);
+      parmgmc::fillVecRand(vec, engine);
 
-      VecAXPY(mean, 1. / n_samples, vec);
+      VecAXPY(mean, 1. / nSamples, vec);
     }
 
     double norm;

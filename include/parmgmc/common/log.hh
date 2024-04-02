@@ -20,25 +20,25 @@ public:
     return log;
   }
 
-  std::ostream &get_stream() const { return stream; }
-  int get_debug_level() const {
+  [[nodiscard]] std::ostream &get_stream() const { return stream; }
+  [[nodiscard]] int get_debug_level() const {
     if (rank != 0)
       return PARMGMC_DEBUG_LEVEL_NONE;
-    return debug_level;
+    return debugLevel;
   }
 
-  int get_rank() const { return rank; }
+  [[nodiscard]] int get_rank() const { return rank; }
 
 private:
-  logger_stream() : debug_level{PARMGMC_DEBUG_LEVEL}, stream{std::cout} {
-    if (const char *dbg_level = std::getenv("PARMGMC_DEBUG_LEVEL"))
-      debug_level = std::atoi(dbg_level);
+  logger_stream() :  stream{std::cout} {
+    if (const char *dbgLevel = std::getenv("PARMGMC_DEBUG_LEVEL"))
+      debugLevel = std::atoi(dbgLevel);
 
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
   }
 
   int rank;
-  int debug_level;
+  int debugLevel{PARMGMC_DEBUG_LEVEL};
   std::ostream &stream;
 };
 }; // namespace parmgmc

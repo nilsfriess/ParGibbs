@@ -1,8 +1,8 @@
 #pragma once
 
-#include <iostream>
 #include <petsclog.h>
 #include <petscsys.h>
+#include <petscsystypes.h>
 
 namespace parmgmc {
 struct PetscHelper {
@@ -11,38 +11,69 @@ struct PetscHelper {
     static PetscHelper helper(&argc, &argv, file, help);
   }
 
-  static PetscErrorCode get_rng_event(PetscLogEvent *evt) {
-    static PetscLogEvent rng_event;
-
+  static PetscErrorCode beginRngEvent() {
     PetscFunctionBeginUser;
-    if (!rng_event_registered) {
-      PetscClassId classid;
-      PetscCall(PetscClassIdRegister("ParMGMC", &classid));
-      PetscCall(PetscLogEventRegister("RNG", classid, &rng_event));
 
-      rng_event_registered = true;
-    }
-
-    *evt = rng_event;
+    PetscLogEvent rngEvent = PetscHelper::getRngEvent();
+    PetscCall(
+        PetscLogEventBegin(rngEvent, nullptr, nullptr, nullptr, nullptr));
 
     PetscFunctionReturn(PETSC_SUCCESS);
   }
 
-  static PetscErrorCode get_gibbs_event(PetscLogEvent *evt) {
-    static PetscLogEvent gibbs_event;
-
+  static PetscErrorCode endRngEvent() {
     PetscFunctionBeginUser;
-    if (!gibbs_event_registered) {
-      PetscClassId classid;
-      PetscCall(PetscClassIdRegister("ParMGMC", &classid));
-      PetscCall(PetscLogEventRegister("Gibbs", classid, &gibbs_event));
 
-      gibbs_event_registered = true;
-    }
-
-    *evt = gibbs_event;
+    PetscLogEvent rngEvent = PetscHelper::getRngEvent();
+    PetscCall(PetscLogEventEnd(rngEvent, nullptr, nullptr, nullptr, nullptr));
 
     PetscFunctionReturn(PETSC_SUCCESS);
+  }
+
+  static PetscErrorCode beginGibbsEvent() {
+    PetscFunctionBeginUser;
+
+    PetscLogEvent gibbsEvent = PetscHelper::getGibbsEvent();
+    PetscCall(
+        PetscLogEventBegin(gibbsEvent, nullptr, nullptr, nullptr, nullptr));
+
+    PetscFunctionReturn(PETSC_SUCCESS);
+  }
+
+  static PetscErrorCode endGibbsEvent() {
+    PetscFunctionBeginUser;
+
+    PetscLogEvent gibbsEvent = PetscHelper::getGibbsEvent();
+    PetscCall(
+        PetscLogEventEnd(gibbsEvent, nullptr, nullptr, nullptr, nullptr));
+
+    PetscFunctionReturn(PETSC_SUCCESS);
+  }
+
+  static PetscLogEvent getRngEvent() {
+    static PetscLogEvent rngEvent = []() {
+      PetscClassId classid;
+      PetscLogEvent event;
+      PetscClassIdRegister("ParMGMC", &classid);
+      PetscLogEventRegister("RNG", classid, &event);
+
+      return event;
+    }();
+
+    return rngEvent;
+  }
+
+  static PetscLogEvent getGibbsEvent() {
+    static PetscLogEvent gibbsEvent = []() {
+      PetscClassId classid;
+      PetscLogEvent event;
+      PetscClassIdRegister("ParMGMC", &classid);
+      PetscLogEventRegister("Gibbs", classid, &event);
+
+      return event;
+    }();
+
+    return gibbsEvent;
   }
 
   ~PetscHelper() { PetscFinalize(); }
@@ -56,7 +87,7 @@ private:
     PetscFunctionReturnVoid();
   }
 
-  inline static bool rng_event_registered = false;
-  inline static bool gibbs_event_registered = false;
+  inline static bool rngEventRegistered = false;
+  inline static bool gibbsEventRegistered = false;
 };
 } // namespace parmgmc

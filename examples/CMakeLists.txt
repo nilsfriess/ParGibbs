@@ -8,3 +8,4 @@ cmake_path(SET pcgcpp_INCLDUE_DIR "${pcgcpp_SOURCE_DIR}/include")
 
 add_subdirectory(statistics)
 add_subdirectory(mfem)
+add_subdirectory(scaling)

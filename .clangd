@@ -1,0 +1,5 @@
+Diagnostics:
+  ClangTidy:
+    Add: [performance*, modernize*]
+    Remove: [modernize-use-trailing-return-type, modernize-use-nodiscard]
+  UnusedIncludes: Strict

@@ -1,210 +1,238 @@
-#include "mat.hh"
+#include "problems.hh"
 #include "qoi.hh"
 
 #include "parmgmc/common/helpers.hh"
 #include "parmgmc/common/petsc_helper.hh"
-#include "parmgmc/dm_hierarchy.hh"
-#include "parmgmc/linear_operator.hh"
 #include "parmgmc/samplers/mgmc.hh"
-#include "parmgmc/samplers/sample_chain.hh"
+#include "parmgmc/samplers/multicolor_gibbs.hh"
 
 #include <mpi.h>
 #include <pcg_random.hpp>
 
 #include <petscdm.h>
+#include <petscdmda.h>
 #include <petscerror.h>
 #include <petscksp.h>
 #include <petscmat.h>
 #include <petscvec.h>
 
-#include <memory>
+#include <petscviewer.h>
 #include <random>
 
 using namespace parmgmc;
 
-template <class Chain>
-inline PetscErrorCode iact(const std::string &name, Chain &chain,
-                           Vec sample_rhs) {
+[[nodiscard]] std::size_t integratedAutocorrTime(const std::vector<double> &samples,
+                                                 std::size_t windowSize = 80) {
+  const auto totalSamples = samples.size();
+  if (windowSize > totalSamples)
+    return totalSamples;
+
+  double mean = 0;
+  for (auto s : samples)
+    mean += 1. / totalSamples * s;
+
+  const auto rho = [&](std::size_t s) -> double {
+    double sum = 0;
+    for (std::size_t j = 0; j < totalSamples - s; ++j)
+      sum += 1. / (totalSamples - s) * (samples[j] - mean) * (samples[j + s] - mean);
+    return sum;
+  };
+
+  double sum = 0;
+  const auto rhoZero = rho(0);
+  for (std::size_t s = 1; s < windowSize; ++s)
+    sum += rho(s) / rhoZero;
+  const auto tau = static_cast<std::size_t>(std::ceil(1 + 2 * sum));
+  return std::max(1UL, tau);
+}
+
+struct IACTResult {
+  std::vector<std::size_t> iacts;
+  std::vector<double> times;
+};
+
+template <class Sampler, class Engine>
+PetscErrorCode computeIACT(Sampler &sampler, PetscInt nSamples, Vec rhs, const TestQOI &qoi,
+                           Engine &engine, PetscInt nRuns, IACTResult &res) {
   PetscFunctionBeginUser;
 
-  Timer timer;
+  res.iacts.clear();
+  res.times.clear();
 
-  Vec initial_sample;
-  PetscCall(VecDuplicate(sample_rhs, &initial_sample));
+  Vec sample;
+  PetscCall(VecDuplicate(rhs, &sample));
 
-  for (std::size_t n = 0; n < chain.get_n_chains(); ++n) {
-    PetscCall(VecSet(initial_sample, (n + 1) * 10));
-    chain.set_sample(initial_sample, n);
+  for (PetscInt run = 0; run < nRuns; ++run) {
+    PetscCall(fillVecRand(sample, engine));
+
+    const PetscInt nBurnin = 1000;
+    for (PetscInt n = 0; n < nBurnin; ++n)
+      PetscCall(sampler.sample(sample, rhs));
+
+    std::vector<double> qoiSamples(nSamples);
+
+    for (PetscInt n = 1; n <= nSamples; ++n) {
+      PetscCall(sampler.sample(sample, rhs));
+
+      double q;
+      PetscCall(qoi(sample, &q));
+      qoiSamples[n] = q;
+    }
+
+    auto iact = integratedAutocorrTime(qoiSamples);
+    res.iacts.push_back(iact);
   }
-  PetscCall(VecDestroy(&initial_sample));
-
-  PetscInt n_burnin = 100;
-  PetscOptionsGetInt(NULL, NULL, "-n_burnin", &n_burnin, NULL);
-
-  PetscPrintf(MPI_COMM_WORLD, "Starting burnin...");
-  timer.reset();
-  PetscCall(chain.sample(sample_rhs, n_burnin));
-  PetscPrintf(MPI_COMM_WORLD, "Done. Took %f seconds.\n", timer.elapsed());
-  chain.reset();
-
-  PetscInt n_samples = 100;
-  PetscOptionsGetInt(NULL, NULL, "-n_samples", &n_samples, NULL);
-
-  PetscPrintf(MPI_COMM_WORLD, "Starting sampling...");
-  timer.reset();
-  PetscCall(chain.sample(sample_rhs, n_samples));
-  auto elapsed = timer.elapsed();
-
-  auto chain_iact = chain.integrated_autocorr_time();
-
-  PetscPrintf(MPI_COMM_WORLD,
-              "Done. Took %f seconds, %f seconds per sample, %f seconds per "
-              "independent sample.\n",
-              elapsed,
-              elapsed / n_samples,
-              chain_iact * elapsed / n_samples);
-
-  PetscCall(PetscPrintf(MPI_COMM_WORLD,
-                        "%s IACT: %zu (has %sconverged, R = %f)\n",
-                        name.c_str(),
-                        chain_iact,
-                        chain.converged() ? "" : "not ",
-                        chain.gelman_rubin()));
 
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
-struct Coordinate {
-  PetscReal x;
-  PetscReal y;
-};
+PetscErrorCode printResults(const std::string &name, const IACTResult &res) {
+  double iactMean = 0;
+  for (auto v : res.iacts)
+    iactMean += 1. / res.iacts.size() * v;
+
+  double iactStd = 0;
+  for (auto v : res.iacts)
+    iactStd += 1. / (res.iacts.size() - 1) * (v - iactMean) * (v - iactMean);
+  iactStd = std::sqrt(iactStd);
+
+  PetscFunctionBeginUser;
+  PetscCall(PetscPrintf(MPI_COMM_WORLD, "%s IACT: %.2f ± %.2f\n", name.c_str(), iactMean, iactStd));
+  PetscFunctionReturn(PETSC_SUCCESS);
+}
 
 int main(int argc, char *argv[]) {
   PetscHelper::init(argc, argv);
 
   PetscFunctionBeginUser;
 
-  int rank = 0;
-  MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+  PetscInt size = 9;
+  PetscCall(PetscOptionsGetInt(nullptr, nullptr, "-size", &size, nullptr));
+  PetscInt nSamples = 10000;
+  PetscCall(PetscOptionsGetInt(nullptr, nullptr, "-samples", &nSamples, nullptr));
+  PetscInt nRuns = 5;
+  PetscCall(PetscOptionsGetInt(nullptr, nullptr, "-runs", &nRuns, nullptr));
+  PetscInt nRefine = 3;
+  PetscCall(PetscOptionsGetInt(nullptr, nullptr, "-refine", &nRefine, nullptr));
+  PetscReal kappainv = 1.;
+  PetscCall(PetscOptionsGetReal(nullptr, nullptr, "-kappainv", &kappainv, nullptr));
 
-  // Setup DM hierarchy
-  std::shared_ptr<DMHierarchy> dm_hierarchy;
-  {
-    const PetscInt dof_per_node = 1;
-    const PetscInt stencil_width = 1;
+  PetscBool runMGMCCoarseGibbs = PETSC_FALSE, runMGMCCoarseCholesky = PETSC_FALSE,
+            runGibbs = PETSC_FALSE, runCholesky = PETSC_FALSE;
 
-    int n_vertices = 5;
-    PetscOptionsGetInt(NULL, NULL, "-n_vertices", &n_vertices, NULL);
+  PetscCall(PetscOptionsGetBool(nullptr, nullptr, "-gibbs", &runGibbs, nullptr));
+  PetscCall(
+      PetscOptionsGetBool(nullptr, nullptr, "-mgmc_coarse_gibbs", &runMGMCCoarseGibbs, nullptr));
+  PetscCall(
+      PetscOptionsGetBool(nullptr, nullptr, "-mgmc_coarse_chol", &runMGMCCoarseCholesky, nullptr));
+  PetscCall(PetscOptionsGetBool(nullptr, nullptr, "-cholesky", &runCholesky, nullptr));
 
-    Coordinate lower_left{0, 0};
-    Coordinate upper_right{1, 1};
-
-    DM dm;
-    PetscCall(DMDACreate2d(PETSC_COMM_WORLD,
-                           DM_BOUNDARY_NONE,
-                           DM_BOUNDARY_NONE,
-                           DMDA_STENCIL_STAR,
-                           n_vertices,
-                           n_vertices,
-                           PETSC_DECIDE,
-                           PETSC_DECIDE,
-                           dof_per_node,
-                           stencil_width,
-                           NULL,
-                           NULL,
-                           &dm));
-
-    PetscCall(DMSetUp(dm));
-    PetscCall(DMDASetUniformCoordinates(
-        dm, lower_left.x, upper_right.x, lower_left.y, upper_right.y, 0, 0));
-
-    PetscInt n_levels = 4;
-    PetscOptionsGetInt(NULL, NULL, "-n_levels", &n_levels, NULL);
-
-    dm_hierarchy = std::make_shared<DMHierarchy>(dm, n_levels);
-    // PetscCall(dm_hierarchy->print_info());
+  if (!(runGibbs || runMGMCCoarseGibbs || runMGMCCoarseCholesky || runCholesky)) {
+    PetscCall(PetscPrintf(MPI_COMM_WORLD,
+                          "No sampler selected, not running any tests.\n"
+                          "Pass at least one of\n"
+                          "      -gibbs       -mgmc_coarse_gibbs       -mgmc_coarse_chol\n"
+                          "to run the test with the respective sampler.\n"));
+    return 0;
   }
 
-  int n_chains = 8;
-  PetscOptionsGetInt(NULL, NULL, "-n_chains", &n_chains, NULL);
+  PetscMPIInt mpisize, mpirank;
+  PetscCallMPI(MPI_Comm_size(MPI_COMM_WORLD, &mpisize));
+  PetscCallMPI(MPI_Comm_rank(MPI_COMM_WORLD, &mpirank));
+
+  PetscCall(PetscPrintf(MPI_COMM_WORLD, "##################################################"
+                                        "################\n"));
+  PetscCall(PetscPrintf(MPI_COMM_WORLD,
+                        "####                 Running IACT test suite                ######\n"));
+  PetscCall(PetscPrintf(MPI_COMM_WORLD, "##################################################"
+                                        "################\n"));
+
+  ShiftedLaplaceFD problem(size, nRefine, kappainv);
+
+  DMDALocalInfo fineInfo, coarseInfo;
+  PetscCall(DMDAGetLocalInfo(problem.getFineDM(), &fineInfo));
+  PetscCall(DMDAGetLocalInfo(problem.getCoarseDM(), &coarseInfo));
 
   // Setup random number generator
   pcg32 engine;
-  {
-    int seed;
-    if (rank == 0) {
-      seed = std::random_device{}();
-      PetscOptionsGetInt(NULL, NULL, "-seed", &seed, NULL);
-    }
-
-    // Send seed to all other processes
-    MPI_Bcast(&seed, 1, MPI_INT, 0, MPI_COMM_WORLD);
-    engine.seed(seed);
-    engine.set_stream(rank);
+  int seed;
+  if (mpirank == 0) {
+    seed = std::random_device{}();
+    PetscOptionsGetInt(nullptr, nullptr, "-seed", &seed, nullptr);
   }
 
-  // RHS used in samplers
-  Vec sample_rhs;
-  PetscCall(DMCreateGlobalVector(dm_hierarchy->get_fine(), &sample_rhs));
-  PetscCall(fill_vec_rand(sample_rhs, engine));
+  // Send seed to all other processes
+  MPI_Bcast(&seed, 1, MPI_INT, 0, MPI_COMM_WORLD);
+  engine.seed(seed);
+  engine.set_stream(mpirank);
 
-  NormQOI qoi;
+  PetscCall(PetscPrintf(MPI_COMM_WORLD,
+                        "Configuration: \n"
+                        "\tMPI rank(s):           %d\n"
+                        "\tProblem size (coarse): %dx%d = %d\n"
+                        "\tProblem size (fine):   %dx%d = %d\n"
+                        "\tLevels:                %d\n"
+                        "\tSamples:               %d\n"
+                        "\tRuns:                  %d\n"
+                        "\tRandom Seed:           %d\n",
+                        mpisize, coarseInfo.mx, coarseInfo.mx, (coarseInfo.mx * coarseInfo.mx),
+                        fineInfo.mx, fineInfo.mx, (fineInfo.mx * fineInfo.mx), nRefine, nSamples,
+                        nRuns, seed));
 
-  PetscInt n_smooth = 2;
-  PetscOptionsGetInt(NULL, NULL, "-n_smooth", &n_smooth, NULL);
+  Vec direction;
+  PetscCall(MatCreateVecs(problem.getOperator()->getMat(), &direction, nullptr));
+  PetscCall(VecSet(direction, 1.));
+  TestQOI qoi(direction);
 
-  MGMCParameters params;
-  params.n_smooth = n_smooth;
-  params.cycle_type = MGMCCycleType::V;
-  params.smoothing_type = MGMCSmoothingType::Symmetric;
+  Vec tgtMean, rhs, boundaryCond;
+  PetscCall(MatCreateVecs(problem.getOperator()->getMat(), &tgtMean, nullptr));
+  PetscCall(VecDuplicate(tgtMean, &rhs));
+  PetscCall(VecDuplicate(rhs, &boundaryCond));
 
-  // Setup Multigrid sampler
-  {
-    PetscCall(PetscPrintf(MPI_COMM_WORLD, "Setting up multigrid sampler...\n"));
+  PetscCall(fillVecRand(tgtMean, engine));
+  PetscCall(MatZeroRowsColumns(problem.getOperator()->getMat(), problem.getDirichletRows().size(),
+                               problem.getDirichletRows().data(), 1., boundaryCond, tgtMean));
+  PetscCall(MatMult(problem.getOperator()->getMat(), tgtMean, rhs));
 
-    // Setup fine operator
-    Mat mat;
-    PetscCall(assemble(dm_hierarchy->get_fine(), &mat));
-    auto linear_operator = std::make_shared<LinearOperator>(mat);
+  PetscCall(VecDestroy(&boundaryCond));
+  PetscCall(VecDestroy(&tgtMean));
 
-    using Chain = SampleChain<MultigridSampler<pcg32>, NormQOI>;
-    Chain chain(qoi,
-                n_chains,
-                sample_rhs,
-                linear_operator,
-                dm_hierarchy,
-                &engine,
-                params);
+  IACTResult res;
+  if (runGibbs) {
+    MulticolorGibbsSampler sampler(problem.getOperator(), &engine);
 
-    PetscCall(iact("MGMC", chain, sample_rhs));
+    PetscCall(computeIACT(sampler, nSamples, rhs, qoi, engine, nRuns, res));
+    PetscCall(printResults("Gibbs", res));
   }
 
-  // Setup Gibbs sampler
-  {
-    PetscCall(PetscPrintf(MPI_COMM_WORLD, "Setting up Gibbs sampler...\n"));
+  if (runMGMCCoarseCholesky) {
+    MGMCParameters params;
+    params.coarseSamplerType = MGMCCoarseSamplerType::Cholesky;
+    params.cycleType = MGMCCycleType::V;
+    params.smoothingType = MGMCSmoothingType::ForwardBackward;
+    params.nSmooth = 2;
 
-    // Setup fine operator
-    Mat mat;
-    PetscCall(assemble(dm_hierarchy->get_fine(), &mat));
-    auto linear_operator = std::make_shared<LinearOperator>(mat);
-    linear_operator->color_matrix(dm_hierarchy->get_fine());
+    MultigridSampler sampler(problem.getOperator(), problem.getHierarchy(), &engine, params);
 
-    PetscReal omega = 1.; // SOR parameter
-    PetscOptionsGetReal(NULL, NULL, "-omega", &omega, NULL);
-
-    using Chain = SampleChain<MulticolorGibbsSampler<pcg32>, NormQOI>;
-    Chain chain(qoi,
-                n_chains,
-                sample_rhs,
-                linear_operator,
-                &engine,
-                omega,
-                GibbsSweepType::Symmetric);
-
-    PetscCall(iact("Gibbs", chain, sample_rhs));
+    PetscCall(computeIACT(sampler, nSamples, rhs, qoi, engine, nRuns, res));
+    PetscCall(printResults("MGMC (Cholesky coarse sampler)", res));
   }
 
-  PetscCall(VecDestroy(&sample_rhs));
+  if (runMGMCCoarseGibbs) {
+    MGMCParameters params;
+    params.coarseSamplerType = MGMCCoarseSamplerType::Standard;
+    params.cycleType = MGMCCycleType::V;
+    params.smoothingType = MGMCSmoothingType::ForwardBackward;
+    params.nSmooth = 2;
 
-  PetscFunctionReturn(PETSC_SUCCESS);
+    MultigridSampler sampler(problem.getOperator(), problem.getHierarchy(), &engine, params);
+
+    PetscCall(computeIACT(sampler, nSamples, rhs, qoi, engine, nRuns, res));
+    PetscCall(printResults("MGMC (Gibbs coarse sampler)", res));
+  }
+
+  PetscCall(VecDestroy(&rhs));
+  PetscCall(VecDestroy(&direction));
+
+  return 0;
 }
