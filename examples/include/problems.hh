@@ -55,9 +55,6 @@ public:
     Mat mat;
     PetscCallVoid(DMCreateMatrix(hierarchy->getFine(), &mat));
 
-    // TODO: Maybe not needed?
-    PetscCallVoid(MatSetOption(mat, MAT_USE_INODES, PETSC_FALSE));
-
     // Assemble matrix
     MatStencil row;
     std::array<MatStencil, 5> cols;
@@ -65,9 +62,6 @@ public:
 
     DMDALocalInfo info;
     PetscCallVoid(DMDAGetLocalInfo(hierarchy->getFine(), &info));
-
-    PetscCallVoid(PetscPrintf(MPI_COMM_WORLD, "Local size: %d x %d = %d\n", info.xm, info.ym,
-                              (info.xm * info.ym)));
 
     dirichletRows.reserve(4 * info.mx);
     double h2inv = 1. / ((info.mx - 1) * (info.mx - 1));
