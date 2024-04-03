@@ -19,6 +19,8 @@ buildopt/
 *.run.xml
 *.pyg*
 *.synctex.gz
+*SAVE-ERROR
+_minted-main/
 
 *~
 
