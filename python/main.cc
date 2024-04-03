@@ -11,6 +11,7 @@
 #include "petsc_caster.hh"
 
 #include <petscerror.h>
+#include <stdexcept>
 
 namespace py = pybind11;
 using namespace parmgmc;
@@ -56,12 +57,30 @@ PYBIND11_MODULE(pymgmc, m) {
       .def("getFine", &DMHierarchy::getFine, py::return_value_policy::reference)
       .def("numLevels", &DMHierarchy::numLevels);
 
+  py::enum_<MGMCSmoothingType>(m, "SmoothingType")
+      .value("ForwardBackward", MGMCSmoothingType::ForwardBackward)
+      .value("Symmetric", MGMCSmoothingType::Symmetric);
+
+  py::enum_<MGMCCycleType>(m, "CycleType")
+      .value("V", MGMCCycleType::V)
+      .value("W", MGMCCycleType::W);
+
   using MGMCSampler = MultigridSampler<Engine>;
   py::class_<MGMCSampler, std::shared_ptr<MGMCSampler>>(m, "MGMCSampler")
       .def(py::init([=](const std::shared_ptr<LinearOperator> &fineOperator,
-                        const std::shared_ptr<DMHierarchy> &dmHierarchy) {
-        return std::make_shared<MGMCSampler>(fineOperator, dmHierarchy, engine);
-      }))
+                        const std::shared_ptr<DMHierarchy> &dmHierarchy,
+                        MGMCSmoothingType smoothingType, MGMCCycleType cycleType,
+                        std::size_t smoothingSteps) {
+             MGMCParameters params;
+             params.smoothingType = smoothingType;
+             params.cycleType = cycleType;
+             params.nSmooth = smoothingSteps;
+
+             return std::make_shared<MGMCSampler>(fineOperator, dmHierarchy, engine, params);
+           }),
+           py::arg("fineOperator"), py::arg("dmHierarchy"), py::kw_only(),
+           py::arg("smoothing") = MGMCSmoothingType::ForwardBackward,
+           py::arg("cycle") = MGMCCycleType::V, py::arg("smoothingSteps") = 2)
       .def("sample", [](const std::shared_ptr<MGMCSampler> &self, Vec rhs, Vec sample) {
         PetscFunctionBeginUser;
 

@@ -24,10 +24,10 @@ TEST_CASE("MGMC sampler converges to target mean", "[.]") {
   constexpr std::size_t N_LEVELS = 3;
 
   auto dm = create_test_dm(3);
-  auto dmHierarchy = std::make_shared<pm::DMHierarchy>(dm, N_LEVELS);
+  pm::DMHierarchy dmHierarchy{dm, N_LEVELS};
 
-  auto [mat, dirichletRows] = create_test_mat(dmHierarchy->getFine());
-  auto op = std::make_shared<pm::LinearOperator>(mat);
+  auto [mat, dirichletRows] = create_test_mat(dmHierarchy.getFine());
+  pm::LinearOperator op{mat};
 
   Vec sample, rhs, mean, expMean;
 
@@ -54,7 +54,7 @@ TEST_CASE("MGMC sampler converges to target mean", "[.]") {
     engine.set_stream(rank);
   }
 
-  pm::MultigridSampler sampler(op, dmHierarchy, &engine);
+  pm::MultigridSampler sampler(op, dmHierarchy, engine);
 
   pm::fillVecRand(expMean, engine);
   MatMult(mat, expMean, rhs);

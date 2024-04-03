@@ -35,7 +35,7 @@ TEST_CASE("Hogwild sampler converges to target mean", "[.][seq][mpi][hg]") {
   auto dm = create_test_dm(5);
   auto [mat, dirichletRows] = create_test_mat(dm);
 
-  auto op = std::make_shared<pm::LinearOperator>(mat);
+  pm::LinearOperator op{mat};
 
   Vec sample, rhs, mean;
   DMCreateGlobalVector(dm, &sample);
@@ -46,9 +46,9 @@ TEST_CASE("Hogwild sampler converges to target mean", "[.][seq][mpi][hg]") {
 
   MatZeroRowsColumns(mat, dirichletRows.size(), dirichletRows.data(), 1., sample, rhs);
 
-  op->colorMatrix(dm);
+  op.colorMatrix(dm);
 
-  pm::HogwildGibbsSampler sampler(op, &engine);
+  pm::HogwildGibbsSampler sampler(op, engine);
 
   constexpr std::size_t N_BURNIN = 1000;
   constexpr std::size_t N_SAMPLES = 100'000;

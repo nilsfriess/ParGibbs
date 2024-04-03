@@ -26,10 +26,10 @@ TEST_CASE("Symmetric sweep is the same as forward+backward sweep", "[.][seq][mpi
   std::mt19937_64 engine(Catch::getSeed());
 
   auto mat = create_test_mat(9);
-  auto op = std::make_shared<pm::LinearOperator>(mat);
-  op->colorMatrix();
+  pm::LinearOperator op{mat};
+  op.colorMatrix();
 
-  pm::MulticolorGibbsSampler sampler(op, &engine);
+  pm::MulticolorGibbsSampler sampler(op, engine);
 
   Vec sample;
   MatCreateVecs(mat, &sample, nullptr);
@@ -100,20 +100,21 @@ TEST_CASE("Gibbs sampler converges to target mean", "[.][seq][mpi][mg]") {
   auto dm = create_test_dm(5);
   auto [mat, dirichletRows] = create_test_mat(dm);
 
-  auto op = std::make_shared<pm::LinearOperator>(mat);
+  pm::LinearOperator op{mat};
 
-  Vec sample, rhs, mean;
+  Vec sample, rhs, expMean, mean;
   DMCreateGlobalVector(dm, &sample);
   VecDuplicate(sample, &rhs);
   VecDuplicate(sample, &mean);
+  VecDuplicate(mean, &expMean);
 
-  pm::fillVecRand(rhs, engine);
+  pm::fillVecRand(expMean, engine);
+  MatZeroRowsColumns(mat, dirichletRows.size(), dirichletRows.data(), 1., sample, expMean);
+  MatMult(mat, expMean, rhs);
 
-  MatZeroRowsColumns(mat, dirichletRows.size(), dirichletRows.data(), 1., sample, rhs);
+  op.colorMatrix(dm);
 
-  op->colorMatrix(dm);
-
-  pm::MulticolorGibbsSampler sampler(op, &engine, 1., pm::GibbsSweepType::Forward);
+  pm::MulticolorGibbsSampler sampler(op, engine, 1., pm::GibbsSweepType::Forward);
 
   constexpr std::size_t N_BURNIN = 1000;
   constexpr std::size_t N_SAMPLES = 1'000'000;
@@ -126,31 +127,11 @@ TEST_CASE("Gibbs sampler converges to target mean", "[.][seq][mpi][mg]") {
     VecAXPY(mean, 1. / N_SAMPLES, sample);
   }
 
-  // PetscViewer viewer;
-  // PetscViewerVTKOpen(MPI_COMM_WORLD, "vec.vts", FILE_MODE_WRITE, &viewer);
-  // PetscObjectSetName((PetscObject)sample, "sample");
-  // VecView(sample, viewer);
-  // PetscViewerDestroy(&viewer);
-
-  // Compute expected mean = A^{-1} * rhs
-  Vec expMean;
-  VecDuplicate(mean, &expMean);
-
-  KSP ksp;
-  KSPCreate(PETSC_COMM_WORLD, &ksp);
-  KSPSetFromOptions(ksp);
-  KSPSetOperators(ksp, mat, mat);
-  KSPSolve(ksp, rhs, expMean);
-  KSPDestroy(&ksp);
-
   PetscReal normExpected;
   VecNorm(expMean, NORM_INFINITY, &normExpected);
 
   PetscReal normComputed;
   VecNorm(mean, NORM_INFINITY, &normComputed);
-
-  // VecView(sample, PETSC_VIEWER_STDOUT_WORLD);
-  // VecView(exp_mean, PETSC_VIEWER_STDOUT_WORLD);
 
   REQUIRE_THAT(normComputed, WithinRel(normExpected, 0.01));
 

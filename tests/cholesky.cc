@@ -20,11 +20,11 @@ using namespace Catch::Matchers;
 
 TEST_CASE("Cholesky sampler can be constructed", "[.][mpi]") {
   auto mat = create_test_mat(33);
-  auto op = std::make_shared<pm::LinearOperator>(mat, true);
+  pm::LinearOperator op{mat, true};
 
   std::mt19937 engine;
 
-  pm::CholeskySampler sampler(op, &engine);
+  pm::CholeskySampler sampler(op, engine);
 
   Vec sample, rhs;
 
@@ -37,14 +37,13 @@ TEST_CASE("Cholesky sampler can be constructed", "[.][mpi]") {
   VecDestroy(&rhs);
 }
 
-TEST_CASE("Cholesky sampler computes samples with correct mean",
-          "[.][seq][mpi]") {
+TEST_CASE("Cholesky sampler computes samples with correct mean", "[.][seq][mpi]") {
   auto mat = create_test_mat(5);
-  auto op = std::make_shared<pm::LinearOperator>(mat, true);
+  pm::LinearOperator op{mat, true};
 
   std::mt19937 engine;
 
-  pm::CholeskySampler sampler(op, &engine);
+  pm::CholeskySampler sampler(op, engine);
 
   Vec sample, expMean, rhs, mean;
 

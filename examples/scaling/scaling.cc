@@ -37,16 +37,16 @@ struct TimingResult {
 };
 
 template <typename Engine>
-PetscErrorCode testGibbsSampler(const ShiftedLaplaceFD &problem, PetscInt nSamples, Engine &engine,
+PetscErrorCode testGibbsSampler(ShiftedLaplaceFD &problem, PetscInt nSamples, Engine &engine,
                                 PetscScalar omega, GibbsSweepType sweepType,
                                 TimingResult &timingResult) {
   PetscFunctionBeginUser;
 
   Vec sample, rhs;
-  PetscCall(MatCreateVecs(problem.getOperator()->getMat(), &sample, nullptr));
+  PetscCall(MatCreateVecs(problem.getOperator().getMat(), &sample, nullptr));
   PetscCall(VecDuplicate(sample, &rhs));
 
-  PetscCall(MatZeroRowsColumns(problem.getOperator()->getMat(), problem.getDirichletRows().size(),
+  PetscCall(MatZeroRowsColumns(problem.getOperator().getMat(), problem.getDirichletRows().size(),
                                problem.getDirichletRows().data(), 1., sample, rhs));
 
   PetscCall(fillVecRand(rhs, engine));
@@ -55,7 +55,7 @@ PetscErrorCode testGibbsSampler(const ShiftedLaplaceFD &problem, PetscInt nSampl
 
   // Measure setup time
   timer.reset();
-  MulticolorGibbsSampler sampler(problem.getOperator(), &engine, omega, sweepType);
+  MulticolorGibbsSampler sampler(problem.getOperator(), engine, omega, sweepType);
 
   timingResult.setupTime = timer.elapsed();
   // Setup done
@@ -76,15 +76,15 @@ PetscErrorCode testGibbsSampler(const ShiftedLaplaceFD &problem, PetscInt nSampl
 }
 
 template <typename Engine>
-PetscErrorCode testHogwildGibbsSampler(const ShiftedLaplaceFD &problem, PetscInt nSamples,
-                                       Engine &engine, TimingResult &timingResult) {
+PetscErrorCode testHogwildGibbsSampler(ShiftedLaplaceFD &problem, PetscInt nSamples, Engine &engine,
+                                       TimingResult &timingResult) {
   PetscFunctionBeginUser;
 
   Vec sample, rhs;
-  PetscCall(MatCreateVecs(problem.getOperator()->getMat(), &sample, nullptr));
+  PetscCall(MatCreateVecs(problem.getOperator().getMat(), &sample, nullptr));
   PetscCall(VecDuplicate(sample, &rhs));
 
-  PetscCall(MatZeroRowsColumns(problem.getOperator()->getMat(), problem.getDirichletRows().size(),
+  PetscCall(MatZeroRowsColumns(problem.getOperator().getMat(), problem.getDirichletRows().size(),
                                problem.getDirichletRows().data(), 1., sample, rhs));
 
   PetscCall(fillVecRand(rhs, engine));
@@ -93,7 +93,7 @@ PetscErrorCode testHogwildGibbsSampler(const ShiftedLaplaceFD &problem, PetscInt
 
   // Measure setup time
   timer.reset();
-  HogwildGibbsSampler sampler(problem.getOperator(), &engine);
+  HogwildGibbsSampler sampler(problem.getOperator(), engine);
 
   timingResult.setupTime = timer.elapsed();
   // Setup done
@@ -114,15 +114,15 @@ PetscErrorCode testHogwildGibbsSampler(const ShiftedLaplaceFD &problem, PetscInt
 }
 
 template <typename Engine>
-PetscErrorCode testMGMCSampler(const ShiftedLaplaceFD &problem, PetscInt nSamples, Engine &engine,
+PetscErrorCode testMGMCSampler(ShiftedLaplaceFD &problem, PetscInt nSamples, Engine &engine,
                                const MGMCParameters &params, TimingResult &timingResult) {
   PetscFunctionBeginUser;
 
   Vec sample, rhs;
-  PetscCall(MatCreateVecs(problem.getOperator()->getMat(), &sample, nullptr));
+  PetscCall(MatCreateVecs(problem.getOperator().getMat(), &sample, nullptr));
   PetscCall(VecDuplicate(sample, &rhs));
 
-  PetscCall(MatZeroRowsColumns(problem.getOperator()->getMat(), problem.getDirichletRows().size(),
+  PetscCall(MatZeroRowsColumns(problem.getOperator().getMat(), problem.getDirichletRows().size(),
                                problem.getDirichletRows().data(), 1., sample, rhs));
 
   PetscCall(fillVecRand(rhs, engine));
@@ -131,7 +131,7 @@ PetscErrorCode testMGMCSampler(const ShiftedLaplaceFD &problem, PetscInt nSample
 
   // Measure setup time
   timer.reset();
-  MultigridSampler sampler(problem.getOperator(), problem.getHierarchy(), &engine, params);
+  MultigridSampler sampler(problem.getOperator(), problem.getHierarchy(), engine, params);
   timingResult.setupTime = timer.elapsed();
   // Setup done
 
@@ -211,7 +211,7 @@ int main(int argc, char *argv[]) {
     return 0;
   }
 
-  ShiftedLaplaceFD problem(size, nRefine, 1., true);
+  ShiftedLaplaceFD problem(Dim{2}, size, nRefine, 1., true);
   DMDALocalInfo fineInfo, coarseInfo;
   PetscCall(DMDAGetLocalInfo(problem.getFineDM(), &fineInfo));
   PetscCall(DMDAGetLocalInfo(problem.getCoarseDM(), &coarseInfo));

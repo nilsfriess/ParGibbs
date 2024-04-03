@@ -1,6 +1,5 @@
 #pragma once
 
-#include <memory>
 #include <petsc.h>
 #include <petscerror.h>
 #include <petscis.h>
@@ -11,8 +10,10 @@
 namespace parmgmc {
 enum class PetscMatType { MPIAij, SEQAij };
 
-class LinearOperator : public std::enable_shared_from_this<LinearOperator> {
+class LinearOperator {
 public:
+  LinearOperator() = default;
+
   explicit LinearOperator(Mat mat, bool transferOwnership = true)
       : mat{mat}, shouldDelete{transferOwnership} {
     PetscFunctionBeginUser;
@@ -32,15 +33,15 @@ public:
 
   void colorMatrix() {
     MatColoringType coloringType = MATCOLORINGGREEDY;
-    coloring = std::make_unique<Coloring>(mat, coloringType);
+    coloring = Coloring{mat, coloringType};
   }
 
-  void colorMatrix(DM dm) { coloring = std::make_unique<Coloring>(mat, dm); }
+  void colorMatrix(DM dm) { coloring = Coloring{mat, dm}; }
 
   [[nodiscard]] Mat getMat() const { return mat; }
-  [[nodiscard]] Coloring *getColoring() const { return coloring.get(); }
+  [[nodiscard]] const Coloring &getColoring() const { return coloring; }
 
-  [[nodiscard]] bool hasColoring() const { return coloring != nullptr; }
+  [[nodiscard]] bool hasColoring() const { return coloring.isValid(); }
 
   [[nodiscard]] PetscMatType getMatType() const { return mattype; }
 
@@ -53,13 +54,31 @@ public:
     PetscFunctionReturnVoid();
   }
 
-  LinearOperator(LinearOperator &&) = default;
+  LinearOperator(const LinearOperator &) = delete;
+  LinearOperator &operator=(const LinearOperator &) = delete;
+
+  LinearOperator(LinearOperator &&other) noexcept
+      : mat{other.mat}, mattype{other.mattype}, coloring{std::move(other.coloring)},
+        shouldDelete{other.shouldDelete} {
+    other.mat = nullptr;
+  }
+
+  LinearOperator &operator=(LinearOperator &&other) noexcept {
+    mat = other.mat;
+    mattype = other.mattype;
+    coloring = std::move(other.coloring);
+    shouldDelete = other.shouldDelete;
+
+    other.mat = nullptr;
+
+    return *this;
+  }
 
 private:
   Mat mat = nullptr;
   PetscMatType mattype;
 
-  std::unique_ptr<Coloring> coloring;
+  Coloring coloring;
 
   bool shouldDelete;
 };

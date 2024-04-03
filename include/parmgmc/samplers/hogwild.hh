@@ -9,16 +9,16 @@
 namespace parmgmc {
 template <class Engine> class HogwildGibbsSampler {
 public:
-  HogwildGibbsSampler(const std::shared_ptr<LinearOperator> &linearOperator, Engine *engine)
+  HogwildGibbsSampler(const LinearOperator &linearOperator, Engine &engine)
       : linearOperator{linearOperator}, engine{engine} {
     PetscFunctionBeginUser;
 
-    PetscCallVoid(MatCreateVecs(linearOperator->getMat(), &randVec, nullptr));
+    PetscCallVoid(MatCreateVecs(linearOperator.getMat(), &randVec, nullptr));
     PetscCallVoid(VecGetLocalSize(randVec, &randVecSize));
 
     // Sqrt diag
     PetscCallVoid(VecDuplicate(randVec, &sqrtDiag));
-    PetscCallVoid(MatGetDiagonal(linearOperator->getMat(), sqrtDiag));
+    PetscCallVoid(MatGetDiagonal(linearOperator.getMat(), sqrtDiag));
     PetscCallVoid(VecSqrtAbs(sqrtDiag));
 
     // // Inv sqrt diag
@@ -35,20 +35,20 @@ public:
     if (nSamples == 0)
       PetscFunctionReturn(PETSC_SUCCESS);
 
-    PetscCall(fillVecRand(randVec, randVecSize, *engine));
+    PetscCall(fillVecRand(randVec, randVecSize, engine));
     PetscCall(VecPointwiseMult(randVec, randVec, sqrtDiag));
     PetscCall(VecAXPY(randVec, 1., rhs));
 
-    PetscCall(MatSOR(linearOperator->getMat(), randVec, 1., SOR_LOCAL_FORWARD_SWEEP, 0.,
-                     nSamples, 1., sample));
+    PetscCall(MatSOR(linearOperator.getMat(), randVec, 1., SOR_LOCAL_FORWARD_SWEEP, 0., nSamples,
+                     1., sample));
 
     PetscFunctionReturn(PETSC_SUCCESS);
   }
 
 private:
-  std::shared_ptr<LinearOperator> linearOperator;
+  const LinearOperator &linearOperator;
 
-  Engine *engine;
+  Engine &engine;
 
   Vec randVec;
   PetscInt randVecSize;
