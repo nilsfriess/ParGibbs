@@ -12,7 +12,6 @@
 
 #include <pcg_random.hpp>
 
-#include <memory>
 #include <random>
 
 namespace pm = parmgmc;
@@ -20,13 +19,13 @@ using namespace Catch::Matchers;
 
 // TODO: This test is currently not run, since it takes ages and still sometimes
 // fails (i.e., we would need even more samples)
-TEST_CASE("MGMC sampler converges to target mean", "[.]") {
-  constexpr std::size_t N_LEVELS = 3;
+TEST_CASE("MGMC sampler converges to target mean", "[.][mg]") {
+  const std::size_t nLevels = 3;
 
   auto dm = create_test_dm(3);
-  pm::DMHierarchy dmHierarchy{dm, N_LEVELS};
+  pm::DMHierarchy dmHierarchy{dm, nLevels};
 
-  auto [mat, dirichletRows] = create_test_mat(dmHierarchy.getFine());
+  auto mat = create_test_mat(dmHierarchy.getFine());
   pm::LinearOperator op{mat};
 
   Vec sample, rhs, mean, expMean;
@@ -35,8 +34,6 @@ TEST_CASE("MGMC sampler converges to target mean", "[.]") {
   VecDuplicate(sample, &rhs);
   VecDuplicate(sample, &mean);
   VecDuplicate(sample, &expMean);
-
-  MatZeroRowsColumns(mat, dirichletRows.size(), dirichletRows.data(), 1., sample, rhs);
 
   int rank = 0;
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
@@ -59,12 +56,12 @@ TEST_CASE("MGMC sampler converges to target mean", "[.]") {
   pm::fillVecRand(expMean, engine);
   MatMult(mat, expMean, rhs);
 
-  constexpr std::size_t N_SAMPLES = 500'000;
+  const std::size_t nSamples = 500'000;
 
-  for (std::size_t n = 0; n < N_SAMPLES; ++n) {
+  for (std::size_t n = 0; n < nSamples; ++n) {
     sampler.sample(sample, rhs);
 
-    VecAXPY(mean, 1. / N_SAMPLES, sample);
+    VecAXPY(mean, 1. / nSamples, sample);
   }
 
   PetscReal norm;

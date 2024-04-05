@@ -7,6 +7,7 @@
 
 #include <cstring>
 
+#include <iostream>
 #include <mpi.h>
 #include <petscdm.h>
 #include <petscerror.h>
@@ -22,8 +23,7 @@
 namespace parmgmc {
 enum class GibbsSweepType { Forward, Backward, Symmetric };
 
-template <class Engine>
-class MulticolorGibbsSampler {
+template <class Engine> class MulticolorGibbsSampler {
 public:
   MulticolorGibbsSampler(LinearOperator &linearOperator, Engine &engine, PetscReal omega = 1.,
                          GibbsSweepType sweepType = GibbsSweepType::Forward)
@@ -72,8 +72,9 @@ public:
 
       for (PetscInt k = rowStart; k < rowEnd; ++k) {
         const auto col = j[k];
-        if (col == row)
+        if (col == row) {
           diagPtrs.push_back(k);
+        }
       }
     }
     PetscCheckAbort(diagPtrs.size() == (std::size_t)rows, MPI_COMM_WORLD, PETSC_ERR_SUP,
@@ -85,16 +86,17 @@ public:
     PetscFunctionReturnVoid();
   }
 
-  // MulticolorGibbsSampler(MulticolorGibbsSampler &&other) noexcept
-  //     : linearOperator{std::move(other.linearOperator)}, engine{other.engine},
-  //     omega{other.omega},
-  //       sqrtDiagOmega{other.sqrtDiagOmega}, invDiagOmega{other.invDiagOmega},
-  //       randVec{other.randVec}, randVecSize{other.randVecSize}, sweepType{other.sweepType},
-  //       diagPtrs{std::move(other.diagPtrs)} {
-  //   other.sqrtDiagOmega = nullptr;
-  //   other.invDiagOmega = nullptr;
-  //   other.randVec = nullptr;
-  // }
+  MulticolorGibbsSampler(MulticolorGibbsSampler &&other) noexcept
+      : linearOperator{other.linearOperator}, engine{other.engine},
+      omega{other.omega},
+        sqrtDiagOmega{other.sqrtDiagOmega}, invDiagOmega{other.invDiagOmega},
+        randVec{other.randVec}, randVecSize{other.randVecSize}, sweepType{other.sweepType},
+        diagPtrs{std::move(other.diagPtrs)} {
+    std::cout << "Hello from move constructor\n";
+    other.sqrtDiagOmega = nullptr;
+    other.invDiagOmega = nullptr;
+    other.randVec = nullptr;
+  }
 
   void setSweepType(GibbsSweepType newType) { sweepType = newType; }
 
@@ -128,10 +130,12 @@ private:
 
     PetscCall(PetscHelper::beginGibbsEvent());
 
-    PetscCall(fillVecRand(randVec, randVecSize, engine));
-    PetscCall(VecPointwiseMult(randVec, randVec, sqrtDiagOmega));
-    PetscCall(VecAXPY(randVec, 1., rhs));
-    PetscCall(VecPointwiseMult(randVec, randVec, invDiagOmega));
+    // PetscCall(fillVecRand(randVec, randVecSize, engine));
+    // PetscCall(VecPointwiseMult(randVec, randVec, sqrtDiagOmega));
+    // PetscCall(VecSet(randVec, 0));
+    // PetscCall(VecAXPY(randVec, 1., rhs));
+    // PetscCall(VecPointwiseMult(randVec, randVec, invDiagOmega));
+    PetscCall(prepareRandVec(rhs));
 
     PetscReal *sampleArr;
     const PetscReal *randArr;
@@ -183,10 +187,11 @@ private:
     }
 
     if (sweepType == GibbsSweepType::Symmetric) {
-      PetscCall(fillVecRand(randVec, randVecSize, engine));
-      PetscCall(VecPointwiseMult(randVec, randVec, sqrtDiagOmega));
-      PetscCall(VecAXPY(randVec, 1., rhs));
-      PetscCall(VecPointwiseMult(randVec, randVec, invDiagOmega));
+      // PetscCall(fillVecRand(randVec, randVecSize, engine));
+      // PetscCall(VecPointwiseMult(randVec, randVec, sqrtDiagOmega));
+      // PetscCall(VecAXPY(randVec, 1., rhs));
+      // PetscCall(VecPointwiseMult(randVec, randVec, invDiagOmega));
+      PetscCall(prepareRandVec(rhs));
     }
 
     if (sweepType == GibbsSweepType::Backward || sweepType == GibbsSweepType::Symmetric) {
@@ -212,10 +217,11 @@ private:
 
     PetscCall(PetscHelper::beginGibbsEvent());
 
-    PetscCall(fillVecRand(randVec, randVecSize, engine));
-    PetscCall(VecPointwiseMult(randVec, randVec, sqrtDiagOmega));
-    PetscCall(VecAXPY(randVec, 1., rhs));
-    PetscCall(VecPointwiseMult(randVec, randVec, invDiagOmega));
+    // PetscCall(fillVecRand(randVec, randVecSize, engine));
+    // PetscCall(VecPointwiseMult(randVec, randVec, sqrtDiagOmega));
+    // PetscCall(VecAXPY(randVec, 1., rhs));
+    // PetscCall(VecPointwiseMult(randVec, randVec, invDiagOmega));
+    PetscCall(prepareRandVec(rhs));
 
     Mat ad, ao;
     PetscCall(MatMPIAIJGetSeqAIJ(linearOperator.getMat(), &ad, &ao, nullptr));
@@ -277,6 +283,12 @@ private:
         PetscCall(VecScatterBegin(scatter, sample, ghostvec, INSERT_VALUES, SCATTER_FORWARD));
         PetscCall(VecScatterEnd(scatter, sample, ghostvec, INSERT_VALUES, SCATTER_FORWARD));
 
+	// PetscMPIInt rank;
+	// PetscCallMPI(MPI_Comm_rank(MPI_COMM_WORLD, &rank));
+
+	// if (rank == 1)
+	//   PetscCall(VecView(ghostvec, PETSC_VIEWER_STDOUT_SELF));
+
         PetscCall(VecGetArrayRead(ghostvec, &ghostArr));
         PetscCall(VecGetArray(sample, &sampleArr));
 
@@ -291,10 +303,11 @@ private:
     }
 
     if (sweepType == GibbsSweepType::Symmetric) {
-      PetscCall(fillVecRand(randVec, randVecSize, engine));
-      PetscCall(VecPointwiseMult(randVec, randVec, sqrtDiagOmega));
-      PetscCall(VecAXPY(randVec, 1., rhs));
-      PetscCall(VecPointwiseMult(randVec, randVec, invDiagOmega));
+      // PetscCall(fillVecRand(randVec, randVecSize, engine));
+      // PetscCall(VecPointwiseMult(randVec, randVec, sqrtDiagOmega));
+      // PetscCall(VecAXPY(randVec, 1., rhs));
+      // PetscCall(VecPointwiseMult(randVec, randVec, invDiagOmega));
+      PetscCall(prepareRandVec(rhs));
     }
 
     if (sweepType == GibbsSweepType::Backward || sweepType == GibbsSweepType::Symmetric) {
@@ -326,6 +339,18 @@ private:
     PetscCall(VecRestoreArrayRead(invDiagOmega, &invDiagArr));
 
     PetscCall(PetscHelper::endGibbsEvent());
+
+    PetscFunctionReturn(PETSC_SUCCESS);
+  }
+
+  PetscErrorCode prepareRandVec(Vec rhs) {
+    PetscFunctionBeginUser;
+
+    PetscCall(fillVecRand(randVec, randVecSize, engine));
+    PetscCall(VecPointwiseMult(randVec, randVec, sqrtDiagOmega));
+
+    PetscCall(VecAXPY(randVec, 1., rhs));
+    PetscCall(VecPointwiseMult(randVec, randVec, invDiagOmega));
 
     PetscFunctionReturn(PETSC_SUCCESS);
   }

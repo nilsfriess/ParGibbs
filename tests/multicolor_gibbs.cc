@@ -8,6 +8,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 
+#include <mpi.h>
 #include <pcg_random.hpp>
 
 #include <memory>
@@ -80,7 +81,7 @@ TEST_CASE("Symmetric sweep is the same as forward+backward sweep", "[.][seq][mpi
   VecDestroy(&sample);
 }
 
-TEST_CASE("Gibbs sampler converges to target mean", "[.][seq][mpi][mg]") {
+TEST_CASE("Gibbs sampler converges to target mean", "[.][seq][mpi]") {
   int rank = 0;
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
@@ -98,7 +99,7 @@ TEST_CASE("Gibbs sampler converges to target mean", "[.][seq][mpi][mg]") {
   }
 
   auto dm = create_test_dm(5);
-  auto [mat, dirichletRows] = create_test_mat(dm);
+  auto mat = create_test_mat(dm);
 
   pm::LinearOperator op{mat};
 
@@ -109,31 +110,27 @@ TEST_CASE("Gibbs sampler converges to target mean", "[.][seq][mpi][mg]") {
   VecDuplicate(mean, &expMean);
 
   pm::fillVecRand(expMean, engine);
-  MatZeroRowsColumns(mat, dirichletRows.size(), dirichletRows.data(), 1., sample, expMean);
   MatMult(mat, expMean, rhs);
 
   op.colorMatrix(dm);
 
   pm::MulticolorGibbsSampler sampler(op, engine, 1., pm::GibbsSweepType::Forward);
 
-  constexpr std::size_t N_BURNIN = 1000;
-  constexpr std::size_t N_SAMPLES = 1'000'000;
+  const std::size_t nSamples = 1'000'000;
 
-  sampler.sample(sample, rhs, N_BURNIN);
-
-  for (std::size_t n = 0; n < N_SAMPLES; ++n) {
+  for (std::size_t n = 0; n < nSamples; ++n) {
     sampler.sample(sample, rhs);
 
-    VecAXPY(mean, 1. / N_SAMPLES, sample);
+    VecAXPY(mean, 1. / nSamples, sample);
   }
 
-  PetscReal normExpected;
-  VecNorm(expMean, NORM_INFINITY, &normExpected);
+  PetscReal err;
+  VecAXPY(mean, -1, expMean);
+  VecNorm(mean, NORM_2, &err);
 
-  PetscReal normComputed;
-  VecNorm(mean, NORM_INFINITY, &normComputed);
+  MPI_Barrier(MPI_COMM_WORLD);
 
-  REQUIRE_THAT(normComputed, WithinRel(normExpected, 0.01));
+  REQUIRE_THAT(err, WithinAbs(0., 0.01));
 
   // Cleanup
   VecDestroy(&mean);
