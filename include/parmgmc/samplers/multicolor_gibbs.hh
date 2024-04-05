@@ -87,8 +87,7 @@ public:
   }
 
   MulticolorGibbsSampler(MulticolorGibbsSampler &&other) noexcept
-      : linearOperator{other.linearOperator}, engine{other.engine},
-      omega{other.omega},
+      : linearOperator{other.linearOperator}, engine{other.engine}, omega{other.omega},
         sqrtDiagOmega{other.sqrtDiagOmega}, invDiagOmega{other.invDiagOmega},
         randVec{other.randVec}, randVecSize{other.randVecSize}, sweepType{other.sweepType},
         diagPtrs{std::move(other.diagPtrs)} {
@@ -246,6 +245,7 @@ private:
     MatInfo matinfo;
     PetscCall(MatGetInfo(linearOperator.getMat(), MAT_LOCAL, &matinfo));
 
+    std::size_t ghostVecCntr = 0;
     const auto gibbsKernel = [&](PetscInt row) {
       const auto rowStart = rowptr[row];
       const auto rowEnd = rowptr[row + 1];
@@ -261,8 +261,8 @@ private:
       for (PetscInt k = rowDiag + 1; k < rowEnd; ++k)
         sum -= matvals[k] * sampleArr[colptr[k]];
 
-      for (PetscInt k = 0; k < bRowptr[row + 1] - bRowptr[row]; ++k)
-        sum -= bMatvals[bRowptr[row] + k] * ghostArr[k];
+      for (PetscInt k = bRowptr[row]; k < bRowptr[row + 1]; ++k)
+        sum -= bMatvals[k] * ghostArr[ghostVecCntr++];
 
       // Update sample
       sampleArr[row] = (1 - omega) * sampleArr[row] + randArr[row] + invDiagArr[row] * sum;
@@ -283,17 +283,13 @@ private:
         PetscCall(VecScatterBegin(scatter, sample, ghostvec, INSERT_VALUES, SCATTER_FORWARD));
         PetscCall(VecScatterEnd(scatter, sample, ghostvec, INSERT_VALUES, SCATTER_FORWARD));
 
-	// PetscMPIInt rank;
-	// PetscCallMPI(MPI_Comm_rank(MPI_COMM_WORLD, &rank));
-
-	// if (rank == 1)
-	//   PetscCall(VecView(ghostvec, PETSC_VIEWER_STDOUT_SELF));
-
         PetscCall(VecGetArrayRead(ghostvec, &ghostArr));
         PetscCall(VecGetArray(sample, &sampleArr));
 
-        for (auto idx : colorIndices)
+        ghostVecCntr = 0;
+        for (auto idx : colorIndices) {
           gibbsKernel(idx);
+        }
 
         PetscCall(VecRestoreArray(sample, &sampleArr));
         PetscCall(VecRestoreArrayRead(ghostvec, &ghostArr));
@@ -302,13 +298,8 @@ private:
       });
     }
 
-    if (sweepType == GibbsSweepType::Symmetric) {
-      // PetscCall(fillVecRand(randVec, randVecSize, engine));
-      // PetscCall(VecPointwiseMult(randVec, randVec, sqrtDiagOmega));
-      // PetscCall(VecAXPY(randVec, 1., rhs));
-      // PetscCall(VecPointwiseMult(randVec, randVec, invDiagOmega));
+    if (sweepType == GibbsSweepType::Symmetric)
       PetscCall(prepareRandVec(rhs));
-    }
 
     if (sweepType == GibbsSweepType::Backward || sweepType == GibbsSweepType::Symmetric) {
       PetscCall(PetscLogFlops(2.0 * matinfo.nz_used));
@@ -325,6 +316,9 @@ private:
         PetscCall(VecGetArrayRead(ghostvec, &ghostArr));
         PetscCall(VecGetArray(sample, &sampleArr));
 
+        // TODO: Does this do the right thing since we're now doing the sweep in reverse, so the
+        // values in the ghost vec are (partly?) reversed?
+        ghostVecCntr = 0;
         for (auto idx = colorIndices.crbegin(); idx != colorIndices.crend(); ++idx)
           gibbsKernel(*idx);
 

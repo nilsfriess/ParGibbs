@@ -11,11 +11,11 @@
 #include <mpi.h>
 #include <pcg_random.hpp>
 
-#include <memory>
 #include <petscdm.h>
 #include <petscdmda.h>
 #include <petscdmtypes.h>
 #include <petscksp.h>
+#include <petscmat.h>
 #include <petscvec.h>
 #include <petscviewer.h>
 #include <random>
@@ -104,7 +104,7 @@ TEST_CASE("Gibbs sampler converges to target mean", "[.][seq][mpi]") {
   pm::LinearOperator op{mat};
 
   Vec sample, rhs, expMean, mean;
-  DMCreateGlobalVector(dm, &sample);
+  MatCreateVecs(mat, &sample, nullptr);
   VecDuplicate(sample, &rhs);
   VecDuplicate(sample, &mean);
   VecDuplicate(mean, &expMean);
