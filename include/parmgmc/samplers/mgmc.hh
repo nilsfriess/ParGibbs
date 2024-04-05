@@ -6,7 +6,6 @@
 #include "parmgmc/linear_operator.hh"
 #include "parmgmc/samplers/multicolor_gibbs.hh"
 
-#include <iostream>
 #include <memory>
 
 #include <petscdm.h>
@@ -57,7 +56,7 @@ public:
    * A_coarse = P^T A_fine P. */
   MultigridSampler(LinearOperator &fineOperator, const DMHierarchy &dmHierarchy, Engine &engine,
                    const MGMCParameters &params = MGMCParameters::defaultParams())
-      : dmHierarchy{dmHierarchy}, engine{engine}, nLevels{dmHierarchy.numLevels()},
+      : dmHierarchy{&dmHierarchy}, engine{engine}, nLevels{dmHierarchy.numLevels()},
         nSmooth{params.nSmooth}, smoothingType{params.smoothingType},
         coarseSamplerType{params.coarseSamplerType},
         cycles{static_cast<unsigned int>(params.cycleType)} {
@@ -89,10 +88,10 @@ public:
 
   /* Constructor that must be called by classes that are derived from this
    * sampler to define a custom sampler. */
-  MultigridSampler(const MGMCParameters &params, PetscInt nLevels, Engine *engine)
+  MultigridSampler(const MGMCParameters &params, PetscInt nLevels, Engine &engine)
       : engine{engine}, nLevels{nLevels}, nSmooth{params.nSmooth},
         smoothingType{params.smoothingType}, coarseSamplerType{params.coarseSamplerType},
-        cycles{static_cast<unsigned int>(params.cycleType)} {}
+        cycles{static_cast<unsigned int>(params.cycleType)}, isDerived{true} {}
 
   PetscErrorCode sample(Vec sample, Vec rhs, std::size_t nSamples = 1) {
     PetscFunctionBeginUser;
@@ -125,15 +124,17 @@ public:
     for (auto &v : xs)
       PetscCallVoid(VecDestroy(&v));
 
-    // Delete all but the finest operator
-    for (PetscInt i = 0; i < nLevels - 1; ++i)
-      delete ops[i];
+    // Delete all but the finest operator if we're not a derived class
+    if (not isDerived) {
+      for (PetscInt i = 0; i < (PetscInt)ops.size() - 1; ++i)
+        delete ops[i];
+    }
 
     PetscFunctionReturnVoid();
   }
 
   MultigridSampler(MultigridSampler &) = delete;
-  MultigridSampler(MultigridSampler &&) = default;
+  MultigridSampler(MultigridSampler &&other) = default;
   MultigridSampler &operator=(MultigridSampler &) = delete;
   MultigridSampler &operator=(MultigridSampler &&) = default;
 
@@ -237,7 +238,7 @@ private:
 
   bool initDone = false;
 
-  const DMHierarchy &dmHierarchy;
+  const DMHierarchy *dmHierarchy;
   std::vector<std::shared_ptr<Smoother>> smoothers;
 
 #if PETSC_HAVE_MKL_CPARDISO && PETSC_HAVE_MKL_PARDISO
@@ -248,11 +249,11 @@ private:
 
 protected:
   virtual PetscErrorCode restrict(std::size_t level, Vec residual, Vec rhs) {
-    return MatRestrict(dmHierarchy.getInterpolation(level - 1), residual, rhs);
+    return MatRestrict(dmHierarchy->getInterpolation(level - 1), residual, rhs);
   }
 
   virtual PetscErrorCode prolongateAdd(std::size_t level, Vec coarse, Vec fine) {
-    return MatInterpolateAdd(dmHierarchy.getInterpolation(level - 1), coarse, fine, fine);
+    return MatInterpolateAdd(dmHierarchy->getInterpolation(level - 1), coarse, fine, fine);
   }
 
   std::vector<LinearOperator *> ops;
@@ -267,5 +268,7 @@ protected:
   MGMCSmoothingType smoothingType;
   MGMCCoarseSamplerType coarseSamplerType;
   unsigned int cycles;
+
+  bool isDerived = false;
 };
 } // namespace parmgmc
