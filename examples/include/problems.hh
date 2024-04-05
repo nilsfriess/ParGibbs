@@ -4,7 +4,7 @@
 #include "parmgmc/linear_operator.hh"
 
 #include <array>
-#include <memory>
+#include <stdexcept>
 
 #include <mpi.h>
 
@@ -12,7 +12,6 @@
 #include <petscdmtypes.h>
 #include <petscerror.h>
 #include <petscsystypes.h>
-#include <stdexcept>
 
 // inline PetscInt nextPower2(PetscInt num) {
 //   PetscInt power = 1;
@@ -31,8 +30,8 @@ struct Dim {
 class ShiftedLaplaceFD {
 public:
   ShiftedLaplaceFD(Dim dim, PetscInt globalCoarseVerticesPerDim, PetscInt refineLevels,
-                   PetscReal kappainv = 1., bool colorMatrixWithDM = true,
-                   bool includeDirichletRows = false) {
+                   PetscReal kappainv = 1., bool colorMatrixWithDM = true
+                   ) {
     PetscFunctionBeginUser;
 
     if (!(dim == 2 || dim == 3))
@@ -82,7 +81,6 @@ public:
     DMDALocalInfo info;
     PetscCallVoid(DMDAGetLocalInfo(hierarchy.getFine(), &info));
 
-    dirichletRows.reserve(6 * info.mx);
     const auto kappa2 = 1. / (kappainv * kappainv);
 
     double h2inv = 1. / ((info.mx - 1) * (info.mx - 1));
@@ -93,12 +91,6 @@ public:
           row.j = j;
           row.i = i;
 
-          if ((i == 0 || j == 0 || i == info.mx - 1 || j == info.my - 1)) {
-            if (includeDirichletRows) {
-              dirichletRows.push_back(j * info.my + i);
-              continue;
-            }
-          }
           std::size_t k = 0;
 
           if (j != 0) {
@@ -146,12 +138,6 @@ public:
             row.j = j;
             row.i = i;
 
-            if ((i == 0 || j == 0 || i == info.mx - 1 || j == info.my - 1)) {
-              if (includeDirichletRows) {
-                dirichletRows.push_back(k * (info.my * info.mz) + j * info.my + i);
-                continue;
-              }
-            }
             std::size_t n = 0;
 
             if (k != 0) {
@@ -218,17 +204,6 @@ public:
     PetscCallVoid(MatAssemblyBegin(mat, MAT_FINAL_ASSEMBLY));
     PetscCallVoid(MatAssemblyEnd(mat, MAT_FINAL_ASSEMBLY));
 
-    // Dirichlet rows are in natural ordering, convert to global using the DM's
-    // ApplicationOrdering
-    if (includeDirichletRows) {
-      AO ao;
-      PetscCallVoid(DMDAGetAO(hierarchy.getFine(), &ao));
-      PetscCallVoid(AOApplicationToPetsc(ao, dirichletRows.size(), dirichletRows.data()));
-
-      PetscCallVoid(MatZeroRowsColumns(mat, dirichletRows.size(), dirichletRows.data(), 1., nullptr,
-                                       nullptr));
-    }
-
     PetscCallVoid(MatSetOption(mat, MAT_SPD, PETSC_TRUE));
 
     op = parmgmc::LinearOperator{mat, true};
@@ -243,14 +218,10 @@ public:
   [[nodiscard]] parmgmc::LinearOperator &getOperator() { return op; }
   [[nodiscard]] const parmgmc::DMHierarchy &getHierarchy() const { return hierarchy; }
 
-  [[nodiscard]] const std::vector<PetscInt> &getDirichletRows() const { return dirichletRows; }
-
   [[nodiscard]] DM getCoarseDM() const { return hierarchy.getCoarse(); }
   [[nodiscard]] DM getFineDM() const { return hierarchy.getFine(); }
 
 private:
   parmgmc::LinearOperator op;
   parmgmc::DMHierarchy hierarchy;
-
-  std::vector<PetscInt> dirichletRows;
 };

@@ -114,6 +114,8 @@ int main(int argc, char *argv[]) {
   PetscCall(PetscOptionsGetInt(nullptr, nullptr, "-samples", &nSamples, nullptr));
   PetscInt nRuns = 5;
   PetscCall(PetscOptionsGetInt(nullptr, nullptr, "-runs", &nRuns, nullptr));
+  PetscInt dim = 2;
+  PetscCall(PetscOptionsGetInt(nullptr, nullptr, "-dim", &dim, nullptr));
   PetscInt nRefine = 3;
   PetscCall(PetscOptionsGetInt(nullptr, nullptr, "-refine", &nRefine, nullptr));
   PetscReal kappainv = 1.;
@@ -149,7 +151,7 @@ int main(int argc, char *argv[]) {
   PetscCall(PetscPrintf(MPI_COMM_WORLD, "##################################################"
                                         "################\n"));
 
-  ShiftedLaplaceFD problem(Dim{3}, size, nRefine, kappainv);
+  ShiftedLaplaceFD problem(Dim{dim}, size, nRefine, kappainv);
 
   DMDALocalInfo fineInfo, coarseInfo;
   PetscCall(DMDAGetLocalInfo(problem.getFineDM(), &fineInfo));
@@ -193,8 +195,6 @@ int main(int argc, char *argv[]) {
   PetscCall(VecDuplicate(rhs, &boundaryCond));
 
   PetscCall(fillVecRand(tgtMean, engine));
-  PetscCall(MatZeroRowsColumns(problem.getOperator().getMat(), problem.getDirichletRows().size(),
-                               problem.getDirichletRows().data(), 1., boundaryCond, tgtMean));
   PetscCall(MatMult(problem.getOperator().getMat(), tgtMean, rhs));
 
   PetscCall(VecDestroy(&boundaryCond));

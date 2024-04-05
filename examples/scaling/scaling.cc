@@ -46,9 +46,6 @@ PetscErrorCode testGibbsSampler(ShiftedLaplaceFD &problem, PetscInt nSamples, En
   PetscCall(MatCreateVecs(problem.getOperator().getMat(), &sample, nullptr));
   PetscCall(VecDuplicate(sample, &rhs));
 
-  PetscCall(MatZeroRowsColumns(problem.getOperator().getMat(), problem.getDirichletRows().size(),
-                               problem.getDirichletRows().data(), 1., sample, rhs));
-
   PetscCall(fillVecRand(rhs, engine));
 
   Timer timer;
@@ -84,9 +81,6 @@ PetscErrorCode testHogwildGibbsSampler(ShiftedLaplaceFD &problem, PetscInt nSamp
   PetscCall(MatCreateVecs(problem.getOperator().getMat(), &sample, nullptr));
   PetscCall(VecDuplicate(sample, &rhs));
 
-  PetscCall(MatZeroRowsColumns(problem.getOperator().getMat(), problem.getDirichletRows().size(),
-                               problem.getDirichletRows().data(), 1., sample, rhs));
-
   PetscCall(fillVecRand(rhs, engine));
 
   Timer timer;
@@ -121,9 +115,6 @@ PetscErrorCode testMGMCSampler(ShiftedLaplaceFD &problem, PetscInt nSamples, Eng
   Vec sample, rhs;
   PetscCall(MatCreateVecs(problem.getOperator().getMat(), &sample, nullptr));
   PetscCall(VecDuplicate(sample, &rhs));
-
-  PetscCall(MatZeroRowsColumns(problem.getOperator().getMat(), problem.getDirichletRows().size(),
-                               problem.getDirichletRows().data(), 1., sample, rhs));
 
   PetscCall(fillVecRand(rhs, engine));
 
