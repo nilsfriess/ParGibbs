@@ -1,9 +1,9 @@
 #include "parmgmc/common/petsc_helper.hh"
+#include "parmgmc/samplers/cholesky.hh"
 #include "parmgmc/samplers/mgmc.hh"
 #include "parmgmc/samplers/multicolor_gibbs.hh"
 #include "problems.hh"
 
-#include <iostream>
 #include <petscmat.h>
 #include <petscvec.h>
 #include <petscviewer.h>
@@ -69,43 +69,101 @@ PetscErrorCode outerProd(Vec a, Vec b, Mat res) {
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
-PetscErrorCode updateSampleMeanAndCov(Vec newSample, PetscInt sampleIdx, Vec mean, Mat cov) {
-  PetscFunctionBeginUser;
+class Statistics {
+public:
+  Statistics(Mat covReference, Vec meanReference) {
+    PetscFunctionBeginUser;
 
-  // Mean update
+    PetscCallVoid(MatDuplicate(covReference, MAT_DO_NOT_COPY_VALUES, &cov));
+    PetscCallVoid(MatDuplicate(covReference, MAT_DO_NOT_COPY_VALUES, &outerProdTmp));
+
+    PetscCallVoid(VecDuplicate(meanReference, &mean));
+    PetscCallVoid(VecDuplicate(meanReference, &tmp));
+
+    PetscFunctionReturnVoid();
+  }
+
+  PetscErrorCode addSample(Vec newSample) {
+    PetscFunctionBeginUser;
+
+    // If sampleIdx == 0, we can't compute the covariance yet
+    if (sampleIdx == 0) {
+      PetscCall(VecCopy(newSample, mean));
+    } else if (sampleIdx == 1) {
+      PetscCall(VecCopy(mean, tmp)); // mean == sample 0
+
+      // Compute mean
+      PetscCall(VecAXPY(mean, 1., newSample));
+      PetscCall(VecScale(mean, 0.5));
+
+      // Compute sample covariance
+      PetscCall(VecAXPY(tmp, -1, mean)); // == sample0 - mean1
+      PetscCall(outerProd(tmp, tmp, cov));
+
+      PetscCall(VecCopy(newSample, tmp));
+      PetscCall(VecAXPY(tmp, -1, mean)); // == sample1 - mean1
+      PetscCall(outerProd(tmp, tmp, outerProdTmp));
+
+      PetscCall(MatAXPY(cov, 1., outerProdTmp, SAME_NONZERO_PATTERN));
+    } else {
+      // Mean update
+      PetscCall(VecCopy(newSample, tmp));
+
+      PetscCall(VecAXPY(tmp, -1., mean));
+      PetscCall(VecScale(tmp, 1. / (1 + sampleIdx)));
+      PetscCall(VecAXPY(mean, 1., tmp));
+
+      // Cov update
+      PetscCall(MatScale(cov, (1. * sampleIdx) / (1 + sampleIdx)));
+
+      PetscCall(VecCopy(newSample, tmp));
+      PetscCall(VecAXPY(tmp, -1., mean));
+      PetscCall(outerProd(tmp, tmp, outerProdTmp));
+      PetscCall(MatAXPY(cov, (1. * sampleIdx) / ((1 + sampleIdx) * (1 + sampleIdx)), outerProdTmp,
+                        SAME_NONZERO_PATTERN));
+
+      // PetscCall(MatScale(cov, (sampleIdx - 2.) / (sampleIdx - 1.)));
+      // PetscCall(outerProd(newSample, newSample, outerProdTmp));
+      // PetscCall(MatAXPY(cov, 1. / sampleIdx, outerProdTmp, SAME_NONZERO_PATTERN));
+    }
+
+    sampleIdx++;
+    PetscFunctionReturn(PETSC_SUCCESS);
+  }
+
+  ~Statistics() {
+    PetscFunctionBeginUser;
+
+    PetscCallVoid(MatDestroy(&cov));
+    PetscCallVoid(MatDestroy(&outerProdTmp));
+
+    PetscCallVoid(VecDestroy(&mean));
+    PetscCallVoid(VecDestroy(&tmp));
+
+    PetscFunctionReturnVoid();
+  }
+
+  Vec getMean() const { return mean; }
+  Mat getCov() const { return cov; }
+
+private:
+  PetscInt sampleIdx = 0;
+
+  Mat cov;
+  Vec mean;
+
   Vec tmp;
-  PetscCall(VecDuplicate(newSample, &tmp));
-  PetscCall(VecCopy(newSample, tmp));
-
-  PetscCall(VecAXPY(tmp, -1., mean));
-  PetscCall(VecScale(tmp, 1. / (1 + sampleIdx)));
-  PetscCall(VecAXPY(mean, 1., tmp));
-
-  // Cov update
-  PetscCall(MatScale(cov, (1. * sampleIdx) / (1 + sampleIdx)));
-
-  Mat outerProdMat;
-  PetscCall(MatDuplicate(cov, MAT_DO_NOT_COPY_VALUES, &outerProdMat));
-
-  PetscCall(VecCopy(newSample, tmp));
-  PetscCall(VecAXPY(tmp, -1., mean));
-  PetscCall(outerProd(tmp, tmp, outerProdMat));
-  PetscCall(MatAXPY(cov, (1. * sampleIdx) / ((1 + sampleIdx) * (1 + sampleIdx)), outerProdMat,
-                    SAME_NONZERO_PATTERN));
-
-  PetscCall(VecDestroy(&tmp));
-  PetscCall(MatDestroy(&outerProdMat));
-
-  PetscFunctionReturn(PETSC_SUCCESS);
-}
+  Mat outerProdTmp;
+};
 
 int main(int argc, char *argv[]) {
   PetscHelper::init(argc, argv);
 
   PetscInt size = 5;
+  PetscInt levels = 3;
+  Dim dim{2};
 
-  ShiftedLaplaceFD problem(Dim{2}, size, 1);
-
+  ShiftedLaplaceFD problem(dim, size, levels, 10);
   auto mat = problem.getOperator().getMat();
 
   Mat exactCov;
@@ -117,60 +175,48 @@ int main(int argc, char *argv[]) {
   Vec sample, rhs;
   PetscCall(MatCreateVecs(mat, &sample, &rhs));
 
-  // PetscCall(PetscViewerPushFormat(PETSC_VIEWER_STDOUT_WORLD, PETSC_VIEWER_ASCII_DENSE));
-  // PetscCall(MatView(mat, PETSC_VIEWER_STDOUT_WORLD));
+  Vec tgtMean;
+  PetscCall(VecDuplicate(rhs, &tgtMean));
+  PetscCall(VecSet(tgtMean, 1));
 
-  PetscCall(MatZeroRowsColumns(problem.getOperator().getMat(), problem.getDirichletRows().size(),
-                               problem.getDirichletRows().data(), 1., sample, rhs));
+  double tgtMeanNorm;
+  PetscCall(VecNorm(tgtMean, NORM_2, &tgtMeanNorm));
+
+  PetscCall(MatMult(problem.getOperator().getMat(), tgtMean, rhs));
+
+  Statistics stat{exactCov, sample};
 
   std::mt19937 engine{std::random_device{}()};
-  // MulticolorGibbsSampler sampler(problem.getOperator(), &engine);
+
+  // MulticolorGibbsSampler sampler(problem.getOperator(), engine);
   MGMCParameters params;
-  MultigridSampler sampler(problem.getOperator(), problem.getHierarchy(), engine);
+  params.coarseSamplerType = MGMCCoarseSamplerType::Standard;
+  MultigridSampler sampler(problem.getOperator(), problem.getHierarchy(), engine, params);
+  // CholeskySampler sampler(problem.getOperator(), engine);
 
-  PetscInt nSamples = 100;
+  Mat err;
+  PetscCall(MatDuplicate(exactCov, MAT_DO_NOT_COPY_VALUES, &err));
 
-  Mat estCov;
-  PetscCall(MatDuplicate(exactCov, MAT_DO_NOT_COPY_VALUES, &estCov));
-  Vec estMean;
-
-  PetscCall(VecDuplicate(sample, &estMean));
-
-  Vec sample0;
-  PetscCall(VecDuplicate(sample, &sample0));
-
+  PetscInt nSamples = 1000;
   for (PetscInt i = 0; i < nSamples; ++i) {
     PetscCall(sampler.sample(sample, rhs));
-
-    if (i == 0)
-      PetscCall(VecCopy(sample, sample0));
-    if (i == 1) {
-      Mat tmp;
-      PetscCall(MatDuplicate(estCov, MAT_DO_NOT_COPY_VALUES, &tmp));
-      PetscCall(outerProd(sample0, sample0, estCov));
-      PetscCall(outerProd(sample, sample, tmp));
-      PetscCall(MatAXPY(estCov, 1., tmp, SAME_NONZERO_PATTERN));
-      PetscCall(MatDestroy(&tmp));
-    }
-
-    PetscCall(updateSampleMeanAndCov(sample, i, estMean, estCov));
+    PetscCall(stat.addSample(sample));
 
     PetscReal meanNorm;
-    PetscCall(VecNorm(estMean, NORM_2, &meanNorm));
+    PetscCall(VecNorm(stat.getMean(), NORM_2, &meanNorm));
+
+    PetscCall(MatCopy(exactCov, err, SAME_NONZERO_PATTERN));
+    PetscCall(MatAXPY(err, -1., stat.getCov(), SAME_NONZERO_PATTERN));
 
     PetscReal covNorm;
-    PetscCall(MatNorm(estCov, NORM_FROBENIUS, &covNorm));
+    PetscCall(MatNorm(err, NORM_FROBENIUS, &covNorm));
 
-    PetscCall(PetscPrintf(MPI_COMM_WORLD, "%.4f, %.4f\n", meanNorm,
-                          std::abs((covNorm - exactCovNorm) / exactCovNorm)));
+    PetscCall(PetscPrintf(MPI_COMM_WORLD, "%.4f, %.4f\n", std::abs(meanNorm - tgtMeanNorm),
+                          std::abs(covNorm / exactCovNorm)));
   }
 
-  // PetscCall(MatView(estCov, PETSC_VIEWER_STDOUT_WORLD));
-
-  PetscCall(VecDestroy(&sample0));
-  PetscCall(MatDestroy(&estCov));
-  PetscCall(VecDestroy(&estMean));
   PetscCall(VecDestroy(&rhs));
+  PetscCall(VecDestroy(&tgtMean));
   PetscCall(VecDestroy(&sample));
   PetscCall(MatDestroy(&exactCov));
 }
