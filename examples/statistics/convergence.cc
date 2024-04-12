@@ -1,10 +1,15 @@
 #include "parmgmc/common/petsc_helper.hh"
 #include "parmgmc/samplers/cholesky.hh"
+#include "parmgmc/samplers/hogwild.hh"
 #include "parmgmc/samplers/mgmc.hh"
 #include "parmgmc/samplers/multicolor_gibbs.hh"
 #include "problems.hh"
 
+#include <cassert>
+#include <pcg_random.hpp>
+#include <petscerror.h>
 #include <petscmat.h>
+#include <petscsystypes.h>
 #include <petscvec.h>
 #include <petscviewer.h>
 #include <random>
@@ -41,15 +46,14 @@ PetscErrorCode denseInverse(Mat mat, Mat *inverse) {
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
-PetscErrorCode outerProd(Vec a, Vec b, Mat res) {
+PetscErrorCode outerProd(Vec a, Mat res, bool add = false) {
   PetscFunctionBeginUser;
 
   PetscScalar *arr;
-  const PetscScalar *aArr, *bArr;
+  const PetscScalar *aArr;
   PetscCall(MatDenseGetArray(res, &arr));
 
   PetscCall(VecGetArrayRead(a, &aArr));
-  PetscCall(VecGetArrayRead(b, &bArr));
 
   PetscInt size;
   PetscCall(VecGetSize(a, &size));
@@ -58,165 +62,223 @@ PetscErrorCode outerProd(Vec a, Vec b, Mat res) {
     for (PetscInt i = 0; i < size; ++i) {
       const auto idx = j * size + i;
 
-      arr[idx] = aArr[i] * bArr[j];
+      if (add)
+        arr[idx] += aArr[i] * aArr[j];
+      else
+        arr[idx] = aArr[i] * aArr[j];
     }
   }
 
   PetscCall(VecRestoreArrayRead(a, &aArr));
-  PetscCall(VecRestoreArrayRead(b, &bArr));
-
   PetscCall(MatDenseRestoreArray(res, &arr));
+
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
-class Statistics {
-public:
-  Statistics(Mat covReference, Vec meanReference) {
-    PetscFunctionBeginUser;
+PetscErrorCode computeMean(const std::vector<Vec> &samples, Vec m) {
+  PetscFunctionBeginUser;
 
-    PetscCallVoid(MatDuplicate(covReference, MAT_DO_NOT_COPY_VALUES, &cov));
-    PetscCallVoid(MatDuplicate(covReference, MAT_DO_NOT_COPY_VALUES, &outerProdTmp));
+  PetscCall(VecZeroEntries(m));
 
-    PetscCallVoid(VecDuplicate(meanReference, &mean));
-    PetscCallVoid(VecDuplicate(meanReference, &tmp));
+  const auto nSamples = samples.size();
+  assert(nSamples > 0);
 
-    PetscFunctionReturnVoid();
-  }
+  for (auto &sample : samples)
+    PetscCall(VecAXPY(m, 1., sample));
+  PetscCall(VecScale(m, 1. / nSamples));
 
-  PetscErrorCode addSample(Vec newSample) {
-    PetscFunctionBeginUser;
+  PetscFunctionReturn(PETSC_SUCCESS);
+}
 
-    // If sampleIdx == 0, we can't compute the covariance yet
-    if (sampleIdx == 0) {
-      PetscCall(VecCopy(newSample, mean));
-    } else if (sampleIdx == 1) {
-      PetscCall(VecCopy(mean, tmp)); // mean == sample 0
+PetscErrorCode computeCov(const std::vector<Vec> &samples, Vec mean, Mat c) {
+  PetscFunctionBeginUser;
 
-      // Compute mean
-      PetscCall(VecAXPY(mean, 1., newSample));
-      PetscCall(VecScale(mean, 0.5));
+  PetscCall(MatZeroEntries(c));
 
-      // Compute sample covariance
-      PetscCall(VecAXPY(tmp, -1, mean)); // == sample0 - mean1
-      PetscCall(outerProd(tmp, tmp, cov));
-
-      PetscCall(VecCopy(newSample, tmp));
-      PetscCall(VecAXPY(tmp, -1, mean)); // == sample1 - mean1
-      PetscCall(outerProd(tmp, tmp, outerProdTmp));
-
-      PetscCall(MatAXPY(cov, 1., outerProdTmp, SAME_NONZERO_PATTERN));
-    } else {
-      // Mean update
-      PetscCall(VecCopy(newSample, tmp));
-
-      PetscCall(VecAXPY(tmp, -1., mean));
-      PetscCall(VecScale(tmp, 1. / (1 + sampleIdx)));
-      PetscCall(VecAXPY(mean, 1., tmp));
-
-      // Cov update
-      PetscCall(MatScale(cov, (1. * sampleIdx) / (1 + sampleIdx)));
-
-      PetscCall(VecCopy(newSample, tmp));
-      PetscCall(VecAXPY(tmp, -1., mean));
-      PetscCall(outerProd(tmp, tmp, outerProdTmp));
-      PetscCall(MatAXPY(cov, (1. * sampleIdx) / ((1 + sampleIdx) * (1 + sampleIdx)), outerProdTmp,
-                        SAME_NONZERO_PATTERN));
-
-      // PetscCall(MatScale(cov, (sampleIdx - 2.) / (sampleIdx - 1.)));
-      // PetscCall(outerProd(newSample, newSample, outerProdTmp));
-      // PetscCall(MatAXPY(cov, 1. / sampleIdx, outerProdTmp, SAME_NONZERO_PATTERN));
-    }
-
-    sampleIdx++;
-    PetscFunctionReturn(PETSC_SUCCESS);
-  }
-
-  ~Statistics() {
-    PetscFunctionBeginUser;
-
-    PetscCallVoid(MatDestroy(&cov));
-    PetscCallVoid(MatDestroy(&outerProdTmp));
-
-    PetscCallVoid(VecDestroy(&mean));
-    PetscCallVoid(VecDestroy(&tmp));
-
-    PetscFunctionReturnVoid();
-  }
-
-  Vec getMean() const { return mean; }
-  Mat getCov() const { return cov; }
-
-private:
-  PetscInt sampleIdx = 0;
-
-  Mat cov;
-  Vec mean;
+  const auto nSamples = samples.size();
+  assert(nSamples > 1);
 
   Vec tmp;
-  Mat outerProdTmp;
-};
+  PetscCall(VecDuplicate(mean, &tmp));
+
+  Mat tmpMat;
+  PetscCall(MatDuplicate(c, MAT_DO_NOT_COPY_VALUES, &tmpMat));
+
+  for (auto &sample : samples) {
+    PetscCall(VecWAXPY(tmp, -1., mean, sample));
+    PetscCall(outerProd(tmp, tmpMat));
+    PetscCall(MatAXPY(c, 1. / (nSamples - 1), tmpMat, SAME_NONZERO_PATTERN));
+  }
+
+  PetscCall(MatDestroy(&tmpMat));
+  PetscCall(VecDestroy(&tmp));
+
+  // PetscCall(PetscViewerPushFormat(PETSC_VIEWER_STDOUT_WORLD, PETSC_VIEWER_ASCII_DENSE));
+  // PetscCall(MatView(c, PETSC_VIEWER_STDOUT_WORLD));
+
+  PetscFunctionReturn(PETSC_SUCCESS);
+}
+
+template <typename Problem, typename SamplerConstructor>
+PetscErrorCode run(const Problem &problem, Mat exactCov, SamplerConstructor &&sc) {
+  PetscInt nSamplers = 10;
+  PetscInt nRuns = 2;
+
+  PetscFunctionBeginUser;
+
+  PetscCall(PetscOptionsGetInt(nullptr, nullptr, "--samplers", &nSamplers, nullptr));
+  PetscCall(PetscOptionsGetInt(nullptr, nullptr, "--runs", &nRuns, nullptr));
+
+  PetscReal exactCovNorm;
+  PetscCall(MatNorm(exactCov, NORM_FROBENIUS, &exactCovNorm));
+
+  std::vector<decltype(sc())> samplers;
+  samplers.reserve(nSamplers);
+  for (PetscInt i = 0; i < nSamplers; ++i)
+    samplers.emplace_back(sc());
+
+  std::vector<Vec> samples{static_cast<std::size_t>(nSamplers), nullptr};
+  Vec rhs;
+  for (auto &sample : samples)
+    PetscCall(MatCreateVecs(problem.getOperator().getMat(), &sample, nullptr));
+  PetscCall(VecDuplicate(samples[0], &rhs));
+
+  Vec mean;
+  PetscCall(VecDuplicate(rhs, &mean));
+  Mat cov;
+  PetscCall(MatDuplicate(exactCov, MAT_DO_NOT_COPY_VALUES, &cov));
+
+  for (PetscInt i = 0; i < nRuns; ++i) {
+    for (PetscInt s = 0; s < nSamplers; ++s) {
+      PetscCall(samplers[s].sample(samples[s], rhs));
+    }
+
+    PetscCall(computeMean(samples, mean));
+    PetscCall(computeCov(samples, mean, cov));
+
+    PetscScalar meanNorm, covNorm;
+    PetscCall(VecNorm(mean, NORM_2, &meanNorm));
+
+    PetscCall(MatAXPY(cov, -1., exactCov, SAME_NONZERO_PATTERN));
+    PetscCall(MatNorm(cov, NORM_FROBENIUS, &covNorm));
+
+    PetscCall(PetscPrintf(MPI_COMM_WORLD, "%.4f, %.4f\n", meanNorm, covNorm / exactCovNorm));
+  }
+
+  PetscCall(VecDestroy(&rhs));
+  PetscCall(VecDestroy(&mean));
+  PetscCall(MatDestroy(&cov));
+  for (auto &sample : samples)
+    PetscCall(VecDestroy(&sample));
+
+  PetscFunctionReturn(PETSC_SUCCESS);
+}
 
 int main(int argc, char *argv[]) {
   PetscHelper::init(argc, argv);
 
-  PetscInt size = 5;
+  PetscInt size = 3;
   PetscInt levels = 3;
   Dim dim{2};
 
-  ShiftedLaplaceFD problem(dim, size, levels, 10);
+  enum class SamplerType { Gibbs, MGMC, Cholesky };
+
+  using Engine = pcg32;
+  Engine engine{std::random_device{}()};
+
+  SamplerType type = SamplerType::MGMC;
+
+  SimpleGMRF problem(dim, size, levels);
+  // ShiftedLaplaceFD problem(dim, size, levels, 100);
+  // DiagonalPrecisionMatrix problem(dim, size, levels);
   auto mat = problem.getOperator().getMat();
 
   Mat exactCov;
   PetscCall(denseInverse(mat, &exactCov));
 
-  PetscReal exactCovNorm;
-  PetscCall(MatNorm(exactCov, NORM_FROBENIUS, &exactCovNorm));
+  // PetscCall(PetscViewerPushFormat(PETSC_VIEWER_STDOUT_WORLD, PETSC_VIEWER_ASCII_DENSE));
+  // PetscCall(MatView(exactCov, PETSC_VIEWER_STDOUT_WORLD));
 
-  Vec sample, rhs;
-  PetscCall(MatCreateVecs(mat, &sample, &rhs));
+  switch (type) {
+  case SamplerType::Gibbs:
+    PetscCall(run(problem, exactCov, [&]() {
+      return MulticolorGibbsSampler{problem.getOperator(), engine, 1.9852};
+    }));
+    break;
 
-  Vec tgtMean;
-  PetscCall(VecDuplicate(rhs, &tgtMean));
-  PetscCall(VecSet(tgtMean, 1));
+  case SamplerType::MGMC: {
+    MGMCParameters params;
+    params.nSmooth = 2;
+    params.cycleType = MGMCCycleType::V;
+    params.smoothingType = MGMCSmoothingType::ForwardOnly;
+    params.coarseSamplerType = MGMCCoarseSamplerType::Cholesky;
 
-  double tgtMeanNorm;
-  PetscCall(VecNorm(tgtMean, NORM_2, &tgtMeanNorm));
-
-  PetscCall(MatMult(problem.getOperator().getMat(), tgtMean, rhs));
-
-  Statistics stat{exactCov, sample};
-
-  std::mt19937 engine{std::random_device{}()};
-
-  // MulticolorGibbsSampler sampler(problem.getOperator(), engine);
-  MGMCParameters params;
-  params.coarseSamplerType = MGMCCoarseSamplerType::Standard;
-  MultigridSampler sampler(problem.getOperator(), problem.getHierarchy(), engine, params);
-  // CholeskySampler sampler(problem.getOperator(), engine);
-
-  Mat err;
-  PetscCall(MatDuplicate(exactCov, MAT_DO_NOT_COPY_VALUES, &err));
-
-  PetscInt nSamples = 1000;
-  for (PetscInt i = 0; i < nSamples; ++i) {
-    PetscCall(sampler.sample(sample, rhs));
-    PetscCall(stat.addSample(sample));
-
-    PetscReal meanNorm;
-    PetscCall(VecNorm(stat.getMean(), NORM_2, &meanNorm));
-
-    PetscCall(MatCopy(exactCov, err, SAME_NONZERO_PATTERN));
-    PetscCall(MatAXPY(err, -1., stat.getCov(), SAME_NONZERO_PATTERN));
-
-    PetscReal covNorm;
-    PetscCall(MatNorm(err, NORM_FROBENIUS, &covNorm));
-
-    PetscCall(PetscPrintf(MPI_COMM_WORLD, "%.4f, %.4f\n", std::abs(meanNorm - tgtMeanNorm),
-                          std::abs(covNorm / exactCovNorm)));
+    PetscCall(run(problem, exactCov, [&]() {
+      return MultigridSampler{problem.getOperator(), problem.getHierarchy(), engine, params};
+    }));
+    break;
   }
 
-  PetscCall(VecDestroy(&rhs));
-  PetscCall(VecDestroy(&tgtMean));
-  PetscCall(VecDestroy(&sample));
+  case SamplerType::Cholesky:
+    PetscCall(run(problem, exactCov, [&]() {
+      return CholeskySampler{problem.getOperator(), engine};
+    }));
+    break;
+
+  default:
+    PetscCall(PetscPrintf(MPI_COMM_WORLD, "Not implemented\n"));
+  }
+
+  PetscCall(MatDestroy(&exactCov));
+
+  // Vec sample, rhs;
+  // PetscCall(MatCreateVecs(mat, &sample, &rhs));
+
+  // Vec tgtMean;
+  // PetscCall(VecDuplicate(rhs, &tgtMean));
+  // PetscCall(VecSet(tgtMean, 2));
+
+  // double tgtMeanNorm;
+  // PetscCall(VecNorm(tgtMean, NORM_2, &tgtMeanNorm));
+
+  // PetscCall(MatMult(problem.getOperator().getMat(), tgtMean, rhs));
+
+  // Statistics stat{exactCov, sample};
+
+  // std::mt19937 engine{std::random_device{}()};
+
+  // // MulticolorGibbsSampler sampler(problem.getOperator(), engine);
+  // MGMCParameters params;
+  // params.nSmooth = 2;
+  // params.cycleType = MGMCCycleType::V;
+  // params.smoothingType = MGMCSmoothingType::ForwardOnly;
+  // params.coarseSamplerType = MGMCCoarseSamplerType::Cholesky;
+  // MultigridSampler sampler(problem.getOperator(), problem.getHierarchy(), engine, params);
+  // // CholeskySampler sampler(problem.getOperator(), engine);
+
+  // Mat err;
+  // PetscCall(MatDuplicate(exactCov, MAT_DO_NOT_COPY_VALUES, &err));
+
+  // PetscInt nSamples = 1000;
+  // for (PetscInt i = 0; i < nSamples; ++i) {
+  //   PetscCall(sampler.sample(sample, rhs));
+  //   PetscCall(stat.addSample(sample));
+
+  //   PetscReal meanNorm;
+  //   PetscCall(VecNorm(stat.getMean(), NORM_2, &meanNorm));
+
+  //   PetscCall(MatCopy(exactCov, err, SAME_NONZERO_PATTERN));
+  //   PetscCall(MatAXPY(err, -1., stat.getCov(), SAME_NONZERO_PATTERN));
+
+  //   PetscReal covNorm;
+  //   PetscCall(MatNorm(err, NORM_FROBENIUS, &covNorm));
+
+  //   PetscCall(PetscPrintf(MPI_COMM_WORLD, "%.4f, %.4f\n", std::abs(meanNorm - tgtMeanNorm),
+  //                         (covNorm / exactCovNorm)));
+  // }
+
+  // PetscCall(VecDestroy(&rhs));
+  // PetscCall(VecDestroy(&tgtMean));
+  // PetscCall(VecDestroy(&sample));
   PetscCall(MatDestroy(&exactCov));
 }
