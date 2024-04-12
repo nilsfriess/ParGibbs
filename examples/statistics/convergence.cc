@@ -210,7 +210,7 @@ int main(int argc, char *argv[]) {
     MGMCParameters params;
     params.nSmooth = 2;
     params.cycleType = MGMCCycleType::V;
-    params.smoothingType = MGMCSmoothingType::ForwardOnly;
+    params.smoothingType = MGMCSmoothingType::ForwardBackward;
     params.coarseSamplerType = MGMCCoarseSamplerType::Cholesky;
 
     PetscCall(run(problem, exactCov, [&]() {
