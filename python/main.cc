@@ -1,5 +1,6 @@
 #include <petscsystypes.h>
 #include <pybind11/pybind11.h>
+
 #include <random>
 
 #include "parmgmc/common/helpers.hh"
@@ -31,16 +32,24 @@ PYBIND11_MODULE(pymgmc, m) {
       .def(py::init([](Mat m) {
         return LinearOperator{m, false};
       }))
+      .def("getMat", &LinearOperator::getMat, py::return_value_policy::reference)
       .def("colorMatrix", py::overload_cast<>(&LinearOperator::colorMatrix),
            "Generate a colouring for the matrix stored in the operator")
       .def("colorMatrix", py::overload_cast<DM>(&LinearOperator::colorMatrix),
            "Generate a red/black colouring for the matrix stored in the operator");
 
+  py::enum_<GibbsSweepType>(m, "GibbsSweepType")
+      .value("Forward", GibbsSweepType::Forward)
+      .value("Backward", GibbsSweepType::Backward)
+      .value("Symmetric", GibbsSweepType::Symmetric);
+
   using GibbsSampler = MulticolorGibbsSampler<Engine>;
   py::class_<GibbsSampler>(m, "GibbsSampler")
-      .def(py::init([&](LinearOperator &op) {
-        return GibbsSampler{op, engine};
-      }))
+      .def(py::init([&](LinearOperator &op, double omega, GibbsSweepType sweepType) {
+             return GibbsSampler{op, engine, omega, sweepType};
+           }),
+           py::arg("linearOperator"), py::kw_only(), py::arg("omega") = 1.,
+           py::arg("sweepType") = GibbsSweepType::Forward)
       .def("sample", [](GibbsSampler &self, Vec rhs, Vec sample) {
         PetscFunctionBeginUser;
 
@@ -66,21 +75,36 @@ PYBIND11_MODULE(pymgmc, m) {
       .value("V", MGMCCycleType::V)
       .value("W", MGMCCycleType::W);
 
+  py::enum_<MGMCCoarseSamplerType>(m, "CoarseSamplerType")
+      .value("SymmetricGibbs", MGMCCoarseSamplerType::Standard)
+#if PETSC_HAVE_MKL_CPARDISO && PETSC_HAVE_MKL_PARDISO
+      .value("Cholesky", MGMCCoarseSamplerType::Cholesky)
+#endif
+      ;
+
   using MGMCSampler = MultigridSampler<Engine>;
   py::class_<MGMCSampler>(m, "MGMCSampler")
       .def(py::init([&](LinearOperator &fineOperator, const DMHierarchy &dmHierarchy,
                         MGMCSmoothingType smoothingType, MGMCCycleType cycleType,
-                        std::size_t smoothingSteps) {
+                        std::size_t smoothingSteps, MGMCCoarseSamplerType coarseSamplerType) {
              MGMCParameters params;
              params.smoothingType = smoothingType;
              params.cycleType = cycleType;
              params.nSmooth = smoothingSteps;
+             params.coarseSamplerType = coarseSamplerType;
 
              return MGMCSampler{fineOperator, dmHierarchy, engine, params};
            }),
            py::arg("fineOperator"), py::arg("dmHierarchy"), py::kw_only(),
            py::arg("smoothing") = MGMCSmoothingType::ForwardBackward,
-           py::arg("cycle") = MGMCCycleType::V, py::arg("smoothingSteps") = 2)
+           py::arg("cycle") = MGMCCycleType::V, py::arg("smoothingSteps") = 2,
+           py::arg("coarseSampler") =
+#if PETSC_HAVE_MKL_CPARDISO && PETSC_HAVE_MKL_PARDISO
+               MGMCCoarseSamplerType::Cholesky
+#else
+	       MGMCCoarseSamplerType::Standard
+#endif
+           )
       .def("sample", [](MGMCSampler &self, Vec rhs, Vec sample) {
         PetscFunctionBeginUser;
 
