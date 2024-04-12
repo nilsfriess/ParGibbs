@@ -11,7 +11,7 @@ namespace parmgmc {
 template <class Engine> class HogwildGibbsSampler {
 public:
   HogwildGibbsSampler(const LinearOperator &linearOperator, Engine &engine)
-      : linearOperator{linearOperator}, engine{engine}, type{GibbsSweepType::Forward} {
+      : linearOperator{linearOperator}, engine{engine} {
     PetscFunctionBeginUser;
 
     PetscCallVoid(MatCreateVecs(linearOperator.getMat(), &randVec, nullptr));
@@ -53,6 +53,8 @@ private:
       return SOR_LOCAL_BACKWARD_SWEEP;
     case GibbsSweepType::Symmetric:
       return SOR_LOCAL_SYMMETRIC_SWEEP;
+    default:
+      return SOR_LOCAL_FORWARD_SWEEP;
     }
   }
 
@@ -65,6 +67,6 @@ private:
 
   Vec sqrtDiag;
 
-  GibbsSweepType type;
+  GibbsSweepType type = GibbsSweepType::Forward;
 };
 } // namespace parmgmc
