@@ -134,7 +134,7 @@ public:
   }
 
   MultigridSampler(MultigridSampler &) = delete;
-  MultigridSampler(MultigridSampler &&other) = default;
+  MultigridSampler(MultigridSampler &&) = default;
   MultigridSampler &operator=(MultigridSampler &) = delete;
   MultigridSampler &operator=(MultigridSampler &&) = default;
 
@@ -194,7 +194,7 @@ private:
 #endif
 
       // Pre smooth
-      if (smoothingType != MGMCSmoothingType::Symmetric)
+      if (smoothingType == MGMCSmoothingType::ForwardBackward)
         currSmoother->setSweepType(GibbsSweepType::Forward);
       PetscCall(currSmoother->sample(xs[level], bs[level], nSmooth));
 
@@ -213,7 +213,7 @@ private:
       PetscCall(prolongateAdd(level, xs[level - 1], xs[level]));
 
       // Post smooth
-      if (smoothingType != MGMCSmoothingType::Symmetric)
+      if (smoothingType == MGMCSmoothingType::ForwardBackward)
         currSmoother->setSweepType(GibbsSweepType::Backward);
       PetscCall(currSmoother->sample(xs[level], bs[level], nSmooth));
     } else {
@@ -222,12 +222,12 @@ private:
       if (coarseSamplerType == MGMCCoarseSamplerType::Cholesky) {
         PetscCall(coarseSampler->sample(xs[0], bs[0]));
       } else {
-        if (smoothingType != MGMCSmoothingType::Symmetric)
+        if (smoothingType == MGMCSmoothingType::ForwardBackward)
           smoothers[0]->setSweepType(GibbsSweepType::Symmetric);
         PetscCall(smoothers[0]->sample(xs[0], bs[0], 2 * nSmooth));
       }
 #else
-      if (smoothingType != MGMCSmoothingType::Symmetric)
+      if (smoothingType == MGMCSmoothingType::ForwardBackward)
         smoothers[0]->setSweepType(GibbsSweepType::Symmetric);
       PetscCall(smoothers[0]->sample(xs[0], bs[0], 2 * nSmooth));
 #endif
@@ -245,7 +245,7 @@ private:
   std::shared_ptr<CholeskySampler<Engine>> coarseSampler;
 #endif
 
-  Engine engine;
+  Engine &engine;
 
 protected:
   virtual PetscErrorCode restrict(std::size_t level, Vec residual, Vec rhs) {
