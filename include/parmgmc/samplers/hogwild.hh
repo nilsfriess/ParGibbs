@@ -2,6 +2,7 @@
 
 #include "parmgmc/common/helpers.hh"
 #include "parmgmc/linear_operator.hh"
+#include "parmgmc/samplers/multicolor_gibbs.hh"
 
 #include <petscmat.h>
 #include <petscvec.h>
@@ -10,7 +11,7 @@ namespace parmgmc {
 template <class Engine> class HogwildGibbsSampler {
 public:
   HogwildGibbsSampler(const LinearOperator &linearOperator, Engine &engine)
-      : linearOperator{linearOperator}, engine{engine} {
+      : linearOperator{linearOperator}, engine{engine}, type{GibbsSweepType::Forward} {
     PetscFunctionBeginUser;
 
     PetscCallVoid(MatCreateVecs(linearOperator.getMat(), &randVec, nullptr));
@@ -21,13 +22,10 @@ public:
     PetscCallVoid(MatGetDiagonal(linearOperator.getMat(), sqrtDiag));
     PetscCallVoid(VecSqrtAbs(sqrtDiag));
 
-    // // Inv sqrt diag
-    // PetscCallVoid(VecDuplicate(sqrtDiag, &invSqrtDiag));
-    // PetscCallVoid(VecCopy(sqrtDiag, invSqrtDiag));
-    // PetscCallVoid(VecReciprocal(invSqrtDiag));
-
     PetscFunctionReturnVoid();
   }
+
+  void setSweepType(GibbsSweepType newType) { type = newType; }
 
   PetscErrorCode sample(Vec sample, Vec rhs, std::size_t nSamples = 1) {
     PetscFunctionBeginUser;
@@ -35,17 +33,29 @@ public:
     if (nSamples == 0)
       PetscFunctionReturn(PETSC_SUCCESS);
 
+    PetscCall(VecZeroEntries(randVec));
     PetscCall(fillVecRand(randVec, randVecSize, engine));
     PetscCall(VecPointwiseMult(randVec, randVec, sqrtDiag));
     PetscCall(VecAXPY(randVec, 1., rhs));
 
-    PetscCall(MatSOR(linearOperator.getMat(), randVec, 1., SOR_LOCAL_FORWARD_SWEEP, 0., nSamples,
+    PetscCall(MatSOR(linearOperator.getMat(), randVec, 1., gibbsSweepToPetscSweep(), 0., nSamples,
                      1., sample));
 
     PetscFunctionReturn(PETSC_SUCCESS);
   }
 
 private:
+  MatSORType gibbsSweepToPetscSweep() {
+    switch (type) {
+    case GibbsSweepType::Forward:
+      return SOR_LOCAL_FORWARD_SWEEP;
+    case GibbsSweepType::Backward:
+      return SOR_LOCAL_BACKWARD_SWEEP;
+    case GibbsSweepType::Symmetric:
+      return SOR_LOCAL_SYMMETRIC_SWEEP;
+    }
+  }
+
   const LinearOperator &linearOperator;
 
   Engine &engine;
@@ -53,7 +63,8 @@ private:
   Vec randVec;
   PetscInt randVecSize;
 
-  // Vec invSqrtDiag;
   Vec sqrtDiag;
+
+  GibbsSweepType type;
 };
 } // namespace parmgmc
