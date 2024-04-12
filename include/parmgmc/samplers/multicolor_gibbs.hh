@@ -7,7 +7,6 @@
 
 #include <cstring>
 
-#include <iostream>
 #include <mpi.h>
 #include <petscdm.h>
 #include <petscerror.h>
@@ -91,7 +90,6 @@ public:
         sqrtDiagOmega{other.sqrtDiagOmega}, invDiagOmega{other.invDiagOmega},
         randVec{other.randVec}, randVecSize{other.randVecSize}, sweepType{other.sweepType},
         diagPtrs{std::move(other.diagPtrs)} {
-    std::cout << "Hello from move constructor\n";
     other.sqrtDiagOmega = nullptr;
     other.invDiagOmega = nullptr;
     other.randVec = nullptr;
@@ -129,11 +127,6 @@ private:
 
     PetscCall(PetscHelper::beginGibbsEvent());
 
-    // PetscCall(fillVecRand(randVec, randVecSize, engine));
-    // PetscCall(VecPointwiseMult(randVec, randVec, sqrtDiagOmega));
-    // PetscCall(VecSet(randVec, 0));
-    // PetscCall(VecAXPY(randVec, 1., rhs));
-    // PetscCall(VecPointwiseMult(randVec, randVec, invDiagOmega));
     PetscCall(prepareRandVec(rhs));
 
     PetscReal *sampleArr;
@@ -185,13 +178,8 @@ private:
       });
     }
 
-    if (sweepType == GibbsSweepType::Symmetric) {
-      // PetscCall(fillVecRand(randVec, randVecSize, engine));
-      // PetscCall(VecPointwiseMult(randVec, randVec, sqrtDiagOmega));
-      // PetscCall(VecAXPY(randVec, 1., rhs));
-      // PetscCall(VecPointwiseMult(randVec, randVec, invDiagOmega));
+    if (sweepType == GibbsSweepType::Symmetric)
       PetscCall(prepareRandVec(rhs));
-    }
 
     if (sweepType == GibbsSweepType::Backward || sweepType == GibbsSweepType::Symmetric) {
       PetscCall(PetscLogFlops(2.0 * matinfo.nz_used));
@@ -215,11 +203,6 @@ private:
     PetscFunctionBeginUser;
 
     PetscCall(PetscHelper::beginGibbsEvent());
-
-    // PetscCall(fillVecRand(randVec, randVecSize, engine));
-    // PetscCall(VecPointwiseMult(randVec, randVec, sqrtDiagOmega));
-    // PetscCall(VecAXPY(randVec, 1., rhs));
-    // PetscCall(VecPointwiseMult(randVec, randVec, invDiagOmega));
     PetscCall(prepareRandVec(rhs));
 
     Mat ad, ao;
@@ -245,8 +228,8 @@ private:
     MatInfo matinfo;
     PetscCall(MatGetInfo(linearOperator.getMat(), MAT_LOCAL, &matinfo));
 
-    std::size_t ghostVecCntr = 0;
-    const auto gibbsKernel = [&](PetscInt row) {
+    PetscInt ghostVecCntr = 0;
+    const auto gibbsKernel = [&](PetscInt row, bool isReverse = false) {
       const auto rowStart = rowptr[row];
       const auto rowEnd = rowptr[row + 1];
       const auto rowDiag = diagPtrs[row];
@@ -261,8 +244,14 @@ private:
       for (PetscInt k = rowDiag + 1; k < rowEnd; ++k)
         sum -= matvals[k] * sampleArr[colptr[k]];
 
-      for (PetscInt k = bRowptr[row]; k < bRowptr[row + 1]; ++k)
-        sum -= bMatvals[k] * ghostArr[ghostVecCntr++];
+      for (PetscInt k = bRowptr[row]; k < bRowptr[row + 1]; ++k) {
+        sum -= bMatvals[k] * ghostArr[ghostVecCntr];
+
+        if (isReverse)
+          ghostVecCntr--;
+        else
+          ghostVecCntr++;
+      }
 
       // Update sample
       sampleArr[row] = (1 - omega) * sampleArr[row] + randArr[row] + invDiagArr[row] * sum;
@@ -316,11 +305,10 @@ private:
         PetscCall(VecGetArrayRead(ghostvec, &ghostArr));
         PetscCall(VecGetArray(sample, &sampleArr));
 
-        // TODO: Does this do the right thing since we're now doing the sweep in reverse, so the
-        // values in the ghost vec are (partly?) reversed?
-        ghostVecCntr = 0;
+        PetscCall(VecGetSize(ghostvec, &ghostVecCntr));
+        ghostVecCntr--;
         for (auto idx = colorIndices.crbegin(); idx != colorIndices.crend(); ++idx)
-          gibbsKernel(*idx);
+          gibbsKernel(*idx, true);
 
         PetscCall(VecRestoreArray(sample, &sampleArr));
         PetscCall(VecRestoreArrayRead(ghostvec, &ghostArr));
