@@ -8,13 +8,14 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 
+#include <mpi.h>
 #include <pcg_random.hpp>
 
-#include <memory>
 #include <petscdm.h>
 #include <petscdmda.h>
 #include <petscdmtypes.h>
 #include <petscksp.h>
+#include <petscmat.h>
 #include <petscvec.h>
 #include <petscviewer.h>
 #include <random>
@@ -26,10 +27,10 @@ TEST_CASE("Symmetric sweep is the same as forward+backward sweep", "[.][seq][mpi
   std::mt19937_64 engine(Catch::getSeed());
 
   auto mat = create_test_mat(9);
-  auto op = std::make_shared<pm::LinearOperator>(mat);
-  op->colorMatrix();
+  pm::LinearOperator op{mat};
+  op.colorMatrix();
 
-  pm::MulticolorGibbsSampler sampler(op, &engine);
+  pm::MulticolorGibbsSampler sampler(op, engine);
 
   Vec sample;
   MatCreateVecs(mat, &sample, nullptr);
@@ -80,7 +81,7 @@ TEST_CASE("Symmetric sweep is the same as forward+backward sweep", "[.][seq][mpi
   VecDestroy(&sample);
 }
 
-TEST_CASE("Gibbs sampler converges to target mean", "[.][seq][mpi][mg]") {
+TEST_CASE("Gibbs sampler converges to target mean", "[.][seq][mpi]") {
   int rank = 0;
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
@@ -98,61 +99,38 @@ TEST_CASE("Gibbs sampler converges to target mean", "[.][seq][mpi][mg]") {
   }
 
   auto dm = create_test_dm(5);
-  auto [mat, dirichletRows] = create_test_mat(dm);
+  auto mat = create_test_mat(dm);
 
-  auto op = std::make_shared<pm::LinearOperator>(mat);
+  pm::LinearOperator op{mat};
 
-  Vec sample, rhs, mean;
-  DMCreateGlobalVector(dm, &sample);
+  Vec sample, rhs, expMean, mean;
+  MatCreateVecs(mat, &sample, nullptr);
   VecDuplicate(sample, &rhs);
   VecDuplicate(sample, &mean);
-
-  pm::fillVecRand(rhs, engine);
-
-  MatZeroRowsColumns(mat, dirichletRows.size(), dirichletRows.data(), 1., sample, rhs);
-
-  op->colorMatrix(dm);
-
-  pm::MulticolorGibbsSampler sampler(op, &engine, 1., pm::GibbsSweepType::Forward);
-
-  constexpr std::size_t N_BURNIN = 1000;
-  constexpr std::size_t N_SAMPLES = 1'000'000;
-
-  sampler.sample(sample, rhs, N_BURNIN);
-
-  for (std::size_t n = 0; n < N_SAMPLES; ++n) {
-    sampler.sample(sample, rhs);
-
-    VecAXPY(mean, 1. / N_SAMPLES, sample);
-  }
-
-  // PetscViewer viewer;
-  // PetscViewerVTKOpen(MPI_COMM_WORLD, "vec.vts", FILE_MODE_WRITE, &viewer);
-  // PetscObjectSetName((PetscObject)sample, "sample");
-  // VecView(sample, viewer);
-  // PetscViewerDestroy(&viewer);
-
-  // Compute expected mean = A^{-1} * rhs
-  Vec expMean;
   VecDuplicate(mean, &expMean);
 
-  KSP ksp;
-  KSPCreate(PETSC_COMM_WORLD, &ksp);
-  KSPSetFromOptions(ksp);
-  KSPSetOperators(ksp, mat, mat);
-  KSPSolve(ksp, rhs, expMean);
-  KSPDestroy(&ksp);
+  pm::fillVecRand(expMean, engine);
+  MatMult(mat, expMean, rhs);
 
-  PetscReal normExpected;
-  VecNorm(expMean, NORM_INFINITY, &normExpected);
+  op.colorMatrix(dm);
 
-  PetscReal normComputed;
-  VecNorm(mean, NORM_INFINITY, &normComputed);
+  pm::MulticolorGibbsSampler sampler(op, engine, 1., pm::GibbsSweepType::Forward);
 
-  // VecView(sample, PETSC_VIEWER_STDOUT_WORLD);
-  // VecView(exp_mean, PETSC_VIEWER_STDOUT_WORLD);
+  const std::size_t nSamples = 1'000'000;
 
-  REQUIRE_THAT(normComputed, WithinRel(normExpected, 0.01));
+  for (std::size_t n = 0; n < nSamples; ++n) {
+    sampler.sample(sample, rhs);
+
+    VecAXPY(mean, 1. / nSamples, sample);
+  }
+
+  PetscReal err;
+  VecAXPY(mean, -1, expMean);
+  VecNorm(mean, NORM_2, &err);
+
+  MPI_Barrier(MPI_COMM_WORLD);
+
+  REQUIRE_THAT(err, WithinAbs(0., 0.01));
 
   // Cleanup
   VecDestroy(&mean);

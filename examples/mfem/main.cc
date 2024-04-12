@@ -20,24 +20,21 @@
 #include <string>
 
 template <class Engine>
-using MGMC =
-    parmgmc::MultigridSampler<Engine, parmgmc::MulticolorGibbsSampler<Engine>>;
+using MGMC = parmgmc::MultigridSampler<Engine, parmgmc::MulticolorGibbsSampler<Engine>>;
 
 template <class Engine> class ShiftedLaplaceMGMC : public MGMC<Engine> {
 public:
-  ShiftedLaplaceMGMC(mfem::ParFiniteElementSpaceHierarchy &fespaces,
-                     const mfem::Array<int> &essBdr, Engine *engine,
-                     const parmgmc::MGMCParameters &params, double kappainv)
-      : MGMC<Engine>(params, fespaces.GetNumLevels(), engine),
-        fespaces{fespaces} {
+  ShiftedLaplaceMGMC(mfem::ParFiniteElementSpaceHierarchy &fespaces, const mfem::Array<int> &essBdr,
+                     Engine &engine, const parmgmc::MGMCParameters &params, double kappainv)
+      : MGMC<Engine>(params, fespaces.GetNumLevels(), engine), fespaces{fespaces} {
     this->ops.resize(fespaces.GetNumLevels());
+    mOps.resize(fespaces.GetNumLevels());
 
     mfem::ConstantCoefficient one(1.0);
     mfem::ConstantCoefficient kappa2(1. / (kappainv * kappainv));
 
     for (int l = 0; l < fespaces.GetNumLevels(); ++l) {
-      forms.emplace_back(std::make_unique<mfem::ParBilinearForm>(
-          &fespaces.GetFESpaceAtLevel(l)));
+      forms.emplace_back(std::make_unique<mfem::ParBilinearForm>(&fespaces.GetFESpaceAtLevel(l)));
 
       forms[l]->AddDomainIntegrator(new mfem::DiffusionIntegrator(one));
       forms[l]->AddDomainIntegrator(new mfem::MassIntegrator(kappa2));
@@ -51,7 +48,9 @@ public:
 
       auto *a = new mfem::PetscParMatrix;
       forms[l]->FormSystemMatrix(essTdofs, *a);
-      this->ops[l] = std::make_shared<parmgmc::LinearOperator>(*a, false);
+
+      mOps[l] = std::make_unique<parmgmc::LinearOperator>(*a, false);
+      this->ops[l] = mOps[l].get();
 
       MatSetOption(*a, MAT_SPD, PETSC_TRUE);
 
@@ -68,8 +67,7 @@ public:
     return PETSC_SUCCESS;
   }
 
-  PetscErrorCode prolongateAdd(std::size_t level, Vec coarse,
-                                Vec fine) override {
+  PetscErrorCode prolongateAdd(std::size_t level, Vec coarse, Vec fine) override {
     mfem::PetscParVector xc(coarse, true);
     mfem::PetscParVector xf(fine, true);
 
@@ -81,6 +79,8 @@ public:
 private:
   std::vector<std::unique_ptr<mfem::ParBilinearForm>> forms;
   mfem::ParFiniteElementSpaceHierarchy &fespaces;
+
+  std::vector<std::unique_ptr<parmgmc::LinearOperator>> mOps;
 };
 
 int main(int argc, char *argv[]) {
@@ -111,8 +111,7 @@ int main(int argc, char *argv[]) {
 
   /* Refine the serial mesh such that the refined mesh has at most 1000
    * elements. */
-  int refLevels =
-      std::floor(std::log(1000. / mesh.GetNE()) / std::log(2) / dim);
+  int refLevels = std::floor(std::log(1000. / mesh.GetNE()) / std::log(2) / dim);
   for (int l = 0; l < refLevels; l++)
     mesh.UniformRefinement();
 
@@ -125,13 +124,11 @@ int main(int argc, char *argv[]) {
   mfem::H1_FECollection fec(order, dim);
   mfem::ParFiniteElementSpace coarseFespace(&pmesh, &fec);
 
-  mfem::ParFiniteElementSpaceHierarchy fespaces(
-      &pmesh, &coarseFespace, false, false);
+  mfem::ParFiniteElementSpaceHierarchy fespaces(&pmesh, &coarseFespace, false, false);
   for (int l = 0; l < nLevels - 1; ++l)
     fespaces.AddUniformlyRefinedLevel();
 
-  PetscPrintf(MPI_COMM_WORLD,
-              "Number of FE unknowns: %d\n",
+  PetscPrintf(MPI_COMM_WORLD, "Number of FE unknowns: %d\n",
               fespaces.GetFinestFESpace().GlobalTrueVSize());
 
   mfem::Array<int> essBdr(pmesh.bdr_attributes.Max());
@@ -156,12 +153,12 @@ int main(int argc, char *argv[]) {
   }
 
   parmgmc::MGMCParameters params;
-  params.nSmooth = 1;
-  params.cycleType = parmgmc::MGMCCycleType::V;
+  params.nSmooth = 2;
+  params.cycleType = parmgmc::MGMCCycleType::W;
   params.smoothingType = parmgmc::MGMCSmoothingType::ForwardBackward;
   params.coarseSamplerType = parmgmc::MGMCCoarseSamplerType::Cholesky;
 
-  ShiftedLaplaceMGMC sampler(fespaces, essBdr, &engine, params, kappainv);
+  ShiftedLaplaceMGMC sampler(fespaces, essBdr, engine, params, kappainv);
 
   mfem::PetscParVector sample(&fespaces.GetFinestFESpace());
   mfem::PetscParVector rhs(sample);
@@ -172,9 +169,7 @@ int main(int argc, char *argv[]) {
 
   sample = 0;
 
-  MatMult(sampler.getOperator(fespaces.GetFinestLevelIndex())->getMat(),
-          tgtMean,
-          rhs);
+  MatMult(sampler.getOperator(fespaces.GetFinestLevelIndex()).getMat(), tgtMean, rhs);
 
   mfem::PetscParVector mean(sample);
   mean = 0;

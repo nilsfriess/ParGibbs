@@ -8,8 +8,6 @@
 #include "parmgmc/common/timer.hh"
 #include "parmgmc/linear_operator.hh"
 
-#include <memory>
-
 #include <petscerror.h>
 #include <petscksp.h>
 #include <petscmat.h>
@@ -20,25 +18,25 @@
 namespace parmgmc {
 template <class Engine> class CholeskySampler {
 public:
-  CholeskySampler(const std::shared_ptr<LinearOperator> &linearOperator, Engine *engine)
+  CholeskySampler(const LinearOperator &linearOperator, Engine &engine)
       : linearOperator{linearOperator}, engine{engine} {
     PetscFunctionBegin;
     PARMGMC_INFO << "Computing Cholesky factorisation...\n";
     Timer timer;
 
     Mat smat = nullptr;
-    if (linearOperator->getMatType() == PetscMatType::MPIAij) {
+    if (linearOperator.getMatType() == PetscMatType::MPIAij) {
       PARMGMC_INFO << "\t Converting matrix to right format...";
-      PetscCallVoid(MatConvert(linearOperator->getMat(), MATSBAIJ, MAT_INITIAL_MATRIX, &smat));
+      PetscCallVoid(MatConvert(linearOperator.getMat(), MATSBAIJ, MAT_INITIAL_MATRIX, &smat));
       PARMGMC_INFO_NP << "done. Took " << timer.elapsed() << " seconds.\n";
       timer.reset();
-    } else if (linearOperator->getMatType() == PetscMatType::SEQAij) {
-      smat = linearOperator->getMat();
+    } else if (linearOperator.getMatType() == PetscMatType::SEQAij) {
+      smat = linearOperator.getMat();
     }
 
     PetscCallVoid(MatSetOption(smat, MAT_SPD, PETSC_TRUE));
 
-    if (linearOperator->getMatType() == PetscMatType::MPIAij) {
+    if (linearOperator.getMatType() == PetscMatType::MPIAij) {
       PetscCallVoid(MatGetFactor(smat, MATSOLVERMKL_CPARDISO, MAT_FACTOR_CHOLESKY, &factor));
 
       PetscCallVoid(MatMkl_CPardisoSetCntl(factor, 51, 1)); // Use MPI parallel solver
@@ -53,14 +51,14 @@ public:
       // PetscCallVoid(MatMkl_CPardisoSetCntl(factor, 68, 1)); // Message level
       // info
 
-    } else if (linearOperator->getMatType() == PetscMatType::SEQAij) {
+    } else if (linearOperator.getMatType() == PetscMatType::SEQAij) {
       PetscCallVoid(MatGetFactor(smat, MATSOLVERMKL_PARDISO, MAT_FACTOR_CHOLESKY, &factor));
     }
 
     PetscCallVoid(MatCholeskyFactorSymbolic(factor, smat, nullptr, nullptr));
     PetscCallVoid(MatCholeskyFactorNumeric(factor, smat, nullptr));
 
-    if (linearOperator->getMatType() == PetscMatType::MPIAij)
+    if (linearOperator.getMatType() == PetscMatType::MPIAij)
       PetscCallVoid(MatDestroy(&smat));
 
     PARMGMC_INFO << "Done. Cholesky factorisation took " << timer.elapsed() << " seconds\n";
@@ -79,7 +77,7 @@ public:
       PetscCall(VecDuplicate(rhs, &r));
     }
 
-    PetscCall(fillVecRand(r, *engine));
+    PetscCall(fillVecRand(r, engine));
     PetscCall(MatForwardSolve(factor, rhs, v));
 
     PetscCall(VecAXPY(v, 1., r));
@@ -100,9 +98,22 @@ public:
     PetscFunctionReturnVoid();
   }
 
+  CholeskySampler(CholeskySampler &) = delete;
+  CholeskySampler &operator=(CholeskySampler &) = delete;
+
+  CholeskySampler(CholeskySampler &&other) noexcept
+      : linearOperator{std::move(other.linearOperator)}, engine{other.engine}, factor{other.factor},
+        v{other.v}, r{other.r} {
+    other.factor = nullptr;
+    other.v = nullptr;
+    other.r = nullptr;
+  }
+
+  CholeskySampler &operator=(CholeskySampler &&) = delete;
+
 private:
-  std::shared_ptr<LinearOperator> linearOperator;
-  Engine *engine;
+  const LinearOperator &linearOperator;
+  Engine &engine;
 
   Mat factor;
 

@@ -18,7 +18,6 @@
 #include <petsclog.h>
 #include <petscsystypes.h>
 #include <petscvec.h>
-#include <utility>
 
 namespace parmgmc {
 template <class Engine>

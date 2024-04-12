@@ -29,10 +29,7 @@ inline Mat create_test_mat(PetscInt size_per_dim) {
     MatSetType(mat, MATMPIAIJ);
   else
     MatSetType(mat, MATSEQAIJ);
-  MatSetSizes(mat,
-              PETSC_DECIDE,
-              PETSC_DECIDE,
-              size_per_dim * size_per_dim,
+  MatSetSizes(mat, PETSC_DECIDE, PETSC_DECIDE, size_per_dim * size_per_dim,
               size_per_dim * size_per_dim);
 
   if (size > 1)
@@ -78,8 +75,7 @@ inline Mat create_test_mat(PetscInt size_per_dim) {
       vals.push_back(-1);
     }
 
-    MatSetValues(
-        mat, 1, &row, cols.size(), cols.data(), vals.data(), INSERT_VALUES);
+    MatSetValues(mat, 1, &row, cols.size(), cols.data(), vals.data(), INSERT_VALUES);
   }
 
   MatAssemblyBegin(mat, MAT_FINAL_ASSEMBLY);
@@ -90,8 +86,7 @@ inline Mat create_test_mat(PetscInt size_per_dim) {
   return mat;
 }
 
-inline std::pair<Mat, std::vector<PetscInt>>
-create_test_mat(DM dm, double kappainv = 1.) {
+inline Mat create_test_mat(DM dm, double kappainv = 1.) {
   const auto kappa2 = (1. / kappainv) * (1. / kappainv);
 
   DMDALocalInfo info;
@@ -103,77 +98,62 @@ create_test_mat(DM dm, double kappainv = 1.) {
   Mat mat;
   DMCreateMatrix(dm, &mat);
 
-  MatSetOption(mat, MAT_USE_INODES, PETSC_FALSE);
-
   MatStencil row;
   std::array<MatStencil, 5> cols;
   std::array<PetscReal, 5> vals;
 
   double h2inv = 1. / ((info.mx - 1) * (info.mx - 1));
 
-  std::vector<PetscInt> dirichletRows;
-  dirichletRows.reserve(4 * info.mx);
-
   for (PetscInt j = info.ys; j < info.ys + info.ym; j++) {
     for (PetscInt i = info.xs; i < info.xs + info.xm; i++) {
       row.j = j;
       row.i = i;
 
-      if ((i == 0 || j == 0 || i == info.mx - 1 || j == info.my - 1)) {
-        dirichletRows.push_back(j * info.my + i);
-      } else {
-        std::size_t k = 0;
+      std::size_t k = 0;
 
-        if (j != 0) {
-          cols[k].j = j - 1;
-          cols[k].i = i;
-          vals[k] = -h2inv;
-          ++k;
-        }
-
-        if (i != 0) {
-          cols[k].j = j;
-          cols[k].i = i - 1;
-          vals[k] = -h2inv;
-          ++k;
-        }
-
-        cols[k].j = j;
+      if (j != 0) {
+        cols[k].j = j - 1;
         cols[k].i = i;
-        vals[k] = 4 * h2inv + kappa2;
+        vals[k] = -h2inv;
         ++k;
-
-        if (j != info.my - 1) {
-          cols[k].j = j + 1;
-          cols[k].i = i;
-          vals[k] = -h2inv;
-          ++k;
-        }
-
-        if (i != info.mx - 1) {
-          cols[k].j = j;
-          cols[k].i = i + 1;
-          vals[k] = -h2inv;
-          ++k;
-        }
-
-        MatSetValuesStencil(
-            mat, 1, &row, k, cols.data(), vals.data(), INSERT_VALUES);
       }
+
+      if (i != 0) {
+        cols[k].j = j;
+        cols[k].i = i - 1;
+        vals[k] = -h2inv;
+        ++k;
+      }
+
+      cols[k].j = j;
+      cols[k].i = i;
+      vals[k] = 4 * h2inv + kappa2;
+      ++k;
+
+      if (j != info.my - 1) {
+        cols[k].j = j + 1;
+        cols[k].i = i;
+        vals[k] = -h2inv;
+        ++k;
+      }
+
+      if (i != info.mx - 1) {
+        cols[k].j = j;
+        cols[k].i = i + 1;
+        vals[k] = -h2inv;
+        ++k;
+      }
+
+      MatSetValuesStencil(mat, 1, &row, k, cols.data(), vals.data(), INSERT_VALUES);
     }
   }
 
   MatAssemblyBegin(mat, MAT_FINAL_ASSEMBLY);
   MatAssemblyEnd(mat, MAT_FINAL_ASSEMBLY);
 
-  // Dirichlet rows are in natural ordering, convert to global using the DM's AO
-  AO ao;
-  DMDAGetAO(dm, &ao);
-  AOApplicationToPetsc(ao, dirichletRows.size(), dirichletRows.data());
-
   MatSetOption(mat, MAT_SPD, PETSC_TRUE);
 
-  return {mat, dirichletRows};
+  return mat;
 }
 
 struct Coordinate {
@@ -190,23 +170,12 @@ inline DM create_test_dm(PetscInt n_vertices_per_dim) {
   PetscInt stencil_width = 1;
 
   DM dm;
-  DMDACreate2d(PETSC_COMM_WORLD,
-               DM_BOUNDARY_NONE,
-               DM_BOUNDARY_NONE,
-               DMDA_STENCIL_STAR,
-               n_vertices,
-               n_vertices,
-               PETSC_DECIDE,
-               PETSC_DECIDE,
-               dof_per_node,
-               stencil_width,
-               nullptr,
-               nullptr,
-               &dm);
+  DMDACreate2d(PETSC_COMM_WORLD, DM_BOUNDARY_NONE, DM_BOUNDARY_NONE, DMDA_STENCIL_STAR, n_vertices,
+               n_vertices, PETSC_DECIDE, PETSC_DECIDE, dof_per_node, stencil_width, nullptr,
+               nullptr, &dm);
 
   DMSetUp(dm);
-  DMDASetUniformCoordinates(
-      dm, lower_left.x, upper_right.x, lower_left.y, upper_right.y, 0, 0);
+  DMDASetUniformCoordinates(dm, lower_left.x, upper_right.x, lower_left.y, upper_right.y, 0, 0);
 
   return dm;
 }

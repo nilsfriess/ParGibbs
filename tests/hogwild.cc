@@ -6,7 +6,6 @@
 #include "parmgmc/linear_operator.hh"
 #include "parmgmc/samplers/hogwild.hh"
 
-#include <memory>
 #include <random>
 
 #include <mpi.h>
@@ -33,9 +32,9 @@ TEST_CASE("Hogwild sampler converges to target mean", "[.][seq][mpi][hg]") {
   }
 
   auto dm = create_test_dm(5);
-  auto [mat, dirichletRows] = create_test_mat(dm);
+  auto mat = create_test_mat(dm);
 
-  auto op = std::make_shared<pm::LinearOperator>(mat);
+  pm::LinearOperator op{mat};
 
   Vec sample, rhs, mean;
   DMCreateGlobalVector(dm, &sample);
@@ -43,12 +42,10 @@ TEST_CASE("Hogwild sampler converges to target mean", "[.][seq][mpi][hg]") {
   VecDuplicate(sample, &mean);
 
   pm::fillVecRand(rhs, engine);
+  
+  op.colorMatrix(dm);
 
-  MatZeroRowsColumns(mat, dirichletRows.size(), dirichletRows.data(), 1., sample, rhs);
-
-  op->colorMatrix(dm);
-
-  pm::HogwildGibbsSampler sampler(op, &engine);
+  pm::HogwildGibbsSampler sampler(op, engine);
 
   constexpr std::size_t N_BURNIN = 1000;
   constexpr std::size_t N_SAMPLES = 100'000;
@@ -60,12 +57,6 @@ TEST_CASE("Hogwild sampler converges to target mean", "[.][seq][mpi][hg]") {
 
     VecAXPY(mean, 1. / N_SAMPLES, sample);
   }
-
-  // PetscViewer viewer;
-  // PetscViewerVTKOpen(MPI_COMM_WORLD, "vec.vts", FILE_MODE_WRITE, &viewer);
-  // PetscObjectSetName((PetscObject)sample, "sample");
-  // VecView(sample, viewer);
-  // PetscViewerDestroy(&viewer);
 
   // Compute expected mean = A^{-1} * rhs
   Vec expMean;
@@ -83,9 +74,6 @@ TEST_CASE("Hogwild sampler converges to target mean", "[.][seq][mpi][hg]") {
 
   PetscReal normComputed;
   VecNorm(mean, NORM_INFINITY, &normComputed);
-
-  // VecView(sample, PETSC_VIEWER_STDOUT_WORLD);
-  // VecView(exp_mean, PETSC_VIEWER_STDOUT_WORLD);
 
   REQUIRE_THAT(normComputed, Catch::Matchers::WithinRel(normExpected, 0.01));
 
