@@ -98,6 +98,19 @@ public:
     PetscFunctionReturnVoid();
   }
 
+  CholeskySampler(CholeskySampler &) = delete;
+  CholeskySampler &operator=(CholeskySampler &) = delete;
+
+  CholeskySampler(CholeskySampler &&other) noexcept
+      : linearOperator{std::move(other.linearOperator)}, engine{other.engine}, factor{other.factor},
+        v{other.v}, r{other.r} {
+    other.factor = nullptr;
+    other.v = nullptr;
+    other.r = nullptr;
+  }
+
+  CholeskySampler &operator=(CholeskySampler &&) = delete;
+
 private:
   const LinearOperator &linearOperator;
   Engine &engine;
