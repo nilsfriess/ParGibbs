@@ -75,7 +75,7 @@ public:
       PetscCallVoid(MatPtAP(ops[level]->getMat(), dmHierarchy.getInterpolation(level - 1),
                             MAT_INITIAL_MATRIX, PETSC_DEFAULT, &coarseMat));
       ops[level - 1] = new LinearOperator(coarseMat);
-      ops[level - 1]->colorMatrix(dmHierarchy.getDm(level - 1));
+      ops[level - 1]->colorMatrix();
     }
 
     PetscCallVoid(initVecsAndSmoothers(engine));
