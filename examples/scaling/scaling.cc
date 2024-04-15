@@ -173,8 +173,8 @@ int main(int argc, char *argv[]) {
   PetscInt nRefine = 3;
   PetscCall(PetscOptionsGetInt(nullptr, nullptr, "-refine", &nRefine, nullptr));
 
-  // PetscBool weak = PETSC_TRUE;
-  // PetscCall(PetscOptionsGetBool(nullptr, nullptr, "-weak", &weak, nullptr));
+  PetscBool sizeIsFine = PETSC_FALSE;
+  PetscCall(PetscOptionsGetBool(nullptr, nullptr, "-size-is-fine", &sizeIsFine, nullptr));
 
   PetscBool runGibbs = PETSC_FALSE, runMGMC = PETSC_FALSE, runCholesky = PETSC_FALSE,
             runHogwild = PETSC_FALSE;
@@ -202,7 +202,7 @@ int main(int argc, char *argv[]) {
     return 0;
   }
 
-  ShiftedLaplaceFD problem(Dim{2}, size, nRefine, 1., true);
+  ShiftedLaplaceFD problem(Dim{2}, size, nRefine, 1., true, sizeIsFine);
   DMDALocalInfo fineInfo, coarseInfo;
   PetscCall(DMDAGetLocalInfo(problem.getFineDM(), &fineInfo));
   PetscCall(DMDAGetLocalInfo(problem.getCoarseDM(), &coarseInfo));

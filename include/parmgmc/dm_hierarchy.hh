@@ -12,13 +12,16 @@
 #include <petscmat.h>
 
 namespace parmgmc {
+enum class DMInitialType { Coarsest, Finest };
+
 class DMHierarchy {
 public:
   DMHierarchy() = default;
 
   // TODO: Add error handling when coarse DM does not have (2^n)-1 vertices per
   // dimension.
-  DMHierarchy(DM coarseSpace, PetscInt nLevels, bool transferOwnership = true)
+  DMHierarchy(DM initialSpace, PetscInt nLevels, bool transferOwnership = true,
+              DMInitialType dmtype = DMInitialType::Coarsest)
       : nLevels{nLevels}, transferOwnership{transferOwnership} {
     PetscFunctionBeginUser;
 
@@ -26,39 +29,34 @@ public:
     Timer timer;
 
     interpolations.resize(nLevels - 1);
+    dms.resize(nLevels);
+    if (dmtype == DMInitialType::Coarsest) {
+      dms[0] = initialSpace;
 
-    DM coarseDm = coarseSpace;
-    dms.push_back(coarseDm);
+      for (PetscInt l = 0; l < nLevels - 1; ++l) {
+        PetscCallVoid(DMRefine(dms[l], MPI_COMM_NULL, &dms[l + 1]));
+        PetscCallVoid(DMCreateInterpolation(dms[l], dms[l + 1], &interpolations[l], nullptr));
+      }
 
-    for (PetscInt level = 0; level < nLevels - 1; level++) {
-      DM fineDm;
-      PetscCallVoid(DMRefine(coarseDm, MPI_COMM_WORLD, &fineDm));
+    } else {
+      dms[nLevels - 1] = initialSpace;
 
-      PetscCallVoid(DMCreateInterpolation(coarseDm, fineDm, &interpolations[level], nullptr));
-
-      dms.push_back(fineDm);
-      coarseDm = fineDm;
+      for (PetscInt l = nLevels - 1; l > 0; --l) {
+        PetscCallVoid(DMCoarsen(dms[l], MPI_COMM_NULL, &dms[l - 1]));
+        PetscCallVoid(DMCreateInterpolation(dms[l - 1], dms[l], &interpolations[l], nullptr));
+      }
     }
 
     auto elapsed = timer.elapsed();
 
-    const auto numVertices = [](PetscInt dim, PetscInt m, PetscInt n, PetscInt p) {
-      PetscInt res = m;
-      if (dim > 1)
-        res *= n;
-      if (dim > 2)
-        res *= p;
-      return res;
-    };
+    PetscInt m, n, p;
 
-    PetscInt dim, m, n, p;
-
-    PetscCallVoid(DMDAGetInfo(getCoarse(), &dim, &m, &n, &p, nullptr, nullptr, nullptr, nullptr,
+    PetscCallVoid(DMDAGetInfo(getCoarse(), nullptr, &m, &n, &p, nullptr, nullptr, nullptr, nullptr,
                               nullptr, nullptr, nullptr, nullptr, nullptr));
-    auto coarseVertices = numVertices(dim, m, n, p);
-    PetscCallVoid(DMDAGetInfo(getFine(), &dim, &m, &n, &p, nullptr, nullptr, nullptr, nullptr,
+    auto coarseVertices = m * n * p;
+    PetscCallVoid(DMDAGetInfo(getFine(), nullptr, &m, &n, &p, nullptr, nullptr, nullptr, nullptr,
                               nullptr, nullptr, nullptr, nullptr, nullptr));
-    auto fineVertices = numVertices(dim, m, n, p);
+    auto fineVertices = m * n * p;
 
     PARMGMC_INFO << "Done setting up DMHierarchy (took " << elapsed << " seconds, finest level has "
                  << fineVertices << " vertices, coarsest has " << coarseVertices << ").\n";

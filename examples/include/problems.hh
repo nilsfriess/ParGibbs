@@ -4,6 +4,7 @@
 #include "parmgmc/linear_operator.hh"
 
 #include <array>
+#include <petscdm.h>
 #include <stdexcept>
 
 #include <mpi.h>
@@ -95,8 +96,8 @@ public:
 
 class ShiftedLaplaceFD : public Problem {
 public:
-  ShiftedLaplaceFD(Dim dim, PetscInt globalCoarseVerticesPerDim, PetscInt refineLevels,
-                   PetscReal kappainv = 1., bool colorMatrixWithDM = true) {
+  ShiftedLaplaceFD(Dim dim, PetscInt verticesPerDim, PetscInt refineLevels, PetscReal kappainv = 1.,
+                   bool colorMatrixWithDM = true, bool sizeIsFine = false) {
     PetscFunctionBeginUser;
 
     if (!(dim == 2 || dim == 3))
@@ -115,24 +116,24 @@ public:
     //   globalVerticesPerDim = nextPower2((unsigned int)std::sqrt(targetGlobalSize)) + 1;
     // }
 
-    // Create coarse DM
+    // Create initial DM
     DM da;
     if (dim == 2)
       PetscCallVoid(DMDACreate2d(MPI_COMM_WORLD, DM_BOUNDARY_NONE, DM_BOUNDARY_NONE,
-                                 DMDA_STENCIL_STAR, globalCoarseVerticesPerDim,
-                                 globalCoarseVerticesPerDim, PETSC_DECIDE, PETSC_DECIDE, 1, 1,
-                                 nullptr, nullptr, &da));
+                                 DMDA_STENCIL_STAR, verticesPerDim, verticesPerDim, PETSC_DECIDE,
+                                 PETSC_DECIDE, 1, 1, nullptr, nullptr, &da));
     else
-      PetscCallVoid(DMDACreate3d(
-          MPI_COMM_WORLD, DM_BOUNDARY_NONE, DM_BOUNDARY_NONE, DM_BOUNDARY_NONE, DMDA_STENCIL_STAR,
-          globalCoarseVerticesPerDim, globalCoarseVerticesPerDim, globalCoarseVerticesPerDim,
-          PETSC_DECIDE, PETSC_DECIDE, PETSC_DECIDE, 1, 1, nullptr, nullptr, nullptr, &da));
+      PetscCallVoid(DMDACreate3d(MPI_COMM_WORLD, DM_BOUNDARY_NONE, DM_BOUNDARY_NONE,
+                                 DM_BOUNDARY_NONE, DMDA_STENCIL_STAR, verticesPerDim,
+                                 verticesPerDim, verticesPerDim, PETSC_DECIDE, PETSC_DECIDE,
+                                 PETSC_DECIDE, 1, 1, nullptr, nullptr, nullptr, &da));
 
     PetscCallVoid(DMSetUp(da));
     PetscCallVoid(DMDASetUniformCoordinates(da, 0, 1, 0, 1, 0, 1));
 
     // Create hierarchy
-    hierarchy = parmgmc::DMHierarchy{da, refineLevels, true};
+    auto dmtype = sizeIsFine ? parmgmc::DMInitialType::Finest : parmgmc::DMInitialType::Coarsest;
+    hierarchy = parmgmc::DMHierarchy{da, refineLevels, true, dmtype};
 
     // Create matrix corresponding to operator on fine DM
     Mat mat;
