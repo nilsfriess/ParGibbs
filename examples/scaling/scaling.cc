@@ -20,20 +20,54 @@
 using namespace parmgmc;
 
 struct TimingResult {
-  TimingResult operator+=(const TimingResult &other) {
-    setupTime += other.setupTime;
-    sampleTime += other.sampleTime;
-    return *this;
+  TimingResult() = default;
+  TimingResult(std::size_t nRuns) {
+    setupTimes.reserve(nRuns);
+    samplingTimes.reserve(nRuns);
   }
 
-  TimingResult operator/=(double d) {
-    setupTime /= d;
-    sampleTime /= d;
-    return *this;
+  std::pair<double, double> getSetupTime() const { return meanAndStdDev(setupTimes); }
+
+  std::pair<double, double> getSamplingTime() const { return meanAndStdDev(samplingTimes); }
+
+  std::pair<double, double> getTotalTime() const {
+    std::vector<double> totalTimes(setupTimes.size());
+
+    for (std::size_t i = 0; i < totalTimes.size(); ++i)
+      totalTimes[i] = setupTimes[i] + samplingTimes[i];
+
+    return meanAndStdDev(totalTimes);
   }
 
-  double setupTime = 0;
-  double sampleTime = 0;
+  void add(double setupTime, double samplingTime) {
+    setupTimes.push_back(setupTime);
+    samplingTimes.push_back(samplingTime);
+  }
+
+private:
+  std::pair<double, double> meanAndStdDev(const std::vector<double> &data) const {
+    double sum = 0.0;
+    double sumSquaredDiff = 0.0;
+
+    for (double val : data) {
+      sum += val;
+    }
+
+    double mean = sum / data.size();
+
+    for (double val : data) {
+      double diff = val - mean;
+      sumSquaredDiff += diff * diff;
+    }
+
+    double variance = sumSquaredDiff / data.size();
+    double stdDev = std::sqrt(variance);
+
+    return std::make_pair(mean, stdDev);
+  }
+
+  std::vector<double> setupTimes;
+  std::vector<double> samplingTimes;
 };
 
 template <typename Engine>
@@ -54,7 +88,7 @@ PetscErrorCode testGibbsSampler(ShiftedLaplaceFD &problem, PetscInt nSamples, En
   timer.reset();
   MulticolorGibbsSampler sampler(problem.getOperator(), engine, omega, sweepType);
 
-  timingResult.setupTime = timer.elapsed();
+  auto setupTime = timer.elapsed();
   // Setup done
 
   // Measure sample time
@@ -62,8 +96,10 @@ PetscErrorCode testGibbsSampler(ShiftedLaplaceFD &problem, PetscInt nSamples, En
   for (PetscInt n = 0; n < nSamples; ++n)
     PetscCall(sampler.sample(sample, rhs));
 
-  timingResult.sampleTime = timer.elapsed();
+  auto sampleTime = timer.elapsed();
   // Sampling done
+
+  timingResult.add(setupTime, sampleTime);
 
   // Cleanup
   PetscCall(VecDestroy(&sample));
@@ -89,7 +125,7 @@ PetscErrorCode testHogwildGibbsSampler(ShiftedLaplaceFD &problem, PetscInt nSamp
   timer.reset();
   HogwildGibbsSampler sampler(problem.getOperator(), engine);
 
-  timingResult.setupTime = timer.elapsed();
+  auto setupTime = timer.elapsed();
   // Setup done
 
   // Measure sample time
@@ -97,8 +133,10 @@ PetscErrorCode testHogwildGibbsSampler(ShiftedLaplaceFD &problem, PetscInt nSamp
   for (PetscInt n = 0; n < nSamples; ++n)
     PetscCall(sampler.sample(sample, rhs));
 
-  timingResult.sampleTime = timer.elapsed();
+  auto sampleTime = timer.elapsed();
   // Sampling done
+
+  timingResult.add(setupTime, sampleTime);
 
   // Cleanup
   PetscCall(VecDestroy(&sample));
@@ -123,7 +161,7 @@ PetscErrorCode testMGMCSampler(ShiftedLaplaceFD &problem, PetscInt nSamples, Eng
   // Measure setup time
   timer.reset();
   MultigridSampler sampler(problem.getOperator(), problem.getHierarchy(), engine, params);
-  timingResult.setupTime = timer.elapsed();
+  auto setupTime = timer.elapsed();
   // Setup done
 
   // Measure sample time
@@ -131,8 +169,10 @@ PetscErrorCode testMGMCSampler(ShiftedLaplaceFD &problem, PetscInt nSamples, Eng
   for (PetscInt n = 0; n < nSamples; ++n)
     PetscCall(sampler.sample(sample, rhs));
 
-  timingResult.sampleTime = timer.elapsed();
+  auto sampleTime = timer.elapsed();
   // Sampling done
+
+  timingResult.add(setupTime, sampleTime);
 
   // Cleanup
   PetscCall(VecDestroy(&sample));
@@ -141,18 +181,21 @@ PetscErrorCode testMGMCSampler(ShiftedLaplaceFD &problem, PetscInt nSamples, Eng
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
-PetscErrorCode printResult(const std::string &name, TimingResult timing) {
+PetscErrorCode printResult(const std::string &name, const TimingResult &timing) {
   PetscFunctionBeginUser;
+
+  auto [setupAvg, setupStd] = timing.getSetupTime();
+  auto [sampleAvg, sampleStd] = timing.getSamplingTime();
+  auto [totalAvg, totalStd] = timing.getTotalTime();
 
   PetscCall(PetscPrintf(MPI_COMM_WORLD, "\n+++-------------------------------------------------"
                                         "-----------+++\n\n"));
   PetscCall(PetscPrintf(MPI_COMM_WORLD, "Name: %s\n", name.c_str()));
   PetscCall(PetscPrintf(MPI_COMM_WORLD, "Timing [s]:\n"));
-  PetscCall(PetscPrintf(MPI_COMM_WORLD, "   Setup time:    %.4f\n", timing.setupTime));
-  PetscCall(PetscPrintf(MPI_COMM_WORLD, "   Sampling time: %.4f\n", timing.sampleTime));
-  PetscCall(PetscPrintf(MPI_COMM_WORLD, "   -----------------------\n"));
-  PetscCall(PetscPrintf(MPI_COMM_WORLD, "   Total:         %.4f\n",
-                        timing.setupTime + timing.sampleTime));
+  PetscCall(PetscPrintf(MPI_COMM_WORLD, "   Setup time:    %.4f ± %.4f\n", setupAvg, setupStd));
+  PetscCall(PetscPrintf(MPI_COMM_WORLD, "   Sampling time: %.4f ± %.4f\n", sampleAvg, sampleStd));
+  PetscCall(PetscPrintf(MPI_COMM_WORLD, "   ------------------------------\n"));
+  PetscCall(PetscPrintf(MPI_COMM_WORLD, "   Total:         %.4f ± %.4f\n", totalAvg, totalStd));
   PetscCall(PetscPrintf(MPI_COMM_WORLD, "\n+++-------------------------------------------------"
                                         "-----------+++\n"));
 
@@ -234,51 +277,33 @@ int main(int argc, char *argv[]) {
                         nRuns, seed));
 
   if (runGibbs) {
-    TimingResult avg;
+    TimingResult res;
 
-    for (int i = 0; i < nRuns; ++i) {
-      TimingResult timing;
-      PetscCall(testGibbsSampler(problem, nSamples, engine, 1., GibbsSweepType::Forward, timing));
+    for (int i = 0; i < nRuns; ++i)
+      PetscCall(testGibbsSampler(problem, nSamples, engine, 1., GibbsSweepType::Forward, res));
 
-      avg += timing;
-    }
-
-    avg /= nRuns;
-
-    PetscCall(printResult("Gibbs sampler, forward sweep, fixed rhs", avg));
+    PetscCall(printResult("Gibbs sampler, forward sweep, fixed rhs", res));
   }
 
   if (runMGMC) {
-    TimingResult avg;
+    TimingResult res;
 
     MGMCParameters params = MGMCParameters::defaultParams();
     params.coarseSamplerType = MGMCCoarseSamplerType::Standard;
 
-    for (int i = 0; i < nRuns; ++i) {
-      TimingResult timing;
-      PetscCall(testMGMCSampler(problem, nSamples, engine, params, timing));
+    for (int i = 0; i < nRuns; ++i)
+      PetscCall(testMGMCSampler(problem, nSamples, engine, params, res));
 
-      avg += timing;
-    }
-
-    avg /= nRuns;
-
-    PetscCall(printResult("MGMC sampler", avg));
+    PetscCall(printResult("MGMC sampler", res));
   }
 
   if (runHogwild) {
-    TimingResult avg;
+    TimingResult res;
 
-    for (int i = 0; i < nRuns; ++i) {
-      TimingResult timing;
-      PetscCall(testHogwildGibbsSampler(problem, nSamples, engine, timing));
+    for (int i = 0; i < nRuns; ++i)
+      PetscCall(testHogwildGibbsSampler(problem, nSamples, engine, res));
 
-      avg += timing;
-    }
-
-    avg /= nRuns;
-
-    PetscCall(printResult("Hogwild Gibbs sampler, forward sweep, fixed rhs", avg));
+    PetscCall(printResult("Hogwild Gibbs sampler, forward sweep, fixed rhs", res));
   }
 
   // {
