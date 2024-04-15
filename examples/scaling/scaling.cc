@@ -252,6 +252,7 @@ int main(int argc, char *argv[]) {
     TimingResult avg;
 
     MGMCParameters params = MGMCParameters::defaultParams();
+    params.coarseSamplerType = MGMCCoarseSamplerType::Standard;
 
     for (int i = 0; i < nRuns; ++i) {
       TimingResult timing;
