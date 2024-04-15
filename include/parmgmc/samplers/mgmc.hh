@@ -45,7 +45,7 @@ struct MGMCParameters {
   PetscInt nSmooth{2};
   MGMCSmoothingType smoothingType{MGMCSmoothingType::ForwardBackward};
   MGMCCycleType cycleType{MGMCCycleType::V};
-  MGMCCoarseSamplerType coarseSamplerType;
+  MGMCCoarseSamplerType coarseSamplerType{MGMCCoarseSamplerType::Standard};
 };
 
 template <class Engine, class Smoother = MulticolorGibbsSampler<Engine>> class MultigridSampler {
