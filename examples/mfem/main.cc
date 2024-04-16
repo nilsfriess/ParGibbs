@@ -28,7 +28,6 @@ public:
                      Engine &engine, const parmgmc::MGMCParameters &params, double kappainv)
       : MGMC<Engine>(params, fespaces.GetNumLevels(), engine), fespaces{fespaces} {
     this->ops.resize(fespaces.GetNumLevels());
-    mOps.resize(fespaces.GetNumLevels());
 
     mfem::ConstantCoefficient one(1.0);
     mfem::ConstantCoefficient kappa2(1. / (kappainv * kappainv));
@@ -49,8 +48,7 @@ public:
       auto *a = new mfem::PetscParMatrix;
       forms[l]->FormSystemMatrix(essTdofs, *a);
 
-      mOps[l] = std::make_unique<parmgmc::LinearOperator>(*a, false);
-      this->ops[l] = mOps[l].get();
+      this->ops[l] = std::make_shared<parmgmc::LinearOperator>(*a);
 
       MatSetOption(*a, MAT_SPD, PETSC_TRUE);
 
@@ -79,8 +77,6 @@ public:
 private:
   std::vector<std::unique_ptr<mfem::ParBilinearForm>> forms;
   mfem::ParFiniteElementSpaceHierarchy &fespaces;
-
-  std::vector<std::unique_ptr<parmgmc::LinearOperator>> mOps;
 };
 
 int main(int argc, char *argv[]) {

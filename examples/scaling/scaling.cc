@@ -77,7 +77,7 @@ PetscErrorCode testGibbsSampler(ShiftedLaplaceFD &problem, PetscInt nSamples, En
   PetscFunctionBeginUser;
 
   Vec sample, rhs;
-  PetscCall(MatCreateVecs(problem.getOperator().getMat(), &sample, nullptr));
+  PetscCall(MatCreateVecs(problem.getFineOperator()->getMat(), &sample, nullptr));
   PetscCall(VecDuplicate(sample, &rhs));
 
   PetscCall(fillVecRand(rhs, engine));
@@ -86,7 +86,7 @@ PetscErrorCode testGibbsSampler(ShiftedLaplaceFD &problem, PetscInt nSamples, En
 
   // Measure setup time
   timer.reset();
-  MulticolorGibbsSampler sampler(problem.getOperator(), engine, omega, sweepType);
+  MulticolorGibbsSampler sampler(*problem.getFineOperator(), engine, omega, sweepType);
 
   auto setupTime = timer.elapsed();
   // Setup done
@@ -114,7 +114,7 @@ PetscErrorCode testHogwildGibbsSampler(ShiftedLaplaceFD &problem, PetscInt nSamp
   PetscFunctionBeginUser;
 
   Vec sample, rhs;
-  PetscCall(MatCreateVecs(problem.getOperator().getMat(), &sample, nullptr));
+  PetscCall(MatCreateVecs(problem.getFineOperator()->getMat(), &sample, nullptr));
   PetscCall(VecDuplicate(sample, &rhs));
 
   PetscCall(fillVecRand(rhs, engine));
@@ -123,7 +123,7 @@ PetscErrorCode testHogwildGibbsSampler(ShiftedLaplaceFD &problem, PetscInt nSamp
 
   // Measure setup time
   timer.reset();
-  HogwildGibbsSampler sampler(problem.getOperator(), engine);
+  HogwildGibbsSampler sampler(*problem.getFineOperator(), engine);
 
   auto setupTime = timer.elapsed();
   // Setup done
@@ -151,7 +151,7 @@ PetscErrorCode testMGMCSampler(ShiftedLaplaceFD &problem, PetscInt nSamples, Eng
   PetscFunctionBeginUser;
 
   Vec sample, rhs;
-  PetscCall(MatCreateVecs(problem.getOperator().getMat(), &sample, nullptr));
+  PetscCall(MatCreateVecs(problem.getFineOperator()->getMat(), &sample, nullptr));
   PetscCall(VecDuplicate(sample, &rhs));
 
   PetscCall(fillVecRand(rhs, engine));
@@ -160,7 +160,7 @@ PetscErrorCode testMGMCSampler(ShiftedLaplaceFD &problem, PetscInt nSamples, Eng
 
   // Measure setup time
   timer.reset();
-  MultigridSampler sampler(problem.getOperator(), problem.getHierarchy(), engine, params);
+  MultigridSampler sampler(problem.getFineOperator(), problem.getHierarchy(), engine, params);
   auto setupTime = timer.elapsed();
   // Setup done
 

@@ -84,9 +84,10 @@ PYBIND11_MODULE(pymgmc, m) {
 
   using MGMCSampler = MultigridSampler<Engine>;
   py::class_<MGMCSampler>(m, "MGMCSampler")
-      .def(py::init([&](LinearOperator &fineOperator, const DMHierarchy &dmHierarchy,
-                        MGMCSmoothingType smoothingType, MGMCCycleType cycleType,
-                        std::size_t smoothingSteps, MGMCCoarseSamplerType coarseSamplerType) {
+      .def(py::init([&](const std::shared_ptr<LinearOperator> &fineOperator,
+                        const DMHierarchy &dmHierarchy, MGMCSmoothingType smoothingType,
+                        MGMCCycleType cycleType, std::size_t smoothingSteps,
+                        MGMCCoarseSamplerType coarseSamplerType) {
              MGMCParameters params;
              params.smoothingType = smoothingType;
              params.cycleType = cycleType;

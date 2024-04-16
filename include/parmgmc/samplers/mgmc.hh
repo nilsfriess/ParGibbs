@@ -54,7 +54,8 @@ public:
    * of DMs. The operator must be an operator on the finest DM in the
    * hierarchy, the remaining operators are created by Galerkin projection
    * A_coarse = P^T A_fine P. */
-  MultigridSampler(LinearOperator &fineOperator, const DMHierarchy &dmHierarchy, Engine &engine,
+  MultigridSampler(const std::shared_ptr<LinearOperator> &fineOperator,
+                   const DMHierarchy &dmHierarchy, Engine &engine,
                    const MGMCParameters &params = MGMCParameters::defaultParams())
       : dmHierarchy{&dmHierarchy}, engine{engine}, nLevels{dmHierarchy.numLevels()},
         nSmooth{params.nSmooth}, smoothingType{params.smoothingType},
@@ -63,18 +64,18 @@ public:
     PetscFunctionBeginUser;
 
     PARMGMC_INFO << "Start setting up Multigrid sampler using DM hierarchy ("
-                 << dmHierarchy.numLevels() << " levels).\n";
+                 << dmHierarchy.numLevels() << " levels) and Galerkin product.\n";
     Timer timer;
 
     ops.resize(nLevels);
-    ops[nLevels - 1] = &fineOperator;
+    ops[nLevels - 1] = fineOperator;
 
     for (int level = nLevels - 1; level > 0; --level) {
       // Create fine matrix using Galerkin projection
       Mat coarseMat;
       PetscCallVoid(MatPtAP(ops[level]->getMat(), dmHierarchy.getInterpolation(level - 1),
                             MAT_INITIAL_MATRIX, PETSC_DEFAULT, &coarseMat));
-      ops[level - 1] = new LinearOperator(coarseMat);
+      ops[level - 1] = std::make_shared<LinearOperator>(coarseMat);
       ops[level - 1]->colorMatrix();
     }
 
@@ -86,12 +87,28 @@ public:
     PetscFunctionReturnVoid();
   }
 
+  MultigridSampler(const std::vector<std::shared_ptr<LinearOperator>> &ops,
+                   const DMHierarchy &dmHierarchy, Engine &engine,
+                   const MGMCParameters &params = MGMCParameters::defaultParams())
+      : dmHierarchy{&dmHierarchy}, engine{engine}, ops{ops}, nLevels{dmHierarchy.numLevels()},
+        nSmooth{params.nSmooth}, smoothingType{params.smoothingType},
+        coarseSamplerType{params.coarseSamplerType},
+        cycles{static_cast<unsigned int>(params.cycleType)} {
+    PetscFunctionBeginUser;
+
+    PARMGMC_INFO << "Start setting up Multigrid sampler using DM hierarchy ("
+                 << dmHierarchy.numLevels() << " levels) and operator hierarchy.\n";
+
+    PetscCallVoid(initVecsAndSmoothers(engine));
+    PetscFunctionReturnVoid();
+  }
+
   /* Constructor that must be called by classes that are derived from this
    * sampler to define a custom sampler. */
   MultigridSampler(const MGMCParameters &params, PetscInt nLevels, Engine &engine)
       : engine{engine}, nLevels{nLevels}, nSmooth{params.nSmooth},
         smoothingType{params.smoothingType}, coarseSamplerType{params.coarseSamplerType},
-        cycles{static_cast<unsigned int>(params.cycleType)}, isDerived{true} {}
+        cycles{static_cast<unsigned int>(params.cycleType)} {}
 
   PetscErrorCode sample(Vec sample, Vec rhs, std::size_t nSamples = 1) {
     PetscFunctionBeginUser;
@@ -123,12 +140,6 @@ public:
 
     for (auto &v : xs)
       PetscCallVoid(VecDestroy(&v));
-
-    // Delete all but the finest operator if we're not a derived class
-    if (not isDerived) {
-      for (PetscInt i = 0; i < (PetscInt)ops.size() - 1; ++i)
-        delete ops[i];
-    }
 
     PetscFunctionReturnVoid();
   }
@@ -256,7 +267,7 @@ protected:
     return MatInterpolateAdd(dmHierarchy->getInterpolation(level - 1), coarse, fine, fine);
   }
 
-  std::vector<LinearOperator *> ops;
+  std::vector<std::shared_ptr<LinearOperator>> ops;
 
   std::vector<Vec> xs; // sample vector for each level
   std::vector<Vec> rs; // residual vector for each level
@@ -268,7 +279,5 @@ protected:
   MGMCSmoothingType smoothingType;
   MGMCCoarseSamplerType coarseSamplerType;
   unsigned int cycles;
-
-  bool isDerived = false;
 };
 } // namespace parmgmc

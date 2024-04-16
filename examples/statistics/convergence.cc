@@ -1,6 +1,5 @@
 #include "parmgmc/common/petsc_helper.hh"
 #include "parmgmc/samplers/cholesky.hh"
-#include "parmgmc/samplers/hogwild.hh"
 #include "parmgmc/samplers/mgmc.hh"
 #include "parmgmc/samplers/multicolor_gibbs.hh"
 #include "problems.hh"
@@ -140,7 +139,7 @@ PetscErrorCode run(const Problem &problem, Mat exactCov, SamplerConstructor &&sc
   std::vector<Vec> samples{static_cast<std::size_t>(nSamplers), nullptr};
   Vec rhs;
   for (auto &sample : samples)
-    PetscCall(MatCreateVecs(problem.getOperator().getMat(), &sample, nullptr));
+    PetscCall(MatCreateVecs(problem.getFineOperator()->getMat(), &sample, nullptr));
   PetscCall(VecDuplicate(samples[0], &rhs));
 
   Vec mean;
@@ -191,7 +190,7 @@ int main(int argc, char *argv[]) {
   SimpleGMRF problem(dim, size, levels);
   // ShiftedLaplaceFD problem(dim, size, levels, 100);
   // DiagonalPrecisionMatrix problem(dim, size, levels);
-  auto mat = problem.getOperator().getMat();
+  auto mat = problem.getFineOperator()->getMat();
 
   Mat exactCov;
   PetscCall(denseInverse(mat, &exactCov));
@@ -202,7 +201,7 @@ int main(int argc, char *argv[]) {
   switch (type) {
   case SamplerType::Gibbs:
     PetscCall(run(problem, exactCov, [&]() {
-      return MulticolorGibbsSampler{problem.getOperator(), engine, 1.9852};
+      return MulticolorGibbsSampler{*problem.getFineOperator(), engine, 1.9852};
     }));
     break;
 
@@ -211,17 +210,17 @@ int main(int argc, char *argv[]) {
     params.nSmooth = 2;
     params.cycleType = MGMCCycleType::V;
     params.smoothingType = MGMCSmoothingType::ForwardBackward;
-    params.coarseSamplerType = MGMCCoarseSamplerType::Cholesky;
+    params.coarseSamplerType = MGMCCoarseSamplerType::Standard;
 
     PetscCall(run(problem, exactCov, [&]() {
-      return MultigridSampler{problem.getOperator(), problem.getHierarchy(), engine, params};
+      return MultigridSampler{problem.getFineOperator(), problem.getHierarchy(), engine, params};
     }));
     break;
   }
 
   case SamplerType::Cholesky:
     PetscCall(run(problem, exactCov, [&]() {
-      return CholeskySampler{problem.getOperator(), engine};
+      return CholeskySampler{*problem.getFineOperator(), engine};
     }));
     break;
 

@@ -234,24 +234,24 @@ int main(int argc, char *argv[]) {
       fineInfo.mz, (fineInfo.mx * fineInfo.my * fineInfo.mz), nRefine, nSamples, nRuns, seed));
 
   Vec direction;
-  PetscCall(MatCreateVecs(problem->getOperator().getMat(), &direction, nullptr));
+  PetscCall(MatCreateVecs(problem->getFineOperator()->getMat(), &direction, nullptr));
   PetscCall(VecSet(direction, 1.));
   TestQOI qoi(direction);
 
   Vec tgtMean, rhs, boundaryCond;
-  PetscCall(MatCreateVecs(problem->getOperator().getMat(), &tgtMean, nullptr));
+  PetscCall(MatCreateVecs(problem->getFineOperator()->getMat(), &tgtMean, nullptr));
   PetscCall(VecDuplicate(tgtMean, &rhs));
   PetscCall(VecDuplicate(rhs, &boundaryCond));
 
   PetscCall(fillVecRand(tgtMean, engine));
-  PetscCall(MatMult(problem->getOperator().getMat(), tgtMean, rhs));
+  PetscCall(MatMult(problem->getFineOperator()->getMat(), tgtMean, rhs));
 
   PetscCall(VecDestroy(&boundaryCond));
   PetscCall(VecDestroy(&tgtMean));
 
   IACTResult res;
   if (runGibbs) {
-    MulticolorGibbsSampler sampler(problem->getOperator(), engine, 1.6);
+    MulticolorGibbsSampler sampler(*problem->getFineOperator(), engine, 1.6);
 
     PetscCall(computeIACT(sampler, nSamples, rhs, qoi, engine, nRuns, res));
     PetscCall(printResults("Gibbs", res));
@@ -262,7 +262,7 @@ int main(int argc, char *argv[]) {
     params.smoothingType = MGMCSmoothingType::ForwardBackward;
     params.nSmooth = 2;
 
-    MultigridSampler sampler(problem->getOperator(), problem->getHierarchy(), engine, params);
+    MultigridSampler sampler(problem->getFineOperator(), problem->getHierarchy(), engine, params);
 
     PetscCall(computeIACT(sampler, nSamples, rhs, qoi, engine, nRuns, res));
     PetscCall(printResults("MGMC (Cholesky coarse sampler)", res));
@@ -273,7 +273,7 @@ int main(int argc, char *argv[]) {
     params.smoothingType = MGMCSmoothingType::ForwardBackward;
     params.nSmooth = 2;
 
-    MultigridSampler sampler(problem->getOperator(), problem->getHierarchy(), engine, params);
+    MultigridSampler sampler(problem->getFineOperator(), problem->getHierarchy(), engine, params);
 
     PetscCall(computeIACT(sampler, nSamples, rhs, qoi, engine, nRuns, res));
     PetscCall(printResults("MGMC (Gibbs coarse sampler)", res));

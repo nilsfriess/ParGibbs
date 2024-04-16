@@ -26,7 +26,7 @@ TEST_CASE("MGMC sampler converges to target mean", "[.][mg]") {
   pm::DMHierarchy dmHierarchy{dm, nLevels};
 
   auto mat = create_test_mat(dmHierarchy.getFine());
-  pm::LinearOperator op{mat};
+  auto op = std::make_shared<pm::LinearOperator>(mat);
 
   Vec sample, rhs, mean, expMean;
 

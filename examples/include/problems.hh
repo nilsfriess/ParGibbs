@@ -4,6 +4,7 @@
 #include "parmgmc/linear_operator.hh"
 
 #include <array>
+#include <memory>
 #include <petscdm.h>
 #include <stdexcept>
 
@@ -24,8 +25,39 @@ struct Dim {
 
 class Problem {
 public:
-  [[nodiscard]] const parmgmc::LinearOperator &getOperator() const { return op; }
-  [[nodiscard]] parmgmc::LinearOperator &getOperator() { return op; }
+  Problem(Dim dim, PetscInt initialVerticesPerDim, PetscInt levels, bool sizeIsFine = false) {
+    PetscFunctionBeginUser;
+
+    if (!(dim == 2 || dim == 3))
+      throw std::runtime_error("Only dim == 2 or dim == 3 supported");
+
+    // Create coarse DM
+    DM da;
+    if (dim == 2)
+      PetscCallVoid(DMDACreate2d(MPI_COMM_WORLD, DM_BOUNDARY_NONE, DM_BOUNDARY_NONE,
+                                 DMDA_STENCIL_STAR, initialVerticesPerDim, initialVerticesPerDim,
+                                 PETSC_DECIDE, PETSC_DECIDE, 1, 1, nullptr, nullptr, &da));
+    else
+      PetscCallVoid(DMDACreate3d(MPI_COMM_WORLD, DM_BOUNDARY_NONE, DM_BOUNDARY_NONE,
+                                 DM_BOUNDARY_NONE, DMDA_STENCIL_STAR, initialVerticesPerDim,
+                                 initialVerticesPerDim, initialVerticesPerDim, PETSC_DECIDE,
+                                 PETSC_DECIDE, PETSC_DECIDE, 1, 1, nullptr, nullptr, nullptr, &da));
+
+    PetscCallVoid(DMSetUp(da));
+    PetscCallVoid(DMDASetUniformCoordinates(da, 0, 1, 0, 1, 0, 1));
+
+    auto dmtype = sizeIsFine ? parmgmc::DMInitialType::Finest : parmgmc::DMInitialType::Coarsest;
+    hierarchy = parmgmc::DMHierarchy{da, levels, true, dmtype};
+
+    PetscFunctionReturnVoid();
+  }
+
+  [[nodiscard]] std::shared_ptr<parmgmc::LinearOperator> getFineOperator() const {
+    if (ops.size() == 1)
+      return ops[0];
+    else
+      return ops[hierarchy.numLevels() - 1];
+  }
   [[nodiscard]] const parmgmc::DMHierarchy &getHierarchy() const { return hierarchy; }
 
   [[nodiscard]] DM getCoarseDM() const { return hierarchy.getCoarse(); }
@@ -36,36 +68,15 @@ public:
   virtual ~Problem() = default;
 
 protected:
-  parmgmc::LinearOperator op;
+  std::vector<std::shared_ptr<parmgmc::LinearOperator>> ops;
   parmgmc::DMHierarchy hierarchy;
 };
 
 class DiagonalPrecisionMatrix : public Problem {
 public:
-  DiagonalPrecisionMatrix(Dim dim, PetscInt globalCoarseVerticesPerDim, PetscInt refineLevels) {
+  DiagonalPrecisionMatrix(Dim dim, PetscInt initialVerticesPerDim, PetscInt levels)
+      : Problem{dim, initialVerticesPerDim, levels} {
     PetscFunctionBeginUser;
-
-    if (!(dim == 2 || dim == 3))
-      throw std::runtime_error("Only dim == 2 or dim == 3 supported");
-
-    // Create coarse DM
-    DM da;
-    if (dim == 2)
-      PetscCallVoid(DMDACreate2d(MPI_COMM_WORLD, DM_BOUNDARY_NONE, DM_BOUNDARY_NONE,
-                                 DMDA_STENCIL_STAR, globalCoarseVerticesPerDim,
-                                 globalCoarseVerticesPerDim, PETSC_DECIDE, PETSC_DECIDE, 1, 1,
-                                 nullptr, nullptr, &da));
-    else
-      PetscCallVoid(DMDACreate3d(
-          MPI_COMM_WORLD, DM_BOUNDARY_NONE, DM_BOUNDARY_NONE, DM_BOUNDARY_NONE, DMDA_STENCIL_STAR,
-          globalCoarseVerticesPerDim, globalCoarseVerticesPerDim, globalCoarseVerticesPerDim,
-          PETSC_DECIDE, PETSC_DECIDE, PETSC_DECIDE, 1, 1, nullptr, nullptr, nullptr, &da));
-
-    PetscCallVoid(DMSetUp(da));
-    PetscCallVoid(DMDASetUniformCoordinates(da, 0, 1, 0, 1, 0, 1));
-
-    // Create hierarchy
-    hierarchy = parmgmc::DMHierarchy{da, refineLevels, true};
 
     // Create matrix corresponding to operator on fine DM
     Mat mat;
@@ -85,8 +96,8 @@ public:
 
     PetscCallVoid(MatSetOption(mat, MAT_SPD, PETSC_TRUE));
 
-    op = parmgmc::LinearOperator{mat, true};
-    op.colorMatrix(da);
+    ops.emplace_back(std::make_shared<parmgmc::LinearOperator>(mat, true));
+    ops[0]->colorMatrix(hierarchy.getFine());
 
     PetscFunctionReturnVoid();
   }
@@ -96,44 +107,10 @@ public:
 
 class ShiftedLaplaceFD : public Problem {
 public:
-  ShiftedLaplaceFD(Dim dim, PetscInt verticesPerDim, PetscInt refineLevels, PetscReal kappainv = 1.,
-                   bool colorMatrixWithDM = true, bool sizeIsFine = false) {
+  ShiftedLaplaceFD(Dim dim, PetscInt initialVerticesPerDim, PetscInt levels,
+                   PetscReal kappainv = 1., bool colorMatrixWithDM = true, bool sizeIsFine = false)
+      : Problem{dim, initialVerticesPerDim, levels, sizeIsFine} {
     PetscFunctionBeginUser;
-
-    if (!(dim == 2 || dim == 3))
-      throw std::runtime_error("Only dim == 2 or dim == 3 supported");
-
-    // PetscInt globalVerticesPerDim;
-    // if (strong) {
-    //   globalVerticesPerDim = coarseVerticesPerDim;
-    // } else {
-    //   PetscMPIInt mpisize;
-    //   MPI_Comm_size(MPI_COMM_WORLD, &mpisize);
-
-    //   PetscInt localSize = coarseVerticesPerDim * coarseVerticesPerDim;
-    //   PetscInt targetGlobalSize = mpisize * localSize;
-
-    //   globalVerticesPerDim = nextPower2((unsigned int)std::sqrt(targetGlobalSize)) + 1;
-    // }
-
-    // Create initial DM
-    DM da;
-    if (dim == 2)
-      PetscCallVoid(DMDACreate2d(MPI_COMM_WORLD, DM_BOUNDARY_NONE, DM_BOUNDARY_NONE,
-                                 DMDA_STENCIL_STAR, verticesPerDim, verticesPerDim, PETSC_DECIDE,
-                                 PETSC_DECIDE, 1, 1, nullptr, nullptr, &da));
-    else
-      PetscCallVoid(DMDACreate3d(MPI_COMM_WORLD, DM_BOUNDARY_NONE, DM_BOUNDARY_NONE,
-                                 DM_BOUNDARY_NONE, DMDA_STENCIL_STAR, verticesPerDim,
-                                 verticesPerDim, verticesPerDim, PETSC_DECIDE, PETSC_DECIDE,
-                                 PETSC_DECIDE, 1, 1, nullptr, nullptr, nullptr, &da));
-
-    PetscCallVoid(DMSetUp(da));
-    PetscCallVoid(DMDASetUniformCoordinates(da, 0, 1, 0, 1, 0, 1));
-
-    // Create hierarchy
-    auto dmtype = sizeIsFine ? parmgmc::DMInitialType::Finest : parmgmc::DMInitialType::Coarsest;
-    hierarchy = parmgmc::DMHierarchy{da, refineLevels, true, dmtype};
 
     // Create matrix corresponding to operator on fine DM
     Mat mat;
@@ -272,11 +249,11 @@ public:
 
     PetscCallVoid(MatSetOption(mat, MAT_SPD, PETSC_TRUE));
 
-    op = parmgmc::LinearOperator{mat, true};
+    ops.emplace_back(std::make_shared<parmgmc::LinearOperator>(mat, true));
     if (colorMatrixWithDM)
-      op.colorMatrix(da);
+      ops[0]->colorMatrix(hierarchy.getFine());
     else
-      op.colorMatrix();
+      ops[0]->colorMatrix();
 
     PetscFunctionReturnVoid();
   }
@@ -286,24 +263,13 @@ public:
 
 class SimpleGMRF : public Problem {
 public:
-  SimpleGMRF(Dim dim, PetscInt globalCoarseVerticesPerDim, PetscInt refineLevels,
-             bool colorMatrixWithDM = true) {
+  SimpleGMRF(Dim dim, PetscInt initialVerticesPerDim, PetscInt levels,
+             bool colorMatrixWithDM = true)
+      : Problem{dim, initialVerticesPerDim, levels} {
     PetscFunctionBeginUser;
 
     if (dim != 2)
       throw std::runtime_error("Only dim == 2");
-
-    // Create coarse DM
-    DM da;
-    PetscCallVoid(DMDACreate2d(MPI_COMM_WORLD, DM_BOUNDARY_NONE, DM_BOUNDARY_NONE,
-                               DMDA_STENCIL_STAR, globalCoarseVerticesPerDim,
-                               globalCoarseVerticesPerDim, PETSC_DECIDE, PETSC_DECIDE, 1, 1,
-                               nullptr, nullptr, &da));
-
-    PetscCallVoid(DMSetUp(da));
-
-    // Create hierarchy
-    hierarchy = parmgmc::DMHierarchy{da, refineLevels, true};
 
     // Create matrix corresponding to operator on fine DM
     Mat mat;
@@ -367,11 +333,11 @@ public:
 
     PetscCallVoid(MatSetOption(mat, MAT_SPD, PETSC_TRUE));
 
-    op = parmgmc::LinearOperator{mat, true};
+    ops.emplace_back(std::make_shared<parmgmc::LinearOperator>(mat, true));
     if (colorMatrixWithDM)
-      op.colorMatrix(da);
+      ops[0]->colorMatrix(hierarchy.getFine());
     else
-      op.colorMatrix();
+      ops[0]->colorMatrix();
 
     PetscFunctionReturnVoid();
   }
