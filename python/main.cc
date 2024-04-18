@@ -28,7 +28,7 @@ PYBIND11_MODULE(pymgmc, m) {
     PetscFunctionReturnVoid();
   });
 
-  py::class_<LinearOperator>(m, "LinearOperator")
+  py::class_<LinearOperator, std::shared_ptr<LinearOperator>>(m, "LinearOperator")
       .def(py::init([](Mat m) {
         return LinearOperator{m, false};
       }))
