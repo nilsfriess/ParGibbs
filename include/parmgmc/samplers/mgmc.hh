@@ -70,6 +70,9 @@ public:
     ops.resize(nLevels);
     ops[nLevels - 1] = fineOperator;
 
+    if (not ops[nLevels - 1]->hasColoring())
+      ops[nLevels - 1]->colorMatrix(dmHierarchy.getFine());
+
     for (int level = nLevels - 1; level > 0; --level) {
       // Create fine matrix using Galerkin projection
       Mat coarseMat;
