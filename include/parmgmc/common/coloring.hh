@@ -24,7 +24,7 @@ class Coloring {
 public:
   Coloring() = default;
 
-  Coloring(Mat mat, MatColoringType coloringType = MATCOLORINGJP) : isValid_{true} {
+  Coloring(Mat mat, MatColoringType coloringType = MATCOLORINGGREEDY) : isValid_{true} {
     PetscFunctionBeginUser;
 
     // Don't create coloring if running sequentially

@@ -32,8 +32,7 @@ public:
   }
 
   void colorMatrix() {
-    MatColoringType coloringType = MATCOLORINGGREEDY;
-    coloring = Coloring{mat, coloringType};
+    coloring = Coloring{mat};
   }
 
   void colorMatrix(DM dm) { coloring = Coloring{mat, dm}; }
