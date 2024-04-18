@@ -11,6 +11,7 @@
 #include <petscdm.h>
 #include <petscerror.h>
 #include <petscmat.h>
+#include <petscoptions.h>
 #include <petscsys.h>
 #include <petscsystypes.h>
 #include <petscvec.h>
@@ -83,6 +84,27 @@ public:
     }
 
     PetscCallVoid(initVecsAndSmoothers(engine));
+
+    // Dump all matrices to files if requested
+    PetscBool dumpMatrices = PETSC_FALSE;
+    PetscCallVoid(
+        PetscOptionsGetBool(nullptr, nullptr, "-mgmc-dump-matrices", &dumpMatrices, nullptr));
+    if (dumpMatrices) {
+      for (int level = 0; level < nLevels; ++level) {
+        std::string name = "MGMC_Mat_Level" + std::to_string(level);
+
+        PetscViewer viewer;
+        PetscCallVoid(
+            PetscViewerBinaryOpen(PETSC_COMM_WORLD, name.c_str(), FILE_MODE_WRITE, &viewer));
+        PetscCallVoid(PetscViewerPushFormat(viewer, PETSC_VIEWER_BINARY_MATLAB));
+
+        PetscCallVoid(PetscObjectSetName((PetscObject)ops[level]->getMat(), name.c_str()));
+        PetscCallVoid(MatView(ops[level]->getMat(), viewer));
+
+        PetscCallVoid(PetscViewerPopFormat(viewer));
+        PetscCallVoid(PetscViewerDestroy(&viewer));
+      }
+    }
 
     auto elapsed = timer.elapsed();
     PARMGMC_INFO << "Done setting up Multigrid sampler (took " << elapsed << " seconds).\n";
