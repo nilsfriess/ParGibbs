@@ -16,6 +16,7 @@
 #include <petscsystypes.h>
 
 #include <pcg_random.hpp>
+#include <stdexcept>
 
 using namespace parmgmc;
 
@@ -219,10 +220,12 @@ int main(int argc, char *argv[]) {
   PetscBool sizeIsFine = PETSC_FALSE;
   PetscCall(PetscOptionsGetBool(nullptr, nullptr, "-size-is-fine", &sizeIsFine, nullptr));
 
-  PetscBool runGibbs = PETSC_FALSE, runMGMC = PETSC_FALSE, runCholesky = PETSC_FALSE,
-            runHogwild = PETSC_FALSE;
+  PetscBool runGibbs = PETSC_FALSE, runMGMCCoarseCholesky = PETSC_FALSE,
+            runMGMCCoarseGibbs = PETSC_FALSE, runCholesky = PETSC_FALSE, runHogwild = PETSC_FALSE;
   PetscCall(PetscOptionsGetBool(nullptr, nullptr, "-gibbs", &runGibbs, nullptr));
-  PetscCall(PetscOptionsGetBool(nullptr, nullptr, "-mgmc", &runMGMC, nullptr));
+  PetscCall(PetscOptionsGetBool(nullptr, nullptr, "-mgmc_gibbs", &runMGMCCoarseGibbs, nullptr));
+  PetscCall(
+      PetscOptionsGetBool(nullptr, nullptr, "-mgmc_cholesky", &runMGMCCoarseCholesky, nullptr));
   PetscCall(PetscOptionsGetBool(nullptr, nullptr, "-cholesky", &runCholesky, nullptr));
   PetscCall(PetscOptionsGetBool(nullptr, nullptr, "-hogwild", &runHogwild, nullptr));
 
@@ -237,10 +240,10 @@ int main(int argc, char *argv[]) {
   PetscCall(PetscPrintf(MPI_COMM_WORLD, "##################################################"
                                         "################\n"));
 
-  if (!(runGibbs || runMGMC || runCholesky || runHogwild)) {
+  if (!(runGibbs || runMGMCCoarseCholesky || runMGMCCoarseGibbs || runCholesky || runHogwild)) {
     PetscCall(PetscPrintf(MPI_COMM_WORLD, "No sampler selected, not running any tests.\n"
                                           "Pass at least one of\n"
-                                          "     -gibbs     -mgmc     -cholesky     -hogwild\n"
+                                          "  -gibbs  -mgmc_{gibbs,cholesky}  -cholesky  -hogwild\n"
                                           "to run the test with the respective sampler.\n"));
     return 0;
   }
@@ -285,11 +288,16 @@ int main(int argc, char *argv[]) {
     PetscCall(printResult("Gibbs sampler, forward sweep, fixed rhs", res));
   }
 
-  if (runMGMC) {
+  if (runMGMCCoarseCholesky || runMGMCCoarseGibbs) {
     TimingResult res;
 
     MGMCParameters params = MGMCParameters::defaultParams();
-    params.coarseSamplerType = MGMCCoarseSamplerType::Standard;
+    if (runMGMCCoarseCholesky)
+      params.coarseSamplerType = MGMCCoarseSamplerType::Cholesky;
+    else if (runMGMCCoarseGibbs)
+      params.coarseSamplerType = MGMCCoarseSamplerType::Standard;
+    else
+      throw std::runtime_error("Unknown coarse sampler type");
 
     for (int i = 0; i < nRuns; ++i)
       PetscCall(testMGMCSampler(problem, nSamples, engine, params, res));
