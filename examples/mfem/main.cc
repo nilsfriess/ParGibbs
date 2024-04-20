@@ -6,6 +6,8 @@
 #include <mfem.hpp>
 
 #include <mfem/fem/pgridfunc.hpp>
+#include <mfem/linalg/handle.hpp>
+#include <mfem/linalg/petsc.hpp>
 #include <mpi.h>
 #include <petscmat.h>
 #include <petscsys.h>
@@ -32,27 +34,36 @@ public:
     mfem::ConstantCoefficient one(1.0);
     mfem::ConstantCoefficient kappa2(1. / (kappainv * kappainv));
 
-    for (int l = 0; l < fespaces.GetNumLevels(); ++l) {
-      forms.emplace_back(std::make_unique<mfem::ParBilinearForm>(&fespaces.GetFESpaceAtLevel(l)));
+    fineForm = std::make_unique<mfem::ParBilinearForm>(&fespaces.GetFinestFESpace());
+    fineForm->AddDomainIntegrator(new mfem::DiffusionIntegrator(one));
+    fineForm->AddDomainIntegrator(new mfem::MassIntegrator(kappa2));
+    fineForm->SetAssemblyLevel(mfem::AssemblyLevel::LEGACY);
+    fineForm->Assemble(0);
+    fineForm->Finalize(0);
 
-      forms[l]->AddDomainIntegrator(new mfem::DiffusionIntegrator(one));
-      forms[l]->AddDomainIntegrator(new mfem::MassIntegrator(kappa2));
-      forms[l]->SetAssemblyLevel(mfem::AssemblyLevel::LEGACY);
-      forms[l]->Assemble(0);
+    fineForm->SetOperatorType(mfem::Operator::PETSC_MATAIJ);
+    mfem::Array<int> essTdofs;
+    fespaces.GetFinestFESpace().GetEssentialTrueDofs(essBdr, essTdofs);
 
-      forms[l]->SetOperatorType(mfem::Operator::PETSC_MATAIJ);
+    auto *a = new mfem::PetscParMatrix;
+    fineForm->FormSystemMatrix(essTdofs, *a);
 
-      mfem::Array<int> essTdofs;
-      fespaces.GetFESpaceAtLevel(l).GetEssentialTrueDofs(essBdr, essTdofs);
+    this->ops[fespaces.GetFinestLevelIndex()] =
+        std::make_shared<parmgmc::LinearOperator>(*a, false);
+    this->ops[fespaces.GetFinestLevelIndex()]->colorMatrix();
 
-      auto *a = new mfem::PetscParMatrix;
-      forms[l]->FormSystemMatrix(essTdofs, *a);
+    for (int l = fespaces.GetFinestLevelIndex(); l > 0; --l) {
+      mfem::OperatorHandle p(mfem::Operator::Hypre_ParCSR);
+      fespaces.GetFESpaceAtLevel(l).GetTrueTransferOperator(fespaces.GetFESpaceAtLevel(l - 1), p);
 
-      this->ops[l] = std::make_shared<parmgmc::LinearOperator>(*a);
+      auto *hp = p.As<mfem::HypreParMatrix>();
+      mfem::PetscParMatrix pp{hp};
 
-      MatSetOption(*a, MAT_SPD, PETSC_TRUE);
+      mfem::PetscParMatrix fineMat(this->ops[l]->getMat());
 
-      // this->ops[l]->color_matrix();
+      auto *coarseMat = mfem::RAP(&fineMat, &pp);
+      this->ops[l - 1] = std::make_shared<parmgmc::LinearOperator>(*coarseMat, false);
+      this->ops[l - 1]->colorMatrix();
     }
   }
 
@@ -75,7 +86,7 @@ public:
   }
 
 private:
-  std::vector<std::unique_ptr<mfem::ParBilinearForm>> forms;
+  std::unique_ptr<mfem::ParBilinearForm> fineForm;
   mfem::ParFiniteElementSpaceHierarchy &fespaces;
 };
 
@@ -150,7 +161,7 @@ int main(int argc, char *argv[]) {
 
   parmgmc::MGMCParameters params;
   params.nSmooth = 2;
-  params.cycleType = parmgmc::MGMCCycleType::W;
+  params.cycleType = parmgmc::MGMCCycleType::V;
   params.smoothingType = parmgmc::MGMCSmoothingType::ForwardBackward;
   params.coarseSamplerType = parmgmc::MGMCCoarseSamplerType::Cholesky;
 
@@ -160,9 +171,8 @@ int main(int argc, char *argv[]) {
   mfem::PetscParVector rhs(sample);
 
   mfem::PetscParVector tgtMean(sample);
-  // tgt_mean.Randomize();
-  tgtMean = 5;
 
+  tgtMean = 0;
   sample = 0;
 
   MatMult(sampler.getOperator(fespaces.GetFinestLevelIndex()).getMat(), tgtMean, rhs);
