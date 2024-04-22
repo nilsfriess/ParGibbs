@@ -1,4 +1,5 @@
 #include "parmgmc/common/petsc_helper.hh"
+#include "parmgmc/common/timer.hh"
 #include "parmgmc/linear_operator.hh"
 #include "parmgmc/samplers/mgmc.hh"
 #include "parmgmc/samplers/multicolor_gibbs.hh"
@@ -97,6 +98,10 @@ int main(int argc, char *argv[]) {
   mfem::OptionsParser args(argc, argv);
   args.AddOption(&meshFile, "-m", "--mesh", "Mesh file to use");
 
+  int maxGlobalElements = 10000;
+  args.AddOption(&maxGlobalElements, "-s", "--max-size",
+                 "Number of local mesh elements for the coarse grid");
+
   int nLevels = 3;
   args.AddOption(&nLevels, "-l", "--levels", "Number of Multigrid levels");
 
@@ -120,14 +125,13 @@ int main(int argc, char *argv[]) {
 
   /* Refine the serial mesh such that the refined mesh has at most 1000
    * elements. */
-  int refLevels = std::floor(std::log(1000. / mesh.GetNE()) / std::log(2) / dim);
-  for (int l = 0; l < refLevels; l++)
+  while (mesh.GetNE() < 1000)
     mesh.UniformRefinement();
 
   mfem::ParMesh pmesh(MPI_COMM_WORLD, mesh);
   mesh.Clear();
-  pmesh.UniformRefinement();
-  pmesh.UniformRefinement();
+  while (pmesh.GetGlobalNE() < maxGlobalElements)
+    pmesh.UniformRefinement();
 
   const int order = 1;
   mfem::H1_FECollection fec(order, dim);
@@ -137,8 +141,10 @@ int main(int argc, char *argv[]) {
   for (int l = 0; l < nLevels - 1; ++l)
     fespaces.AddUniformlyRefinedLevel();
 
-  PetscPrintf(MPI_COMM_WORLD, "Number of FE unknowns: %d\n",
-              fespaces.GetFinestFESpace().GlobalTrueVSize());
+  PetscPrintf(MPI_COMM_WORLD, "Number of FE unknowns:\n");
+  for (int l = 0; l < fespaces.GetNumLevels(); ++l)
+    PetscPrintf(MPI_COMM_WORLD, "\tLevel %d: %d\n", l,
+                fespaces.GetFESpaceAtLevel(l).GlobalTrueVSize());
 
   mfem::Array<int> essBdr(pmesh.bdr_attributes.Max());
   if (pmesh.bdr_attributes.Size())
@@ -160,6 +166,8 @@ int main(int argc, char *argv[]) {
     engine.seed(seed);
     engine.set_stream(rank);
   }
+
+  parmgmc::Timer timer;
 
   parmgmc::MGMCParameters params;
   params.nSmooth = 2;
@@ -190,17 +198,21 @@ int main(int argc, char *argv[]) {
   for (int n = 0; n < nSamples; ++n) {
     sampler.sample(sample, rhs, 1);
 
-    mean.Add(1. / nSamples, sample);
+    if (visualise) {
+      mean.Add(1. / nSamples, sample);
 
-    VecWAXPY(err, -1, mean, tgtMean);
+      VecWAXPY(err, -1, mean, tgtMean);
 
-    if (nSamples - n <= nSaveSamples) {
-      saveSamples.emplace_back(&fespaces.GetFinestFESpace());
-      saveSamples.back().SetFromTrueDofs(sample);
+      if (nSamples - n <= nSaveSamples) {
+        saveSamples.emplace_back(&fespaces.GetFinestFESpace());
+        saveSamples.back().SetFromTrueDofs(sample);
+      }
+
+      PetscPrintf(MPI_COMM_WORLD, "%f\n", err.Normlinf());
     }
-
-    PetscPrintf(MPI_COMM_WORLD, "%f\n", err.Normlinf());
   }
+
+  PetscPrintf(PETSC_COMM_WORLD, "Elapsed time: %.4f\n", timer.elapsed());
 
   if (visualise) {
     auto &fespace = fespaces.GetFinestFESpace();
