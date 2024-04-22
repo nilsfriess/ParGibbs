@@ -106,6 +106,9 @@ int main(int argc, char *argv[]) {
   int nSamples = 10;
   args.AddOption(&nSamples, "-n", "--samples", "Number of samples");
 
+  bool visualise = false;
+  args.AddOption(&visualise, "-v", "--visualise", "-nv", "-no-visualise", "Save Paraview files");
+
   args.Parse();
   // if (!args.Good()) {
   //   args.PrintUsage(std::cout);
@@ -199,8 +202,7 @@ int main(int argc, char *argv[]) {
     PetscPrintf(MPI_COMM_WORLD, "%f\n", err.Normlinf());
   }
 
-  {
-    // auto &fespace = fespaces.GetFESpaceAtLevel(2);
+  if (visualise) {
     auto &fespace = fespaces.GetFinestFESpace();
 
     mfem::ParGridFunction xmean(&fespace);
