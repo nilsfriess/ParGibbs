@@ -171,7 +171,7 @@ int main(int argc, char *argv[]) {
 
   parmgmc::MGMCParameters params;
   params.nSmooth = 2;
-  params.cycleType = parmgmc::MGMCCycleType::V;
+  params.cycleType = parmgmc::MGMCCycleType::W;
   params.smoothingType = parmgmc::MGMCSmoothingType::ForwardBackward;
   params.coarseSamplerType = parmgmc::MGMCCoarseSamplerType::Cholesky;
 
@@ -199,7 +199,8 @@ int main(int argc, char *argv[]) {
     sampler.sample(sample, rhs, 1);
 
     if (visualise) {
-      mean.Add(1. / nSamples, sample);
+      mean *= n / (n + 1.);
+      mean.Add(1. / (n + 1), sample);
 
       VecWAXPY(err, -1, mean, tgtMean);
 
@@ -208,7 +209,7 @@ int main(int argc, char *argv[]) {
         saveSamples.back().SetFromTrueDofs(sample);
       }
 
-      PetscPrintf(MPI_COMM_WORLD, "%f\n", err.Normlinf());
+      PetscPrintf(MPI_COMM_WORLD, "%f\n", err.Norml2());
     }
   }
 
