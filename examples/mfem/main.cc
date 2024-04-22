@@ -1,13 +1,11 @@
 #include "parmgmc/common/petsc_helper.hh"
+#include "parmgmc/common/timer.hh"
 #include "parmgmc/linear_operator.hh"
 #include "parmgmc/samplers/mgmc.hh"
 #include "parmgmc/samplers/multicolor_gibbs.hh"
 
 #include <mfem.hpp>
 
-#include <mfem/fem/pgridfunc.hpp>
-#include <mfem/linalg/handle.hpp>
-#include <mfem/linalg/petsc.hpp>
 #include <mpi.h>
 #include <petscmat.h>
 #include <petscsys.h>
@@ -47,9 +45,9 @@ public:
 
     auto *a = new mfem::PetscParMatrix;
     fineForm->FormSystemMatrix(essTdofs, *a);
+    Mat pa = a->ReleaseMat(false);
 
-    this->ops[fespaces.GetFinestLevelIndex()] =
-        std::make_shared<parmgmc::LinearOperator>(*a, false);
+    this->ops[fespaces.GetFinestLevelIndex()] = std::make_shared<parmgmc::LinearOperator>(pa, true);
     this->ops[fespaces.GetFinestLevelIndex()]->colorMatrix();
 
     for (int l = fespaces.GetFinestLevelIndex(); l > 0; --l) {
@@ -59,10 +57,12 @@ public:
       auto *hp = p.As<mfem::HypreParMatrix>();
       mfem::PetscParMatrix pp{hp};
 
+      PetscObjectReference((PetscObject)this->ops[l]->getMat());
+
       mfem::PetscParMatrix fineMat(this->ops[l]->getMat());
 
-      auto *coarseMat = mfem::RAP(&fineMat, &pp);
-      this->ops[l - 1] = std::make_shared<parmgmc::LinearOperator>(*coarseMat, false);
+      auto coarseMat = mfem::RAP(&fineMat, &pp)->ReleaseMat(false);
+      this->ops[l - 1] = std::make_shared<parmgmc::LinearOperator>(coarseMat, true);
       this->ops[l - 1]->colorMatrix();
     }
   }
@@ -98,6 +98,10 @@ int main(int argc, char *argv[]) {
   mfem::OptionsParser args(argc, argv);
   args.AddOption(&meshFile, "-m", "--mesh", "Mesh file to use");
 
+  int maxGlobalElements = 10000;
+  args.AddOption(&maxGlobalElements, "-s", "--max-size",
+                 "Number of local mesh elements for the coarse grid");
+
   int nLevels = 3;
   args.AddOption(&nLevels, "-l", "--levels", "Number of Multigrid levels");
 
@@ -106,6 +110,9 @@ int main(int argc, char *argv[]) {
 
   int nSamples = 10;
   args.AddOption(&nSamples, "-n", "--samples", "Number of samples");
+
+  bool visualise = false;
+  args.AddOption(&visualise, "-v", "--visualise", "-nv", "-no-visualise", "Save Paraview files");
 
   args.Parse();
   // if (!args.Good()) {
@@ -118,14 +125,13 @@ int main(int argc, char *argv[]) {
 
   /* Refine the serial mesh such that the refined mesh has at most 1000
    * elements. */
-  int refLevels = std::floor(std::log(1000. / mesh.GetNE()) / std::log(2) / dim);
-  for (int l = 0; l < refLevels; l++)
+  while (mesh.GetNE() < 1000)
     mesh.UniformRefinement();
 
   mfem::ParMesh pmesh(MPI_COMM_WORLD, mesh);
   mesh.Clear();
-  pmesh.UniformRefinement();
-  pmesh.UniformRefinement();
+  while (pmesh.GetGlobalNE() < maxGlobalElements)
+    pmesh.UniformRefinement();
 
   const int order = 1;
   mfem::H1_FECollection fec(order, dim);
@@ -135,8 +141,10 @@ int main(int argc, char *argv[]) {
   for (int l = 0; l < nLevels - 1; ++l)
     fespaces.AddUniformlyRefinedLevel();
 
-  PetscPrintf(MPI_COMM_WORLD, "Number of FE unknowns: %d\n",
-              fespaces.GetFinestFESpace().GlobalTrueVSize());
+  PetscPrintf(MPI_COMM_WORLD, "Number of FE unknowns:\n");
+  for (int l = 0; l < fespaces.GetNumLevels(); ++l)
+    PetscPrintf(MPI_COMM_WORLD, "\tLevel %d: %d\n", l,
+                fespaces.GetFESpaceAtLevel(l).GlobalTrueVSize());
 
   mfem::Array<int> essBdr(pmesh.bdr_attributes.Max());
   if (pmesh.bdr_attributes.Size())
@@ -159,9 +167,11 @@ int main(int argc, char *argv[]) {
     engine.set_stream(rank);
   }
 
+  parmgmc::Timer timer;
+
   parmgmc::MGMCParameters params;
   params.nSmooth = 2;
-  params.cycleType = parmgmc::MGMCCycleType::V;
+  params.cycleType = parmgmc::MGMCCycleType::W;
   params.smoothingType = parmgmc::MGMCSmoothingType::ForwardBackward;
   params.coarseSamplerType = parmgmc::MGMCCoarseSamplerType::Cholesky;
 
@@ -188,20 +198,24 @@ int main(int argc, char *argv[]) {
   for (int n = 0; n < nSamples; ++n) {
     sampler.sample(sample, rhs, 1);
 
-    mean.Add(1. / nSamples, sample);
+    if (visualise) {
+      mean *= n / (n + 1.);
+      mean.Add(1. / (n + 1), sample);
 
-    VecWAXPY(err, -1, mean, tgtMean);
+      VecWAXPY(err, -1, mean, tgtMean);
 
-    if (nSamples - n <= nSaveSamples) {
-      saveSamples.emplace_back(&fespaces.GetFinestFESpace());
-      saveSamples.back().SetFromTrueDofs(sample);
+      if (nSamples - n <= nSaveSamples) {
+        saveSamples.emplace_back(&fespaces.GetFinestFESpace());
+        saveSamples.back().SetFromTrueDofs(sample);
+      }
+
+      PetscPrintf(MPI_COMM_WORLD, "%f\n", err.Norml2());
     }
-
-    PetscPrintf(MPI_COMM_WORLD, "%f\n", err.Normlinf());
   }
 
-  {
-    // auto &fespace = fespaces.GetFESpaceAtLevel(2);
+  PetscPrintf(PETSC_COMM_WORLD, "Elapsed time: %.4f\n", timer.elapsed());
+
+  if (visualise) {
     auto &fespace = fespaces.GetFinestFESpace();
 
     mfem::ParGridFunction xmean(&fespace);

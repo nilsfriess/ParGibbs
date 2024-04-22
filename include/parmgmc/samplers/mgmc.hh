@@ -4,6 +4,7 @@
 #include "parmgmc/common/timer.hh"
 #include "parmgmc/dm_hierarchy.hh"
 #include "parmgmc/linear_operator.hh"
+#include "parmgmc/samplers/hogwild.hh"
 #include "parmgmc/samplers/multicolor_gibbs.hh"
 
 #include <memory>
@@ -71,8 +72,9 @@ public:
     ops.resize(nLevels);
     ops[nLevels - 1] = fineOperator;
 
-    if (not ops[nLevels - 1]->hasColoring())
-      ops[nLevels - 1]->colorMatrix(dmHierarchy.getFine());
+    if constexpr (not std::is_same_v<Smoother, HogwildGibbsSampler<Engine>>)
+      if (not ops[nLevels - 1]->hasColoring())
+        ops[nLevels - 1]->colorMatrix(dmHierarchy.getFine());
 
     for (int level = nLevels - 1; level > 0; --level) {
       // Create fine matrix using Galerkin projection
@@ -80,7 +82,10 @@ public:
       PetscCallVoid(MatPtAP(ops[level]->getMat(), dmHierarchy.getInterpolation(level - 1),
                             MAT_INITIAL_MATRIX, PETSC_DEFAULT, &coarseMat));
       ops[level - 1] = std::make_shared<LinearOperator>(coarseMat);
-      ops[level - 1]->colorMatrix();
+
+      if constexpr (not std::is_same_v<Smoother, HogwildGibbsSampler<Engine>>)
+        if (level != 1 || (level == 1 && coarseSamplerType != MGMCCoarseSamplerType::Cholesky))
+          ops[level - 1]->colorMatrix();
     }
 
     PetscCallVoid(initVecsAndSmoothers(engine));
