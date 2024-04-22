@@ -503,18 +503,18 @@ Let us begin with a description of the random field. The precision matrix is a d
 \end{equation}
 The reason for this specific choice of precision operator is due to a result by Whittle~\cite{whittle1954,whittle1963} (see also~\cite{lindgren,lindgrenSPDEApproachGaussian2022}). Consider the stochastic partial differential equation (SPDE) $\tau (\kappa^2 - \Delta)^{\alpha/2} u = \mathcal{W}$, where $\tau$ is a normalisation parameter that we ignore in the following, and $\mathcal{W}$ is spatial white noise. The stationary solutions of this SPDE have a Mat\'ern covariance function with smoothness parameter $\nu = \alpha - d/2$ where $d$ is the dimension of the domain). The associated precision operator is $\mathcal{A} \coloneqq {(\kappa^2 - \Delta)}^\alpha$~\cite[Sec.\ 2.2]{lindgrenSPDEApproachGaussian2022}, and we see that~\eqref{eq:shiftedlaplace} corresponds to $\alpha = 1$. The smoothness parameters of the associated Mat\'ern fields are then $\nu = 0$ in 2D and $\nu = -\frac{1}{2}$ in 3D, respectively.
 
-We consider three variants. In the first, we discretise~\eqref{eq:shiftedlaplace} on the unit square ${[0,1]}^2$ using a five-point finite difference stencil. In the second, we instead discretise via $H^1$ conforming finite elements. The last example also uses finite elements but uses a different underlying grid (see Section~\ref{sec:3dfe} below). For all examples we measure the time to set up the samplers and to generate a fixed number of samples, and study how the execution time changes with increasing nunber of processors. We either fix the total problem size (strong scaling) or we fix the local per-processor problem size (weak scaling).
+We consider two variants. In the first, we discretise~\eqref{eq:shiftedlaplace} on the unit square ${[0,1]}^2$ using a five-point finite difference stencil. In the second, we instead discretise~\eqref{eq:shiftedlaplace} on an unstructured grid using $H^1$ conforming finite elements. For both examples we measure the time to set up the samplers and to generate a fixed number of samples, and study how the execution time changes with increasing nunber of processors. We either fix the total problem size (strong scaling) or we fix the local per-processor problem size (weak scaling).
 
 % For each problem we carry out the following experiments. We compare the performance of the multicolour Gibbs sampler to the Hogwild Gibbs sampler to study the overhead due to the colouring. Further, we study the strong scaling (i.e., the global problem size is fixed) and weak scaling (i.e., the problem size per processor is fixed) on up to 2048 cores of the multicolour Gibbs sampler, the Hogwild Gibbs sampler, and the MGMC sampler (both with multicolour Gibbs and Hogwild Gibbs as random smoothers). In all cases, we measured the time to set up the samplers and the time to sample a fixed number of samples. When testing the Gibbs samplers stand-alone, we have always executed the tests using the finest grid in the hierarchy.
 
-\subsection{2D structured grid (finite difference discretisation)}
-For this example, we set up a grid hierarchy with five levels, the coarsest level being of size $257 \times 257$ and the finest level consisting of $4097 \times 4097$ grid points. 
+\subsection{2D structured grid}
+To study the strong scaling behaviour, we set up a grid hierarchy with five levels, the coarsest level being of size $257 \times 257$ and the finest level consisting of $4097 \times 4097$ grid points. Since we use a simple 5-point finite difference stencil to discretise~\eqref{eq:shiftedlaplace}, two colours are sufficient to colour the lattice on the finest level. On the remaining levels, the colouring routines implemented in PETSc produced colourings with nine ($\ell = 3$), eight ($\ell = 2$), eight ($\ell = 1$), and nine colours ($\ell = 0$), respectively.
 
-We begin with a comparison of the Hogwild Gibbs sampler and the multicolour Gibbs sampler used as standalone samplers on the finest level. Since we have used a simple 5-point finite difference stencil to discretise~\eqref{eq:shiftedlaplace}, two colours are sufficient to colour the lattice. In Figure~\ref{fig:2d_structured_ss} we plotted the strong scaling speed-up $S(p)$, i.e., we computed 
+We begin with a comparison of the Hogwild Gibbs sampler and the multicolour Gibbs sampler used as standalone samplers on the finest level. In Figure~\ref{fig:2d_structured_ss} we plot the strong scaling speed-up $S(p)$ defined as
 \begin{equation*}
     S(p) = \frac{T(1)}{T(p)}\,,
 \end{equation*}
-where $T(p)$ is the execution time on $p$ cores, and in Table~\ref{tab:2d_structured_ss} we provide the strong scaling efficiency defined as
+where $T(p)$ is the execution time on $p$ cores, and in Table~\ref{tab:2d_structured_ss} we provide the strong scaling efficiency which is given by
 \begin{equation*}
     \text{E(p)} = \frac{S(p)}{p}\,.
 \end{equation*}
@@ -523,40 +523,78 @@ where $T(p)$ is the execution time on $p$ cores, and in Table~\ref{tab:2d_struct
     \centering
     \begin{subfigure}[b]{0.49\textwidth}
         \centering
-        \includegraphics[width=\textwidth]{plots/strong_scaling_hogwild_4097x4097.eps}
+        \includegraphics[width=\textwidth]{plots/strong_scaling_hogwild_4097x4097.pdf}
     \end{subfigure}
     \hfill
     \begin{subfigure}[b]{0.49\textwidth}
         \centering
-        \includegraphics[width=\textwidth]{plots/strong_scaling_gibbs_4097x4097.eps}
-    \end{subfigure}
-    \caption{Strong scaling speed-up for the Hogwild Gibbs sampler (left) and the multicolour Gibbs sampler (right). The multicolour Gibbs sampler uses two colours in this case.}
+        \includegraphics[width=\textwidth]{plots/strong_scaling_gibbs_4097x4097.pdf}
+      \end{subfigure}
+      \caption{Strong scaling speed-up for the Hogwild Gibbs sampler (left) and the multicolour Gibbs sampler (right). The multicolour Gibbs sampler uses two colours in this case.}
     \label{fig:2d_structured_ss}
 \end{figure}
 
-We observe that the behaviour of both samplers is very similar although the performance of the multicolour Gibbs sampler seems to drop for 1024 cores. Comparing the absolute timings, we found that the Hogwild sampler is on average about 15\% faster than the multicolour sampler. 
+We observe that the behaviour of both samplers is very similar. The performance of the multicolour Gibbs sampler seems to drop for 1024 cores. Comparing the absolute timings, we found that the Hogwild sampler is on average about 13\% faster than the multicolour sampler.
 
+\begin{figure}[htbp]
+    \centering
+    \begin{subfigure}[b]{0.49\textwidth}
+        \centering
+        \includegraphics[width=\textwidth]{plots/strong_scaling_mgmc+hw+gibbs_4097x4097.pdf}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[b]{0.49\textwidth}
+        \centering
+        \includegraphics[width=\textwidth]{plots/strong_scaling_mgmc+mg+gibbs_4097x4097.pdf}
+    \end{subfigure}
+    \caption{Strong scaling speed-up for the Multigrid Monte Carlo sampler using Hogwild Gibbs as the random smoothers (left) and multicolour Gibbs as the random smoothers (right). Both use the respective variant of the Gibbs sampler also on the coarsest level.}
+    \label{fig:2d_structured_mgmc_ss}
+\end{figure}
 
 \begin{table}[htbp]
     \centering
-    \caption{Strong scaling efficiency for the 2D structured grid example. ``Multicolour'' is abbreviated ``MC'', and ``Hogwild'' is abbreviated ``HW''. By MGMC+XX we mean that the Multigrid Monte Carlo sampler was used with ``XX Gibbs'' as the random smoother.}\label{tab:2d_structured_ss}
-    \begin{tabular}{rcccc}
+    \begin{tabular}{rccccc}
     \toprule
-    \# Proc. & \textbf{MC Gibbs} & \textbf{HW Gibbs}  & \textbf{MGMC+MC}  & \textbf{MGMC+HW} \\
+    \# Proc. & Fig.\ref{fig:2d_structured_ss} (right) & Fig.\ref{fig:2d_structured_ss} (left)  & Fig.\ref{fig:2d_structured_mgmc_ss} (right) & Fig.\ref{fig:2d_structured_mgmc_ss} (left) & Fig.\ref{fig:2d_structured_mgmc_chol_ss} \\
     \midrule
-    {2}     &  94\% &  95\% && \\
-    {4}     &  90\% &  87\% && \\
-    {8}     &  86\% &  78\% && \\
-    {16}    &  80\% &  75\% && \\
-    {32}    &  89\% &  75\% && \\
-    {64}    &  86\% &  80\% && \\
-    {128}   &  86\% &  87\% && \\
-    {256}   &  86\% &  95\% && \\
-    {512}   &  82\% &  81\% && \\
-    {1024}  &  68\% &  74\% && 
+    {2}     &  94\% &  95\% &  89\% &  91\% & 102\% \\
+    {4}     &  90\% &  87\% &  84\% &  81\% &  96\% \\
+    {8}     &  86\% &  78\% &  87\% &  76\% &  80\% \\
+    {16}    &  80\% &  75\% &  78\% &  61\% &  81\% \\
+    {32}    &  89\% &  75\% &  79\% &  61\% &  80\% \\
+    {64}    &  86\% &  80\% &  76\% &  61\% &  72\% \\
+    {128}   &  86\% &  87\% &  78\% &  62\% &  43\% \\
+    {256}   &  86\% &  95\% &  78\% &  62\% &  15\% \\
+    {512}   &  82\% &  81\% &  75\% &  66\% &  22\% \\
+    {1024}  &  68\% &  74\% &  68\% &  63\% &   5\% \\
     \bottomrule
     \end{tabular}
+    \caption{Strong scaling efficiency for the 2D structured grid example.
+      % ``Multicolour'' is abbreviated ``MC'', and ``Hogwild'' is abbreviated ``HW''. By MGMC+XX we mean that the Multigrid Monte Carlo sampler was used with ``XX Gibbs'' as the random smoother.
+    }\label{tab:2d_structured_ss}
 \end{table}
+
+The strong scaling behaviour for the full MGMC sampler without coarse Cholesky sampling is similar, see Fig.~\ref{fig:2d_structured_mgmc_ss}. The variant that uses Hogwild Gibbs as random smoothers shows worse scaling in this case (see the last column in Table~\ref{tab:2d_structured_ss}) and we do not have an explanation for that. However, by comparing the timings of both variants for a fixed number of processors, we observed that the variant with Hogwild random smoothers was on average 55\% faster than the version with multicolour Gibbs smoothers.
+
+The strong scaling behaviour changes if we use a Cholesky sampler on the coarsest level, see Figure~\ref{fig:2d_structured_mgmc_chol_ss}. For this example we only considered MGMC with multicolour Gibbs random smoothers. We see that the performance deteriorates for more than 64 cores and the total runtime on 1024 processors is almost the same as for 128 processors. It should be noted that the Intel MKL Cholesky implementation offers some additonal configuration options that could improve the performance (e.g., thread parallelisation within a processor) but We did not test the effect of these options yet.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.5\textwidth]{plots/strong_scaling_mgmc+mg+cholesky_4097x4097.pdf}
+    \caption{Strong scaling speed-up for the Multigrid Monte Carlo sampler using multicolour Gibbs as the random smoothers and Cholesky sampling on the coarsest level.}
+    \label{fig:2d_structured_mgmc_chol_ss}
+\end{figure}
+
+To conclude this example, we will look at the weak scaling behavior of the MGMC sampler. Fig.\ref{fig:2d_structured_ws} shows the weak scaling efficiency for the multicolour Gibbs sampler, the MGMC sampler with Gibbs sweeps on the coarsest level, and MGMC using a coarse Cholesky sampler. The random smoother is a multicolour Gibbs sampler in both cases. We have fixed the coarse problem size to $64 \times 64$ for all runs.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.75\textwidth]{plots/weak_scaling_64x64.pdf}
+    \caption{Weak scaling efficiency for the multicolour Gibbs sampler and the MGMC sampler, using both Gibbs sampling and Cholesky sampling on the coarsest level. The random smoother is a multicolour Gibbs sampler in both cases.}
+    \label{fig:2d_structured_ws}
+\end{figure}
+
+While both the standalone Gibbs sampler and the MGMC sampler with coarse Gibbs sampling show acceptable weak scaling performance, the use of the Cholesky sampler on the coarsest level seems to drastically reduce the efficiency. We note here again that this behavior could be mitigated by adjusting the parameters in the Intel MKL library.
 
 \subsection{2D structured grid (finite element discretisation)}
 \subsection{3D unstructured grid (finite element discretisation)}
