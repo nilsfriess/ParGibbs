@@ -5,9 +5,6 @@
 
 #include <mfem.hpp>
 
-#include <mfem/fem/pgridfunc.hpp>
-#include <mfem/linalg/handle.hpp>
-#include <mfem/linalg/petsc.hpp>
 #include <mpi.h>
 #include <petscmat.h>
 #include <petscsys.h>
@@ -47,9 +44,9 @@ public:
 
     auto *a = new mfem::PetscParMatrix;
     fineForm->FormSystemMatrix(essTdofs, *a);
+    Mat pa = a->ReleaseMat(false);
 
-    this->ops[fespaces.GetFinestLevelIndex()] =
-        std::make_shared<parmgmc::LinearOperator>(*a, false);
+    this->ops[fespaces.GetFinestLevelIndex()] = std::make_shared<parmgmc::LinearOperator>(pa, true);
     this->ops[fespaces.GetFinestLevelIndex()]->colorMatrix();
 
     for (int l = fespaces.GetFinestLevelIndex(); l > 0; --l) {
@@ -59,10 +56,12 @@ public:
       auto *hp = p.As<mfem::HypreParMatrix>();
       mfem::PetscParMatrix pp{hp};
 
+      PetscObjectReference((PetscObject)this->ops[l]->getMat());
+
       mfem::PetscParMatrix fineMat(this->ops[l]->getMat());
 
-      auto *coarseMat = mfem::RAP(&fineMat, &pp);
-      this->ops[l - 1] = std::make_shared<parmgmc::LinearOperator>(*coarseMat, false);
+      auto coarseMat = mfem::RAP(&fineMat, &pp)->ReleaseMat(false);
+      this->ops[l - 1] = std::make_shared<parmgmc::LinearOperator>(coarseMat, true);
       this->ops[l - 1]->colorMatrix();
     }
   }
