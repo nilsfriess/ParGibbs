@@ -146,9 +146,9 @@ PetscErrorCode testHogwildGibbsSampler(ShiftedLaplaceFD &problem, PetscInt nSamp
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
-template <typename Engine>
-PetscErrorCode testMGMCSampler(ShiftedLaplaceFD &problem, PetscInt nSamples, Engine &engine,
-                               const MGMCParameters &params, TimingResult &timingResult) {
+template <template <class> typename Smoother, typename Engine>
+PetscErrorCode testMGMCSamplerHelper(ShiftedLaplaceFD &problem, PetscInt nSamples, Engine &engine,
+                                     const MGMCParameters &params, TimingResult &timingResult) {
   PetscFunctionBeginUser;
 
   Vec sample, rhs;
@@ -161,7 +161,8 @@ PetscErrorCode testMGMCSampler(ShiftedLaplaceFD &problem, PetscInt nSamples, Eng
 
   // Measure setup time
   timer.reset();
-  MultigridSampler sampler(problem.getFineOperator(), problem.getHierarchy(), engine, params);
+  MultigridSampler<Engine, Smoother<Engine>> sampler(problem.getFineOperator(),
+                                                     problem.getHierarchy(), engine, params);
   auto setupTime = timer.elapsed();
   // Setup done
 
@@ -178,6 +179,22 @@ PetscErrorCode testMGMCSampler(ShiftedLaplaceFD &problem, PetscInt nSamples, Eng
   // Cleanup
   PetscCall(VecDestroy(&sample));
   PetscCall(VecDestroy(&rhs));
+
+  PetscFunctionReturn(PETSC_SUCCESS);
+}
+
+template <typename Engine>
+PetscErrorCode testMGMCSampler(ShiftedLaplaceFD &problem, PetscInt nSamples, Engine &engine,
+                               const MGMCParameters &params, PetscBool hogwildSmoother,
+                               TimingResult &timingResult) {
+  PetscFunctionBeginUser;
+
+  if (hogwildSmoother)
+    PetscCall(testMGMCSamplerHelper<HogwildGibbsSampler>(problem, nSamples, engine, params,
+                                                         timingResult));
+  else
+    PetscCall(testMGMCSamplerHelper<MulticolorGibbsSampler>(problem, nSamples, engine, params,
+                                                            timingResult));
 
   PetscFunctionReturn(PETSC_SUCCESS);
 }
@@ -228,6 +245,9 @@ int main(int argc, char *argv[]) {
       PetscOptionsGetBool(nullptr, nullptr, "-mgmc_cholesky", &runMGMCCoarseCholesky, nullptr));
   PetscCall(PetscOptionsGetBool(nullptr, nullptr, "-cholesky", &runCholesky, nullptr));
   PetscCall(PetscOptionsGetBool(nullptr, nullptr, "-hogwild", &runHogwild, nullptr));
+
+  PetscBool hogwildSmoother = PETSC_FALSE;
+  PetscCall(PetscOptionsGetBool(nullptr, nullptr, "-hogwild_smoother", &hogwildSmoother, nullptr));
 
   PetscMPIInt mpisize, mpirank;
   PetscCallMPI(MPI_Comm_size(MPI_COMM_WORLD, &mpisize));
@@ -300,7 +320,7 @@ int main(int argc, char *argv[]) {
       throw std::runtime_error("Unknown coarse sampler type");
 
     for (int i = 0; i < nRuns; ++i)
-      PetscCall(testMGMCSampler(problem, nSamples, engine, params, res));
+      PetscCall(testMGMCSampler(problem, nSamples, engine, params, hogwildSmoother, res));
 
     PetscCall(printResult("MGMC sampler", res));
   }
