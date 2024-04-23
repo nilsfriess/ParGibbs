@@ -52,6 +52,8 @@ struct MGMCParameters {
 
 template <class Engine, class Smoother = MulticolorGibbsSampler<Engine>> class MultigridSampler {
 public:
+  using SmootherType = Smoother;
+
   /* Construct a Multigrid sampler using a given linear operator and a hierarchy
    * of DMs. The operator must be an operator on the finest DM in the
    * hierarchy, the remaining operators are created by Galerkin projection
