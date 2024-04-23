@@ -598,7 +598,7 @@ To conclude this example, we will look at the weak scaling behavior of the MGMC 
 While both the standalone Gibbs sampler and the MGMC sampler with coarse Gibbs sampling show acceptable weak scaling performance, the use of the Cholesky sampler on the coarsest level seems to drastically reduce the efficiency. We note here again that this behavior could be mitigated by adjusting the parameters in the Intel MKL library.
 
 \subsection{Unstructured Grids}
-In this section we consider two examples that discretise~\eqref{eq:shiftedlaplace} on unstructured grids using finite elements and thus require more colours to colour the matrix graph of the precision matrices $A_\ell$, $\ell = 0, \dotsc, L$. The two grids are shown in Fig.~\ref{fig:mfem_ex}.
+In this section we consider two examples that discretise~\eqref{eq:shiftedlaplace} on unstructured grids using finite elements. The two grids are shown in Fig.~\ref{fig:mfem_ex}.
 
 \begin{figure}[htbp]
     \centering
@@ -615,8 +615,24 @@ In this section we consider two examples that discretise~\eqref{eq:shiftedlaplac
     \label{fig:mfem_ex}
 \end{figure}
 
+We begin with a weak scaling of the square disc example. In this case, instead of fixing the number of grids in the hierarchy and varying the coarse grid size, we fix the coarse grid size and increase the number of levels with increasing number of cores. The number of levels ranges from two (for the one processor run) up to eight (for the run on 1024 processes). The number of colours required for the matrix colouring are (from coarse to fine)
+\begin{equation*}
+  7,\ 15,\ 18,\ 19,\ 19,\ 20,\ 20,\ 19\,.
+\end{equation*}
 
+A plot of the weak scaling efficiency for the square disc example is given in Fig.~\ref{fig:2d_unstructured_ws}. We observe that neither sampler scales optimally, in particular when comparing the behaviour on four and sixteen cores to the single processor run. We also observe that unlike in the previous section, using a Cholesky sampler on the coarsest level does not affect the weak scaling performance much, indicating that the additional communication due to the colouring dominates the cost. Comparing absolute timings shows that the costs per sample of both variants of the MGMC sampler with multicolour Gibbs sweeps as random smoothers are within 10\% of each other for up to 64 processes; after that the coarse Cholesky sampler becomes more expensive.
 
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.75\textwidth]{plots/ws_mgmc_fe.pdf}
+    \caption{Weak scaling efficiency for the  MGMC sampler applied to the square disc example.}
+    \label{fig:2d_unstructured_ws}
+\end{figure}
+
+We continue to explore the effect of the coarse grid samplers by measuring the setup and sampling times for the toroid example. The grid hierarchy now contains of four levels and the number of colours required to colour the matrix graphs are (again from coarse to fine)
+\begin{equation*}
+  16,\ 45,\ 57,\ 53\,.
+\end{equation*}
 
 \section{Conclusion}
 
