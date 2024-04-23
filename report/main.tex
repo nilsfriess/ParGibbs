@@ -596,7 +596,22 @@ To conclude this example, we will look at the weak scaling behavior of the MGMC 
 
 While both the standalone Gibbs sampler and the MGMC sampler with coarse Gibbs sampling show acceptable weak scaling performance, the use of the Cholesky sampler on the coarsest level seems to drastically reduce the efficiency. We note here again that this behavior could be mitigated by adjusting the parameters in the Intel MKL library.
 
-\subsection{2D structured grid (finite element discretisation)}
+\subsection{2D unstructured grid (finite element discretisation)}
+\begin{figure}[htbp]
+    \centering
+    \begin{subfigure}[b]{0.49\textwidth}
+        \centering
+        \includegraphics[width=\textwidth]{plots/paraview/square-disc.png}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[b]{0.49\textwidth}
+        \centering
+        \includegraphics[width=\textwidth]{plots/paraview/toroid-crop.png}
+      \end{subfigure}
+      \caption{Samples on the grids used in the examples discretised using finite elements.}
+    \label{fig:2d_structured_ss}
+\end{figure}
+
 \subsection{3D unstructured grid (finite element discretisation)}
 \label{sec:3dfe}
 
