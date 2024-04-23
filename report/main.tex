@@ -241,7 +241,7 @@ The constructor of this new class has to call the constructor of the base class 
 \subsection{Coarse grid sampler}
 The original paper~\cite{goodmansokal} uses Gibbs samplers on all grids, including the coarsest. As in classic Multigrid, it is also possible to use a direct method on the coarsest grid (if the problem size there is sufficiently small). We have implemented both approaches, selectable via the the \mintinline{cpp}|MGMCCoarseSamplerType| parameter in the \mintinline{cpp}|MGMCParameters| class (see above). Possible values are \mintinline{cpp}|MGMCCoarseSamplerType::Standard| (which uses to $2 \times \texttt{nSmooth}$ symmetric Gibbs sweeps on the coarsest level) and \mintinline{cpp}|MGMCCoarseSamplerType::Cholesky|.
 
- In the case where a Cholesky sampler is used on the coarsest level, we rely on the PARDISO implementation of the Intel Math Kernel Library (MKL)~\cite{intelmkl} which provides both a serial and a parallel implementation of sparse Cholesky factorisation and the possibility to perform the forward substitution and the backward substitution step separately (we found that most other parallel Cholesky implementations lack this option). We access the Intel MKL library through an abstraction layer provided by PETSc.\footnote{At the time of writing, not all options of the Intel MKL PARDISO implementation are accessible from PETSc. The option to perform the forward and backward substitutions individually was only recently contributed to PETSc by the author and is not yet included in a released PETSc version. See the reproducibility section in the Appendix for details on how to configure and build PETSc from source with Intel MKL PARDISO enabled.} 
+ In the case where a Cholesky sampler is used on the coarsest level, we rely on the PARDISO implementation of the Intel Math Kernel Library (MKL)~\cite{intelmkl} which provides both a serial and a parallel implementation of sparse Cholesky factorisation and the possibility to perform the forward substitution and the backward substitution step separately (we found that most other parallel Cholesky implementations lack this option). We access the Intel MKL library through an abstraction layer provided by PETSc.\footnote{At the time of writing, not all options of the Intel MKL PARDISO implementation are accessible from PETSc. The option to perform the forward and backward substitutions individually was only recently contributed to PETSc by the author and is not yet included in a released PETSc version.} 
 
 \subsection{Gibbs samplers (random smoothers)}
 %Before discussing the parallelisation of the Gibbs samplers on distributed memory machines, let us first discuss the serial implementation of the Gibbs sampler in more detail. We only consider the standard Gibbs sampler here but everything readily extends to SOR-Gibbs.
@@ -503,18 +503,19 @@ Let us begin with a description of the random field. The precision matrix is a d
 \end{equation}
 The reason for this specific choice of precision operator is due to a result by Whittle~\cite{whittle1954,whittle1963} (see also~\cite{lindgren,lindgrenSPDEApproachGaussian2022}). Consider the stochastic partial differential equation (SPDE) $\tau (\kappa^2 - \Delta)^{\alpha/2} u = \mathcal{W}$, where $\tau$ is a normalisation parameter that we ignore in the following, and $\mathcal{W}$ is spatial white noise. The stationary solutions of this SPDE have a Mat\'ern covariance function with smoothness parameter $\nu = \alpha - d/2$ where $d$ is the dimension of the domain). The associated precision operator is $\mathcal{A} \coloneqq {(\kappa^2 - \Delta)}^\alpha$~\cite[Sec.\ 2.2]{lindgrenSPDEApproachGaussian2022}, and we see that~\eqref{eq:shiftedlaplace} corresponds to $\alpha = 1$. The smoothness parameters of the associated Mat\'ern fields are then $\nu = 0$ in 2D and $\nu = -\frac{1}{2}$ in 3D, respectively.
 
-We consider two variants. In the first, we discretise~\eqref{eq:shiftedlaplace} on the unit square ${[0,1]}^2$ using a five-point finite difference stencil. In the second, we instead discretise~\eqref{eq:shiftedlaplace} on an unstructured grid using $H^1$ conforming finite elements. For both examples we measure the time to set up the samplers and to generate a fixed number of samples, and study how the execution time changes with increasing nunber of processors. We either fix the total problem size (strong scaling) or we fix the local per-processor problem size (weak scaling).
+We consider two variants that differ in the way~\eqref{eq:shiftedlaplace} is discretised on the finest level to obtain the precision matrix $A_L$. In the first, we discretise~\eqref{eq:shiftedlaplace} on the unit square ${[0,1]}^2$ using a five-point finite difference stencil. In the second, we instead discretise~\eqref{eq:shiftedlaplace} on two unstructured grids using $H^1$ conforming finite elements using the MFEM library~\cite{mfem,mfem-web}. In both cases we employ homogenous Dirichlet boundary conditions. The mean $f$ is set to zero.
+% We measure the time to set up the samplers and to generate a fixed number of samples, and study how the execution time changes with increasing nunber of processors. We either fix the total problem size (strong scaling) or we fix the local per-processor problem size (weak scaling).
 
 % For each problem we carry out the following experiments. We compare the performance of the multicolour Gibbs sampler to the Hogwild Gibbs sampler to study the overhead due to the colouring. Further, we study the strong scaling (i.e., the global problem size is fixed) and weak scaling (i.e., the problem size per processor is fixed) on up to 2048 cores of the multicolour Gibbs sampler, the Hogwild Gibbs sampler, and the MGMC sampler (both with multicolour Gibbs and Hogwild Gibbs as random smoothers). In all cases, we measured the time to set up the samplers and the time to sample a fixed number of samples. When testing the Gibbs samplers stand-alone, we have always executed the tests using the finest grid in the hierarchy.
 
-\subsection{2D structured grid}
+\subsection{Structured grid}
 To study the strong scaling behaviour, we set up a grid hierarchy with five levels, the coarsest level being of size $257 \times 257$ and the finest level consisting of $4097 \times 4097$ grid points. Since we use a simple 5-point finite difference stencil to discretise~\eqref{eq:shiftedlaplace}, two colours are sufficient to colour the lattice on the finest level. On the remaining levels, the colouring routines implemented in PETSc produced colourings with nine ($\ell = 3$), eight ($\ell = 2$), eight ($\ell = 1$), and nine colours ($\ell = 0$), respectively.
 
 We begin with a comparison of the Hogwild Gibbs sampler and the multicolour Gibbs sampler used as standalone samplers on the finest level. In Figure~\ref{fig:2d_structured_ss} we plot the strong scaling speed-up $S(p)$ defined as
 \begin{equation*}
     S(p) = \frac{T(1)}{T(p)}\,,
 \end{equation*}
-where $T(p)$ is the execution time on $p$ cores, and in Table~\ref{tab:2d_structured_ss} we provide the strong scaling efficiency which is given by
+where $T(p)$ is the execution time (the time to set up the sampler plus the time to generate a fixed number of samples) on $p$ cores, and in Table~\ref{tab:2d_structured_ss} we provide the strong scaling efficiency which is given by
 \begin{equation*}
     \text{E(p)} = \frac{S(p)}{p}\,.
 \end{equation*}
@@ -596,24 +597,24 @@ To conclude this example, we will look at the weak scaling behavior of the MGMC 
 
 While both the standalone Gibbs sampler and the MGMC sampler with coarse Gibbs sampling show acceptable weak scaling performance, the use of the Cholesky sampler on the coarsest level seems to drastically reduce the efficiency. We note here again that this behavior could be mitigated by adjusting the parameters in the Intel MKL library.
 
-\subsection{2D unstructured grid (finite element discretisation)}
+\subsection{Unstructured Grids}
+In this section we consider two examples that discretise~\eqref{eq:shiftedlaplace} on unstructured grids using finite elements and thus require more colours to colour the matrix graph of the precision matrices $A_\ell$, $\ell = 0, \dotsc, L$. The two grids are shown in Fig.~\ref{fig:mfem_ex}.
+
 \begin{figure}[htbp]
     \centering
     \begin{subfigure}[b]{0.49\textwidth}
         \centering
-        \includegraphics[width=\textwidth]{plots/paraview/square-disc.png}
+        \includegraphics[width=\textwidth]{plots/paraview/square-disc_0_05.png}
     \end{subfigure}
     \hfill
     \begin{subfigure}[b]{0.49\textwidth}
         \centering
-        \includegraphics[width=\textwidth]{plots/paraview/toroid-crop.png}
+        \includegraphics[width=\textwidth]{plots/paraview/toroid_1.png}
       \end{subfigure}
-      \caption{Samples on the grids used in the examples discretised using finite elements.}
-    \label{fig:2d_structured_ss}
+      \caption{Random samples on the grids discretised using finite elements. Both have precision operator $\kappa^2 - \Delta $, the square disc (left) uses $\kappa^{-1} = 0.05$, the twisted toroid (right) uses $\kappa^{-1} = 1$.}
+    \label{fig:mfem_ex}
 \end{figure}
 
-\subsection{3D unstructured grid (finite element discretisation)}
-\label{sec:3dfe}
 
 
 
@@ -662,8 +663,6 @@ While both the standalone Gibbs sampler and the MGMC sampler with coarse Gibbs s
 %     \mathcal{A}_\alpha \coloneqq \tau^2 {(\kappa^2 - \Delta)}^\alpha\,,
 % \end{equation*}
 %see~\cite[Sec.\ 2.2]{lindgrenSPDEApproachGaussian2022}.
-\appendix
-\section{Reproducing the results}
 
 % \section{Using a Gauss-Seidel implementation to implement a Gibbs sampler}
 % Say we have access to a (parallel or sequential) Gauss-Seidel solver to solve the linear system
