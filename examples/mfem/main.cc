@@ -221,7 +221,7 @@ int main(int argc, char *argv[]) {
     mfem::ParGridFunction xmean(&fespace);
     xmean.SetFromTrueDofs(mean);
 
-    mfem::ParaViewDataCollection pd("Star", fespace.GetParMesh());
+    mfem::ParaViewDataCollection pd("Samples", fespace.GetParMesh());
     pd.SetPrefixPath("ParaView");
 
     for (std::size_t i = 0; i < saveSamples.size(); ++i)
