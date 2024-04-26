@@ -442,19 +442,6 @@ where $T(p)$ is the execution time (the time to set up the sampler plus the time
     \label{fig:2d_structured_mgmc_ss}
 \end{figure}
 
-We observe that the behaviour of both samplers is very similar up to 512 processes; the performance of the multicolour Gibbs sampler seems to drop for 1024 cores. Comparing the absolute timings, we found that the \emph{Hogwild} sampler is on average about 13\% faster than the multicolour sampler.
-
-The strong scaling behaviour for the full MGMC sampler without coarse Cholesky sampling is similar, see Fig.~\ref{fig:2d_structured_mgmc_ss}. The variant that uses \emph{Hogwild} Gibbs as random smoothers shows worse scaling in this case (see the last column in Table~\ref{tab:2d_structured_ss}) and we do not have an explanation for that. However, by comparing the timings of both variants for a fixed number of processors, we observed that the variant with \emph{Hogwild} random smoothers was on average 55\% faster than the version with multicolour Gibbs smoothers.
-
-\begin{figure}[htbp]
-    \centering
-    \includegraphics[width=0.6\textwidth]{plots/strong_scaling_mgmc+mg+cholesky_4097x4097.pdf}
-    \caption{Strong scaling speed-up for the MGMC sampler using multicolour Gibbs as the random smoothers and Cholesky sampling on the coarsest level.}
-    \label{fig:2d_structured_mgmc_chol_ss}
-\end{figure}
-
-The strong scaling behaviour changes if we use a Cholesky sampler on the coarsest level, see Fig.~\ref{fig:2d_structured_mgmc_chol_ss}. For this example we only considered MGMC with multicolour Gibbs random smoothers. We see that the performance deteriorates for more than 64 cores and the total runtime on 1024 processors is almost the same as for 128 processors. It should be noted that the Intel MKL Cholesky implementation offers some additional configuration options that could improve the performance (e.g., thread parallelisation within a processor) but we did not test the effect of these options yet.
-
 \begin{table}[htbp]
     \centering
     \begin{tabular}{rccccc}
@@ -476,6 +463,19 @@ The strong scaling behaviour changes if we use a Cholesky sampler on the coarses
     \caption{Strong scaling efficiency for the 2D structured grid example.
     }\label{tab:2d_structured_ss}
 \end{table}
+
+We observe that the behaviour of both samplers is very similar up to 512 processes; the performance of the multicolour Gibbs sampler seems to drop for 1024 cores. Comparing the absolute timings, we found that the \emph{Hogwild} sampler is on average about 13\% faster than the multicolour sampler.
+
+The strong scaling behaviour for the full MGMC sampler without coarse Cholesky sampling is similar, see Fig.~\ref{fig:2d_structured_mgmc_ss}. The variant that uses \emph{Hogwild} Gibbs as random smoothers shows worse scaling in this case (see the last column in Table~\ref{tab:2d_structured_ss}) and we do not have an explanation for that. However, by comparing the timings of both variants for a fixed number of processors, we observed that the variant with \emph{Hogwild} random smoothers was on average 55\% faster than the version with multicolour Gibbs smoothers.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.6\textwidth]{plots/strong_scaling_mgmc+mg+cholesky_4097x4097.pdf}
+    \caption{Strong scaling speed-up for the MGMC sampler using multicolour Gibbs as the random smoothers and Cholesky sampling on the coarsest level.}
+    \label{fig:2d_structured_mgmc_chol_ss}
+\end{figure}
+
+The strong scaling behaviour changes if we use a Cholesky sampler on the coarsest level, see Fig.~\ref{fig:2d_structured_mgmc_chol_ss}. For this example we only considered MGMC with multicolour Gibbs random smoothers. We see that the performance deteriorates for more than 64 cores and the total runtime on 1024 processors is almost the same as for 128 processors. It should be noted that the Intel MKL Cholesky implementation offers some additional configuration options that could improve the performance (e.g., thread parallelisation within a processor) but we did not test the effect of these options yet.
 
 To conclude this example, we look at the weak scaling behaviour of the MGMC sampler. Fig.~\ref{fig:2d_structured_ws} shows the weak scaling efficiency for the multicolour Gibbs sampler, the MGMC sampler with Gibbs sweeps on the coarsest level, and MGMC using a coarse Cholesky sampler. The random smoother is a multicolour Gibbs sampler in both cases. We have fixed the local problem size of the coarsest level to $64 \times 64$ for all runs.
 
