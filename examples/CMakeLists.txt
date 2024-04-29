@@ -12,6 +12,7 @@ find_package(mfem
              HINTS "${MFEM_DIR}" "${MFEM_DIR}/lib/cmake/mfem"
              NO_DEFAULT_PATH)
 
+add_subdirectory(general)
 add_subdirectory(statistics)
 add_subdirectory(mfem)
 add_subdirectory(scaling)
