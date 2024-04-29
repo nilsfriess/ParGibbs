@@ -1,6 +1,7 @@
 #include "parmgmc/common/helpers.hh"
 #include "parmgmc/common/petsc_helper.hh"
 
+#include "parmgmc/samplers/pc_cholsampler.hh"
 #include "parmgmc/samplers/pc_gibbs.hh"
 #include "problems.hh"
 
@@ -20,12 +21,13 @@ int main(int argc, char *argv[]) {
   Engine engine{std::random_device{}()};
 
   PetscCall(PCRegister("gibbs", parmgmc::PCCreate_Gibbs<Engine>));
+  PetscCall(PCRegister("cholsampler", parmgmc::PCCreate_CholeskySampler<Engine>));
 
   // Assemble precision matrix
   PetscInt size = 9;
   PetscCall(PetscOptionsGetInt(nullptr, nullptr, "-problem_size", &size, nullptr));
 
-  ShiftedLaplaceFD problem(Dim{2}, size, 1, 100);
+  SimpleGMRF problem(Dim{2}, size, 1);
   Mat mat = problem.getFineOperator()->getMat();
 
   // Setup sampler by abusing PETSc's PCMG multigrid preconditioner
@@ -33,9 +35,10 @@ int main(int argc, char *argv[]) {
   PetscCall(KSPCreate(MPI_COMM_WORLD, &ksp));
   PetscCall(KSPSetType(ksp, KSPRICHARDSON));
   PetscCall(KSPSetOperators(ksp, mat, mat));
-  PetscCall(KSPSetDM(ksp, problem.getFineDM()));
-  PetscCall(KSPSetDMActive(ksp, PETSC_FALSE));
   PetscCall(KSPSetInitialGuessNonzero(ksp, PETSC_TRUE));
+
+  // Just to make sure we're not using any geometric information below
+  PetscCall(MatSetDM(mat, nullptr));
 
   PetscCall(KSPSetFromOptions(ksp));
 
@@ -47,15 +50,17 @@ int main(int argc, char *argv[]) {
 
   PC pc;
   PetscCall(KSPGetPC(ksp, &pc));
-  PetscCall(PCSetType(pc, PCMG));
+  PetscCall(PCSetType(pc, PCGAMG));
   PetscCall(PCSetFromOptions(pc));
+
+  PetscCall(KSPSetUp(ksp));
 
   PetscInt levels;
   PetscCall(PCMGGetLevels(pc, &levels));
 
   KSP smoothksp;
   PC smoothpc;
-  for (PetscInt l = 0; l < levels; ++l) {
+  for (PetscInt l = 1; l < levels; ++l) {
     PetscCall(PCMGGetSmoother(pc, l, &smoothksp));
     PetscCall(KSPSetType(smoothksp, KSPRICHARDSON));
     PetscCall(KSPSetInitialGuessNonzero(smoothksp, PETSC_TRUE));
@@ -64,11 +69,23 @@ int main(int argc, char *argv[]) {
     PetscCall(KSPGetPC(smoothksp, &smoothpc));
     PetscCall(PCSetType(smoothpc, "gibbs"));
     PetscCall(PCSetApplicationContext(smoothpc, (void *)&engine));
+
+    // Allow user to change options
+    PetscCall(KSPSetFromOptions(smoothksp));
+    PetscCall(PCSetFromOptions(smoothpc));
   }
 
-  PetscCall(KSPSetUp(ksp));
+  // Handle coarse level separately
+  PetscCall(PCMGGetSmoother(pc, 0, &smoothksp));
+  PetscCall(KSPSetType(smoothksp, KSPPREONLY));
+  PetscCall(KSPGetPC(smoothksp, &smoothpc));
+  PetscCall(PCSetType(smoothpc, "cholsampler"));
+  PetscCall(PCSetApplicationContext(smoothpc, (void *)&engine));
+  PetscCall(KSPSetFromOptions(smoothksp));
+  PetscCall(PCSetFromOptions(smoothpc));
 
-  // We use KSPMonitorSet to access the current sample at each iteration
+  // We use KSPMonitorSet to access the current sample at each iteration.
+  // Here we compute the sample mean as an example.
   Vec mean;
   PetscCall(MatCreateVecs(mat, &mean, nullptr));
   PetscCall(KSPMonitorSet(
@@ -101,7 +118,7 @@ int main(int argc, char *argv[]) {
   PetscCall(VecDuplicate(x, &f));
 
   // Set target mean and compute "right hand side"
-  PetscCall(VecSet(f, 1.));
+  PetscCall(VecSet(f, 0.));
   PetscCall(MatMult(mat, f, b));
 
   // Sample
