@@ -30,7 +30,7 @@ int main(int argc, char *argv[]) {
   SimpleGMRF problem(Dim{2}, size, 1);
   Mat mat = problem.getFineOperator()->getMat();
 
-  // Setup sampler by abusing PETSc's PCMG multigrid preconditioner
+  // Setup sampler using PETSc's PCMG multigrid preconditioner
   KSP ksp;
   PetscCall(KSPCreate(MPI_COMM_WORLD, &ksp));
   PetscCall(KSPSetType(ksp, KSPRICHARDSON));
