@@ -8,6 +8,8 @@
 #include <petscpc.h>
 #include <petscsystypes.h>
 
+#include <petscoptions.h>
+
 namespace parmgmc {
 
 template <class Engine> struct PCGibbs {
@@ -19,14 +21,57 @@ template <class Engine> struct PCGibbs {
 
     setup = true;
 
+    updateSweepType();
+
     PetscFunctionReturn(PETSC_SUCCESS);
+  }
+
+  PetscErrorCode setSweepType(MatSORType type) {
+    PetscFunctionBeginUser;
+    switch (type) {
+    case SOR_FORWARD_SWEEP:
+      sweepType = GibbsSweepType::Forward;
+      break;
+    case SOR_BACKWARD_SWEEP:
+      sweepType = GibbsSweepType::Backward;
+      break;
+    case SOR_SYMMETRIC_SWEEP:
+      sweepType = GibbsSweepType::Symmetric;
+      break;
+    default:
+      PetscCheck(
+          type == SOR_FORWARD_SWEEP || type == SOR_BACKWARD_SWEEP || type == SOR_SYMMETRIC_SWEEP,
+          MPI_COMM_WORLD, PETSC_ERR_SUP, "Only SOR_{FORWARD,BACKWARD,SYMMETRIC}_SWEEP supported");
+    }
+
+    updateSweepType();
+
+    PetscFunctionReturn(PETSC_SUCCESS);
+  }
+
+  void updateSweepType() {
+    if (setup)
+      sampler->setSweepType(sweepType);
   }
 
   std::unique_ptr<LinearOperator> op;
   std::unique_ptr<MulticolorGibbsSampler<Engine>> sampler;
 
+  GibbsSweepType sweepType = GibbsSweepType::Forward;
+
   bool setup = false;
 };
+
+template <class Engine> PetscErrorCode PCGibbsSetType(PC pc, MatSORType type) {
+  PetscFunctionBeginUser;
+
+  std::cout << "Set from options\n";
+
+  auto *pcg = (PCGibbs<Engine> *)pc->data;
+  PetscCall(pcg->setSweepType(type));
+
+  PetscFunctionReturn(PETSC_SUCCESS);
+}
 
 template <class Engine>
 PetscErrorCode PCApplyRichardson_Gibbs(PC pc, Vec b, Vec x, Vec r, PetscReal rtol, PetscReal abstol,
@@ -66,6 +111,29 @@ template <class Engine> PetscErrorCode PCDestroy_Gibbs(PC pc) {
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
+template <class Engine>
+PetscErrorCode PCSetFromOptions_Gibbs(PC pc, PetscOptionItems *PetscOptionsObject) {
+  PetscBool flg;
+
+  PetscFunctionBeginUser;
+  PetscOptionsHeadBegin(PetscOptionsObject, "Gibbs options");
+
+  PetscCall(PetscOptionsBoolGroupBegin("-pc_gibbs_forward", "use forward Gibbs sweeps", "", &flg));
+  if (flg)
+    PetscCall(PCGibbsSetType<Engine>(pc, SOR_FORWARD_SWEEP));
+
+  PetscCall(PetscOptionsBoolGroup("-pc_gibbs_symmetric", "use symmetric Gibbs sweeps", "", &flg));
+  if (flg)
+    PetscCall(PCGibbsSetType<Engine>(pc, SOR_SYMMETRIC_SWEEP));
+
+  PetscCall(PetscOptionsBoolGroupEnd("-pc_gibbs_backward", "use backward Gibbs sweeps", "", &flg));
+  if (flg)
+    PetscCall(PCGibbsSetType<Engine>(pc, SOR_BACKWARD_SWEEP));
+
+  PetscOptionsHeadEnd();
+  PetscFunctionReturn(PETSC_SUCCESS);
+}
+
 template <class Engine> PetscErrorCode PCCreate_Gibbs(PC pc) {
   PetscFunctionBeginUser;
 
@@ -73,6 +141,7 @@ template <class Engine> PetscErrorCode PCCreate_Gibbs(PC pc) {
 
   pc->ops->applyrichardson = PCApplyRichardson_Gibbs<Engine>;
   pc->ops->destroy = PCDestroy_Gibbs<Engine>;
+  pc->ops->setfromoptions = PCSetFromOptions_Gibbs<Engine>;
 
   pc->data = (void *)pcgibbs;
 
