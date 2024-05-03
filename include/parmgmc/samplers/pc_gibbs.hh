@@ -9,10 +9,11 @@
 #include <petscsystypes.h>
 
 #include <petscoptions.h>
+#include <random>
 
 namespace parmgmc {
 
-template <class Engine> struct PCGibbs {
+template <class Engine = std::mt19937> struct PCGibbs {
   PetscErrorCode init(Mat mat, Engine &engine) {
     PetscFunctionBeginUser;
 
@@ -60,12 +61,11 @@ template <class Engine> struct PCGibbs {
   GibbsSweepType sweepType = GibbsSweepType::Forward;
 
   bool setup = false;
+  bool deleteEngine = false;
 };
 
-template <class Engine> PetscErrorCode PCGibbsSetType(PC pc, MatSORType type) {
+template <class Engine = std::mt19937> PetscErrorCode PCGibbsSetType(PC pc, MatSORType type) {
   PetscFunctionBeginUser;
-
-  std::cout << "Set from options\n";
 
   auto *pcg = (PCGibbs<Engine> *)pc->data;
   PetscCall(pcg->setSweepType(type));
@@ -73,7 +73,7 @@ template <class Engine> PetscErrorCode PCGibbsSetType(PC pc, MatSORType type) {
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
-template <class Engine>
+template <class Engine = std::mt19937>
 PetscErrorCode PCApplyRichardson_Gibbs(PC pc, Vec b, Vec x, Vec r, PetscReal rtol, PetscReal abstol,
                                        PetscReal dtol, PetscInt maxits, PetscBool zeroinitialguess,
                                        PetscInt *its, PCRichardsonConvergedReason *reason) {
@@ -85,15 +85,21 @@ PetscErrorCode PCApplyRichardson_Gibbs(PC pc, Vec b, Vec x, Vec r, PetscReal rto
   (void)zeroinitialguess;
   (void)r;
 
-  Mat mat;
-  PetscCall(PCGetOperators(pc, &mat, nullptr));
-
-  Engine *engine;
-  PetscCall(PCGetApplicationContext(pc, &engine));
-
   auto *pcdata = (PCGibbs<Engine> *)pc->data;
-  if (!pcdata->setup)
+  if (!pcdata->setup) {
+    Mat mat;
+    PetscCall(PCGetOperators(pc, &mat, nullptr));
+
+    Engine *engine = nullptr;
+    PetscCall(PCGetApplicationContext(pc, &engine));
+
+    if (!engine) {
+      engine = new Engine(std::random_device{}());
+      pcdata->deleteEngine = true;
+    }
+
     pcdata->init(mat, *engine);
+  }
 
   PetscCall(pcdata->sampler->sample(x, b, maxits));
 
@@ -103,15 +109,22 @@ PetscErrorCode PCApplyRichardson_Gibbs(PC pc, Vec b, Vec x, Vec r, PetscReal rto
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
-template <class Engine> PetscErrorCode PCDestroy_Gibbs(PC pc) {
+template <class Engine = std::mt19937> PetscErrorCode PCDestroy_Gibbs(PC pc) {
   PetscFunctionBeginUser;
 
-  delete (PCGibbs<Engine> *)pc->data;
+  auto *pcdata = (PCGibbs<Engine> *)pc->data;
+  if (pcdata->deleteEngine) {
+    Engine *engine = nullptr;
+    PetscCall(PCGetApplicationContext(pc, &engine));
+    delete engine;
+  }
+
+  delete pcdata;
 
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
-template <class Engine>
+template <class Engine = std::mt19937>
 PetscErrorCode PCSetFromOptions_Gibbs(PC pc, PetscOptionItems *PetscOptionsObject) {
   PetscBool flg;
 
@@ -134,7 +147,7 @@ PetscErrorCode PCSetFromOptions_Gibbs(PC pc, PetscOptionItems *PetscOptionsObjec
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
-template <class Engine> PetscErrorCode PCCreate_Gibbs(PC pc) {
+template <class Engine = std::mt19937> PetscErrorCode PCCreate_Gibbs(PC pc) {
   PetscFunctionBeginUser;
 
   auto *pcgibbs = new PCGibbs<Engine>;

@@ -11,7 +11,7 @@
 
 namespace parmgmc {
 
-template <class Engine> struct PCCholeskySampler {
+template <class Engine = std::mt19937> struct PCCholeskySampler {
   PetscErrorCode init(Mat mat, Engine &engine) {
     PetscFunctionBeginUser;
 
@@ -27,9 +27,10 @@ template <class Engine> struct PCCholeskySampler {
   std::unique_ptr<CholeskySampler<Engine>> sampler;
 
   bool setup = false;
+  bool deleteEngine = false;
 };
 
-template <class Engine> PetscErrorCode PCApply_CholeskySampler(PC pc, Vec b, Vec x) {
+template <class Engine = std::mt19937> PetscErrorCode PCApply_CholeskySampler(PC pc, Vec b, Vec x) {
   PetscFunctionBeginUser;
 
   auto *pcdata = (PCCholeskySampler<Engine> *)pc->data;
@@ -40,6 +41,11 @@ template <class Engine> PetscErrorCode PCApply_CholeskySampler(PC pc, Vec b, Vec
     Engine *engine;
     PetscCall(PCGetApplicationContext(pc, &engine));
 
+    if (!engine) {
+      engine = new Engine(std::random_device{}());
+      pcdata->deleteEngine = true;
+    }
+
     pcdata->init(mat, *engine);
   }
 
@@ -48,15 +54,22 @@ template <class Engine> PetscErrorCode PCApply_CholeskySampler(PC pc, Vec b, Vec
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
-template <class Engine> PetscErrorCode PCDestroy_CholeskySampler(PC pc) {
+template <class Engine = std::mt19937> PetscErrorCode PCDestroy_CholeskySampler(PC pc) {
   PetscFunctionBeginUser;
 
-  delete (PCCholeskySampler<Engine> *)pc->data;
+  auto *pcdata = (PCCholeskySampler<Engine> *)pc->data;
+  if (pcdata->deleteEngine) {
+    Engine *engine = nullptr;
+    PetscCall(PCGetApplicationContext(pc, &engine));
+    delete engine;
+  }
+
+  delete pcdata;
 
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
-template <class Engine> PetscErrorCode PCCreate_CholeskySampler(PC pc) {
+template <class Engine = std::mt19937> PetscErrorCode PCCreate_CholeskySampler(PC pc) {
   PetscFunctionBeginUser;
 
   auto *pcchol = new PCCholeskySampler<Engine>;
