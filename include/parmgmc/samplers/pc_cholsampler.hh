@@ -1,5 +1,7 @@
 #pragma once
 
+#if PETSC_HAVE_MKL_CPARDISO && PETSC_HAVE_MKL_PARDISO
+
 #include "parmgmc/linear_operator.hh"
 #include "parmgmc/samplers/cholesky.hh"
 
@@ -83,3 +85,5 @@ template <class Engine = std::mt19937> PetscErrorCode PCCreate_CholeskySampler(P
 }
 
 }; // namespace parmgmc
+
+#endif

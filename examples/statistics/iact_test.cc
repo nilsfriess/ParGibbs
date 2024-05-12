@@ -256,6 +256,7 @@ int main(int argc, char *argv[]) {
     PetscCall(computeIACT(sampler, nSamples, rhs, qoi, engine, nRuns, res));
     PetscCall(printResults("Gibbs", res));
   } else if (runMGMCCoarseCholesky) {
+#if PETSC_HAVE_MKL_CPARDISO && PETSC_HAVE_MKL_PARDISO
     MGMCParameters params;
     params.coarseSamplerType = MGMCCoarseSamplerType::Cholesky;
     params.cycleType = MGMCCycleType::V;
@@ -266,6 +267,9 @@ int main(int argc, char *argv[]) {
 
     PetscCall(computeIACT(sampler, nSamples, rhs, qoi, engine, nRuns, res));
     PetscCall(printResults("MGMC (Cholesky coarse sampler)", res));
+#else
+    PetscCall(PetscPrintf(MPI_COMM_WORLD, "Not supported\n"));
+#endif
   } else if (runMGMCCoarseGibbs) {
     MGMCParameters params;
     params.coarseSamplerType = MGMCCoarseSamplerType::Standard;

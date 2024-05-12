@@ -219,9 +219,13 @@ int main(int argc, char *argv[]) {
   }
 
   case SamplerType::Cholesky:
+#if PETSC_HAVE_MKL_CPARDISO && PETSC_HAVE_MKL_PARDISO
     PetscCall(run(problem, exactCov, [&]() {
       return CholeskySampler{*problem.getFineOperator(), engine};
     }));
+#else
+    PetscCall(PetscPrintf(MPI_COMM_WORLD, "Not supported\n"));
+#endif
     break;
 
   default:

@@ -1,7 +1,9 @@
 #include "parmgmc/common/helpers.hh"
 #include "parmgmc/common/petsc_helper.hh"
 
+#if PETSC_HAVE_MKL_CPARDISO && PETSC_HAVE_MKL_PARDISO
 #include "parmgmc/samplers/pc_cholsampler.hh"
+#endif
 #include "parmgmc/samplers/pc_gibbs.hh"
 #include "problems.hh"
 
@@ -18,7 +20,9 @@ int main(int argc, char *argv[]) {
   parmgmc::PetscHelper::init(argc, argv);
 
   PetscCall(PCRegister("gibbs", parmgmc::PCCreate_Gibbs));
+#if PETSC_HAVE_MKL_CPARDISO && PETSC_HAVE_MKL_PARDISO
   PetscCall(PCRegister("cholsampler", parmgmc::PCCreate_CholeskySampler));
+#endif
 
   // Assemble precision matrix
   PetscInt size = 9;

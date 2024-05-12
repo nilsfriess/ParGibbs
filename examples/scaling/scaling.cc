@@ -312,9 +312,16 @@ int main(int argc, char *argv[]) {
     TimingResult res;
 
     MGMCParameters params = MGMCParameters::defaultParams();
-    if (runMGMCCoarseCholesky)
+    if (runMGMCCoarseCholesky) {
+#if PETSC_HAVE_MKL_CPARDISO && PETSC_HAVE_MKL_PARDISO
       params.coarseSamplerType = MGMCCoarseSamplerType::Cholesky;
-    else if (runMGMCCoarseGibbs)
+#else
+      PetscCall(
+          PetscPrintf(MPI_COMM_WORLD,
+                      "Warning: Cholesky sampler not available, using standard Gibbs instead\n"));
+      params.coarseSamplerType = MGMCCoarseSamplerType::Standard;
+#endif
+    } else if (runMGMCCoarseGibbs)
       params.coarseSamplerType = MGMCCoarseSamplerType::Standard;
     else
       throw std::runtime_error("Unknown coarse sampler type");

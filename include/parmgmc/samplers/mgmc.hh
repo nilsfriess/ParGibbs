@@ -86,8 +86,16 @@ public:
       ops[level - 1] = std::make_shared<LinearOperator>(coarseMat);
 
       if constexpr (not std::is_same_v<Smoother, HogwildGibbsSampler<Engine>>)
-        if (level != 1 || (level == 1 && coarseSamplerType != MGMCCoarseSamplerType::Cholesky))
+        if (level != 1) {
+#if PETSC_HAVE_MKL_CPARDISO && PETSC_HAVE_MKL_PARDISO
+          // If C/Pardiso is available, the coarse sampler might be a Cholesky sampler, in wich case
+          // the matrix does not need to be coloured
+          if (level == 1 && coarseSamplerType != MGMCCoarseSamplerType::Cholesky)
+            ops[level - 1]->colorMatrix();
+#else
           ops[level - 1]->colorMatrix();
+#endif
+        }
     }
 
     PetscCallVoid(initVecsAndSmoothers(engine));
@@ -210,8 +218,8 @@ private:
     if (coarseCholesky)
       coarseSampler = std::make_shared<CholeskySampler<Engine>>(*ops[0], engine);
 #else
-    for (std::size_t level = 0; level < nLevels; ++level)
-      smoothers.push_back(std::make_shared<Smoother>(ops[level], engine));
+    for (PetscInt level = 0; level < nLevels; ++level)
+      smoothers.push_back(std::make_shared<Smoother>(*ops[level], engine));
 #endif
 
     if (smoothingType == MGMCSmoothingType::Symmetric)
