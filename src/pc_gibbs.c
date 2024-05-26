@@ -1,8 +1,10 @@
 #include "parmgmc/pc/pc_gibbs.h"
 #include "mpi_proto.h"
 #include "parmgmc/mc_sor.h"
+#include "parmgmc/parmgmc.h"
 
 #include <petscis.h>
+#include <petsclog.h>
 #include <petscmat.h>
 #include <petscmath.h>
 #include <petscsf.h>
@@ -65,7 +67,9 @@ static PetscErrorCode PCApply_Gibbs(PC pc, Vec x, Vec y)
 
   PetscFunctionBeginUser;
   PetscCall(ISColoringGetIS(pg->ic, PETSC_USE_POINTER, &ncolors, &isc));
+  PetscCall(PetscLogEventBegin(MULTICOL_SOR, pc, x, y, NULL));
   PetscCall(MatMultiColorSOR(pc->pmat, pg->diagptrs, pg->idiag, x, pg->omega, ncolors, isc, pg->scatters, pg->ghostvecs, y));
+  PetscCall(PetscLogEventEnd(MULTICOL_SOR, pc, x, y, NULL));
   PetscCall(ISColoringRestoreIS(pg->ic, PETSC_USE_POINTER, &isc));
   PetscFunctionReturn(PETSC_SUCCESS);
 }
@@ -91,7 +95,9 @@ static PetscErrorCode PCApplyRichardson_Gibbs(PC pc, Vec b, Vec y, Vec w, PetscR
   for (PetscInt it = 0; it < its; ++it) {
     PetscCall(VecSetRandom(w, pg->prand));
     PetscCall(VecAXPY(w, 1., b)); // TODO: For omega != 1 this is not doing the right thing
+    PetscCall(PetscLogEventBegin(MULTICOL_SOR, pc, b, y, NULL));
     PetscCall(MatMultiColorSOR(pc->pmat, pg->diagptrs, pg->idiag, w, pg->omega, ncolors, isc, pg->scatters, pg->ghostvecs, y));
+    PetscCall(PetscLogEventEnd(MULTICOL_SOR, pc, b, y, NULL));
   }
   PetscCall(ISColoringRestoreIS(pg->ic, PETSC_USE_POINTER, &isc));
   *outits = its;
@@ -243,7 +249,7 @@ PetscErrorCode PCCreate_Gibbs(PC pc)
 
   // TODO: Allow user to pass own PetscRandom
   PetscCall(PetscRandomCreate(PetscObjectComm((PetscObject)pc), &gibbs->prand));
-  PetscCall(PetscRandomSetType(gibbs->prand, "ziggurat"));
+  PetscCall(PetscRandomSetType(gibbs->prand, PARMGMC_ZIGGURAT));
 
   pc->data                 = gibbs;
   pc->ops->setup           = PCSetUp_Gibbs;

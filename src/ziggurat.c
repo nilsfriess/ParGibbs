@@ -9,6 +9,7 @@
 #include <petsc/private/randomimpl.h>
 
 #include "parmgmc/random/ziggurat.h"
+#include "parmgmc/parmgmc.h"
 
 /******************************************************************************/
 
@@ -684,6 +685,6 @@ PetscErrorCode PetscRandomCreate_Ziggurat(PetscRandom r)
   r4_nor_setup(z->KN, z->FN, z->WN);
   r->data   = z;
   r->ops[0] = PetscRandomOps_Values;
-  PetscCall(PetscObjectChangeTypeName((PetscObject)r, "ziggurat"));
+  PetscCall(PetscObjectChangeTypeName((PetscObject)r, PARMGMC_ZIGGURAT));
   PetscFunctionReturn(PETSC_SUCCESS);
 }

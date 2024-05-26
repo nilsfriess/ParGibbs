@@ -1,4 +1,5 @@
 #include "parmgmc/pc/pc_hogwild.h"
+#include "parmgmc/parmgmc.h"
 
 #include <petsc/private/pcmgimpl.h>
 #include <petscmat.h>
@@ -63,7 +64,7 @@ PetscErrorCode PCCreate_Hogwild(PC pc)
 
   // TODO: Allow user to pass own PetscRandom
   PetscCall(PetscRandomCreate(PetscObjectComm((PetscObject)pc), &hw->prand));
-  PetscCall(PetscRandomSetType(hw->prand, "ziggurat"));
+  PetscCall(PetscRandomSetType(hw->prand, PARMGMC_ZIGGURAT));
 
   pc->ops->applyrichardson = PCApplyRichardson_Hogwild;
   pc->ops->destroy         = PCDestroy_Hogwild;

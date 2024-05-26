@@ -1,6 +1,4 @@
-#include "parmgmc/pc/pc_gibbs.h"
-#include "parmgmc/pc/pc_hogwild.h"
-#include "parmgmc/random/ziggurat.h"
+#include "parmgmc/parmgmc.h"
 
 #include <petscdm.h>
 #include <petscdmda.h>
@@ -9,9 +7,8 @@
 #include <petscsys.h>
 
 #include <petscviewer.h>
-#include <cstdio>
 
-static PetscErrorCode MatAssembleLaplaceFD(DM dm, Mat mat)
+PetscErrorCode MatAssembleLaplaceFD(DM dm, Mat mat)
 {
   PetscInt      k;
   MatStencil    row, cols[5];
@@ -72,9 +69,7 @@ static PetscErrorCode MatAssembleLaplaceFD(DM dm, Mat mat)
 int main(int argc, char *argv[])
 {
   PetscCall(PetscInitialize(&argc, &argv, nullptr, nullptr));
-  PetscCall(PCRegister("hogwild", PCCreate_Hogwild));
-  PetscCall(PCRegister("gibbs", PCCreate_Gibbs));
-  PetscCall(PetscRandomRegister("ziggurat", PetscRandomCreate_Ziggurat));
+  PetscCall(ParMGMCInitialize());
 
   DM da;
   PetscCall(DMDACreate2d(MPI_COMM_WORLD, DM_BOUNDARY_NONE, DM_BOUNDARY_NONE, DMDA_STENCIL_STAR, 9, 9, PETSC_DECIDE, PETSC_DECIDE, 1, 1, nullptr, nullptr, &da));
