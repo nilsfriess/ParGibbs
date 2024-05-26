@@ -81,13 +81,9 @@ static PetscErrorCode PCApplyRichardson_Gibbs(PC pc, Vec b, Vec y, Vec w, PetscR
   (void)dtol;
   (void)guesszero;
 
-  printf("Test\n");
-
   PC_Gibbs *pg = pc->data;
   PetscInt  ncolors;
   IS       *isc;
-
-  printf("%d\n", its);
 
   PetscFunctionBeginUser;
   PetscCall(ISColoringGetIS(pg->ic, PETSC_USE_POINTER, &ncolors, &isc));
