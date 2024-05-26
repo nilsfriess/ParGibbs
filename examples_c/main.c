@@ -9,15 +9,16 @@
 #include <petscviewer.h>
 #include <stdio.h>
 
-static PetscErrorCode MatAssembleLaplaceFD(DM dm, Mat mat)
+static PetscErrorCode MatAssembleShiftedLaplaceFD(DM dm, PetscReal kappainv, Mat mat)
 {
   PetscInt      k;
   MatStencil    row, cols[5];
-  PetscReal     vals[5];
+  PetscReal     hinv2, vals[5];
   DMDALocalInfo info;
 
   PetscFunctionBeginUser;
   PetscCall(DMDAGetLocalInfo(dm, &info));
+  hinv2 = 1. / ((info.mx - 1) * (info.mx - 1));
   for (PetscInt j = info.ys; j < info.ys + info.ym; j++) {
     for (PetscInt i = info.xs; i < info.xs + info.xm; i++) {
       row.j = j;
@@ -28,33 +29,33 @@ static PetscErrorCode MatAssembleLaplaceFD(DM dm, Mat mat)
       if (j != 0) {
         cols[k].j = j - 1;
         cols[k].i = i;
-        vals[k]   = -1;
+        vals[k]   = -hinv2;
         ++k;
       }
 
       if (i != 0) {
         cols[k].j = j;
         cols[k].i = i - 1;
-        vals[k]   = -1;
+        vals[k]   = -hinv2;
         ++k;
       }
 
       cols[k].j = j;
       cols[k].i = i;
-      vals[k]   = 4;
+      vals[k]   = 4 * hinv2 + 1. / (kappainv * kappainv);
       ++k;
 
       if (j != info.my - 1) {
         cols[k].j = j + 1;
         cols[k].i = i;
-        vals[k]   = -1;
+        vals[k]   = hinv2;
         ++k;
       }
 
       if (i != info.mx - 1) {
         cols[k].j = j;
         cols[k].i = i + 1;
-        vals[k]   = -1;
+        vals[k]   = hinv2;
         ++k;
       }
 
@@ -71,7 +72,7 @@ int main(int argc, char *argv[])
 {
   PetscCall(PetscInitialize(&argc, &argv, NULL, NULL));
   PetscCall(ParMGMCInitialize());
-  
+
   DM da;
   PetscCall(DMDACreate2d(MPI_COMM_WORLD, DM_BOUNDARY_NONE, DM_BOUNDARY_NONE, DMDA_STENCIL_STAR, 9, 9, PETSC_DECIDE, PETSC_DECIDE, 1, 1, NULL, NULL, &da));
   PetscCall(DMSetFromOptions(da));
@@ -79,7 +80,7 @@ int main(int argc, char *argv[])
 
   Mat mat;
   PetscCall(DMCreateMatrix(da, &mat));
-  PetscCall(MatAssembleLaplaceFD(da, mat));
+  PetscCall(MatAssembleShiftedLaplaceFD(da, 1, mat));
 
   KSP ksp;
   PetscCall(KSPCreate(MPI_COMM_WORLD, &ksp));
