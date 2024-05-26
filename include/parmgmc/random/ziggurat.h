@@ -16,4 +16,4 @@ float    r4_uni(uint32_t *jsr);
 uint32_t shr3_seeded(uint32_t *jsr);
 void     timestamp();
 
-PetscErrorCode PetscRandomCreate_Ziggurat(PetscRandom PR);
+PETSC_EXTERN PetscErrorCode PetscRandomCreate_Ziggurat(PetscRandom PR);

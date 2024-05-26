@@ -2,4 +2,4 @@
 
 #include <petscpc.h>
 
-PetscErrorCode PCCreate_Hogwild(PC pc);
+PETSC_EXTERN PetscErrorCode PCCreate_Hogwild(PC pc);

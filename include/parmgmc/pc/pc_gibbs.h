@@ -2,4 +2,4 @@
 
 #include <petscpc.h>
 
-PetscErrorCode PCCreate_Gibbs(PC pc);
+PETSC_EXTERN PetscErrorCode PCCreate_Gibbs(PC pc);

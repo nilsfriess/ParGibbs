@@ -9,7 +9,7 @@
 #include <petscsys.h>
 
 #include <petscviewer.h>
-#include <stdio.h>
+#include <cstdio>
 
 static PetscErrorCode MatAssembleLaplaceFD(DM dm, Mat mat)
 {
@@ -71,13 +71,13 @@ static PetscErrorCode MatAssembleLaplaceFD(DM dm, Mat mat)
 
 int main(int argc, char *argv[])
 {
-  PetscCall(PetscInitialize(&argc, &argv, NULL, NULL));
+  PetscCall(PetscInitialize(&argc, &argv, nullptr, nullptr));
   PetscCall(PCRegister("hogwild", PCCreate_Hogwild));
   PetscCall(PCRegister("gibbs", PCCreate_Gibbs));
   PetscCall(PetscRandomRegister("ziggurat", PetscRandomCreate_Ziggurat));
 
   DM da;
-  PetscCall(DMDACreate2d(MPI_COMM_WORLD, DM_BOUNDARY_NONE, DM_BOUNDARY_NONE, DMDA_STENCIL_STAR, 9, 9, PETSC_DECIDE, PETSC_DECIDE, 1, 1, NULL, NULL, &da));
+  PetscCall(DMDACreate2d(MPI_COMM_WORLD, DM_BOUNDARY_NONE, DM_BOUNDARY_NONE, DMDA_STENCIL_STAR, 9, 9, PETSC_DECIDE, PETSC_DECIDE, 1, 1, nullptr, nullptr, &da));
   PetscCall(DMSetFromOptions(da));
   PetscCall(DMSetUp(da));
 

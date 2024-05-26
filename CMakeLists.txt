@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(ParMGMC LANGUAGES C)
+project(ParMGMC LANGUAGES C CXX)
 
 set(CMAKE_COLOR_DIAGNOSTICS ON)
 
@@ -26,6 +26,7 @@ target_compile_options(parmgmc PUBLIC ${PETSC_CFLAGS})
 target_link_libraries(parmgmc PUBLIC PkgConfig::PETSC)
 
 add_subdirectory(examples_c)
+add_subdirectory(examples_cpp)
 
 # if(NOT DEFINED PARMGMC_ENABLE_TESTS)
 #   set(PARMGMC_ENABLE_TESTS TRUE)
