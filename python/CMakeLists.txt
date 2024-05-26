@@ -22,5 +22,5 @@ else()
   message(FATAL_ERROR "petsc4py could not be found.")
 endif()
 
-target_include_directories(pymgmc PUBLIC ${PETSC_INCLUDE_DIRS} ${pybind11_INCLUDE_DIRS})
-target_link_libraries(pymgmc PUBLIC pybind11::module PkgConfig::PETSC ${MPI_TARGET} parmgmc)
+target_include_directories(pymgmc PUBLIC ${PETSC_INCLUDE_DIRS} ${pybind11_INCLUDE_DIRS} ../include)
+target_link_libraries(pymgmc PUBLIC pybind11::module PkgConfig::PETSC parmgmc)
