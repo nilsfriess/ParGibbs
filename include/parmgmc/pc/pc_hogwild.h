@@ -1,6 +1,5 @@
 #pragma once
 
-#include <petscpctypes.h>
-#include <petscsystypes.h>
+#include <petscpc.h>
 
 PetscErrorCode PCCreate_Hogwild(PC pc);

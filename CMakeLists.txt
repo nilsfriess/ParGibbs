@@ -13,7 +13,12 @@ if (${PETSC_FOUND})
   message(STATUS "Found PETSc version ${PETSC_VERSION}, include dirs: ${PETSC_INCLUDE_DIRS}")
 endif()
 
-add_library(parmgmc SHARED src/pc_hogwild.c src/ziggurat.c)
+add_library(parmgmc SHARED
+		    src/pc_hogwild.c
+		    src/pc_gibbs.c
+		    src/ziggurat.c
+		    src/mc_sor.c
+		    )
 target_include_directories(parmgmc PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/include")
 target_include_directories(parmgmc SYSTEM PUBLIC ${PETSC_INCLUDE_DIRS})
 target_compile_options(parmgmc PRIVATE -Wall -Wextra -Wpedantic)

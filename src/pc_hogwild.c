@@ -39,6 +39,16 @@ static PetscErrorCode PCApplyRichardson_Hogwild(PC pc, Vec b, Vec y, Vec w, Pets
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
+static PetscErrorCode PCDestroy_Hogwild(PC pc)
+{
+  PC_Hogwild *hw = pc->data;
+  PetscFunctionBeginUser;
+  PetscCall(VecDestroy(&hw->sqrtdiag));
+  PetscCall(PetscRandomDestroy(&hw->prand));
+  PetscCall(PetscFree(pc->data));
+  PetscFunctionReturn(PETSC_SUCCESS);
+}
+
 PetscErrorCode PCCreate_Hogwild(PC pc)
 {
   PC_Hogwild *hw;
@@ -56,5 +66,6 @@ PetscErrorCode PCCreate_Hogwild(PC pc)
   PetscCall(PetscRandomSetType(hw->prand, "ziggurat"));
 
   pc->ops->applyrichardson = PCApplyRichardson_Hogwild;
+  pc->ops->destroy         = PCDestroy_Hogwild;
   PetscFunctionReturn(PETSC_SUCCESS);
 }
