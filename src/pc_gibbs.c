@@ -1,5 +1,4 @@
 #include "parmgmc/pc/pc_gibbs.h"
-#include "mpi_proto.h"
 #include "parmgmc/mc_sor.h"
 #include "parmgmc/parmgmc.h"
 
@@ -12,7 +11,6 @@
 #include <petscpc.h>
 #include <petsc/private/pcimpl.h>
 #include <petsc/private/matimpl.h>
-#include <petscsystypes.h>
 #include <petscvec.h>
 
 #include <stdbool.h>
