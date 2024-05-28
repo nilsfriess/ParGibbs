@@ -27,7 +27,7 @@ typedef struct {
 
   PetscErrorCode (*sor)(Mat, const PetscInt *, Vec, Vec, PetscReal, ISColoring, void *, Vec); // The multicolor SOR implementation (can be different for different matrix types)
   void *sor_ctx;                                                                              // Context that can be passed to the multicolor SOR routine
-  PetscErrorCode (*sor_ctx_destroy)(void *);
+  PetscErrorCode (*sor_ctx_destroy)(void **);
 } PC_Gibbs;
 
 static PetscErrorCode PCDestroy_Gibbs(PC pc)
@@ -52,7 +52,6 @@ static PetscErrorCode PCApply_Gibbs(PC pc, Vec x, Vec y)
 
   PetscFunctionBeginUser;
   PetscCall(PetscLogEventBegin(MULTICOL_SOR, pc, x, y, NULL));
-  // PetscCall(MatMultiColorSOR(pc->pmat, pg->diagptrs, pg->idiag, x, pg->omega, ncolors, isc, pg->scatters, pg->ghostvecs, y));
   PetscCall(pg->sor(pc->pmat, pg->diagptrs, pg->idiag, x, pg->omega, pg->ic, pg->sor_ctx, y));
   PetscCall(PetscLogEventEnd(MULTICOL_SOR, pc, x, y, NULL));
   PetscFunctionReturn(PETSC_SUCCESS);
@@ -80,7 +79,7 @@ static PetscErrorCode PCApplyRichardson_Gibbs(PC pc, Vec b, Vec y, Vec w, PetscR
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
-static PetscErrorCode MatCreateScatters(Mat mat, ISColoring isc, SORCtx_MPIAIJ **ctx)
+static PetscErrorCode MatCreateScatters(Mat mat, ISColoring isc, SORCtx_MPIAIJ *ctx)
 {
   PetscInt ncolors;
   IS      *iss;
@@ -90,6 +89,7 @@ static PetscErrorCode MatCreateScatters(Mat mat, ISColoring isc, SORCtx_MPIAIJ *
   PetscCall(ISColoringGetIS(isc, PETSC_USE_POINTER, &ncolors, &iss));
   PetscCall(PetscMalloc1(ncolors, &(*ctx)->scatters));
   PetscCall(PetscMalloc1(ncolors, &(*ctx)->ghostvecs));
+  (*ctx)->ncolors = ncolors;
 
   Mat             ao; // off-processor part of matrix
   const PetscInt *colmap, *rowptr, *colptr;
@@ -175,7 +175,7 @@ static PetscErrorCode PCSetUp_Gibbs(PC pc)
   PetscFunctionBeginUser;
   PetscCall(MatGetType(pc->pmat, &type));
   if (strcmp(type, MATMPIAIJ) == 0) {
-    SORCtx_MPIAIJ *ctx;
+    SORCtx_MPIAIJ ctx;
     PetscCall(MatMPIAIJGetSeqAIJ(pc->pmat, &A, NULL, NULL));
     PetscCall(MatCreateISColoring_AIJ(pc->pmat, &pg->ic));
     PetscCall(MatCreateScatters(pc->pmat, pg->ic, &ctx));
@@ -187,16 +187,16 @@ static PetscErrorCode PCSetUp_Gibbs(PC pc)
     PetscCall(MatCreateISColoring_AIJ(pc->pmat, &pg->ic));
     pg->sor = MatMultiColorSOR_SEQAIJ;
   } else if (strcmp(type, MATLRC) == 0) {
-    SORCtx_LRC *ctx;
-    MatType     Atype;
+    SORCtx_LRC ctx;
+    MatType    Atype;
 
     PetscCall(MatLRCGetMats(pc->pmat, &A, NULL, NULL, NULL));
     PetscCall(MatCreateISColoring_AIJ(A, &pg->ic));
     PetscCall(MatGetType(A, &Atype));
-    PetscCall(PetscNew(&ctx)); // TODO: Free this memory in PCDestroy
+    PetscCall(PetscNew(&ctx));
 
     if (strcmp(Atype, MATMPIAIJ) == 0) {
-      SORCtx_MPIAIJ *mpictx;
+      SORCtx_MPIAIJ mpictx;
       PetscCall(MatCreateScatters(A, pg->ic, &mpictx));
       ctx->basectx = mpictx;
       ctx->basesor = MatMultiColorSOR_MPIAIJ;

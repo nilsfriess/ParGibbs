@@ -6,24 +6,29 @@
 #include <petscis.h>
 #include <petscmat.h>
 
-PetscErrorCode ContextDestroy_MPIAIJ(void *ctx)
+PetscErrorCode ContextDestroy_MPIAIJ(void **ctx)
 {
-  SORCtx_MPIAIJ *mpictx = ctx;
+  SORCtx_MPIAIJ mpictx = *ctx;
   PetscFunctionBeginUser;
   for (PetscInt i = 0; i < mpictx->ncolors; ++i) {
-    PetscCall(VecScatterDestroy(&mpictx->scatters[i]));
-    PetscCall(VecDestroy(&mpictx->ghostvecs[i]));
+    PetscCall(VecScatterDestroy(&(mpictx->scatters[i])));
+    PetscCall(VecDestroy(&(mpictx->ghostvecs[i])));
   }
-  PetscCall(PetscFree(ctx));
+  PetscCall(PetscFree(mpictx));
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
-PetscErrorCode ContextDestroy_LRC(void *ctx)
+PetscErrorCode ContextDestroy_LRC(void **ctx)
 {
-  SORCtx_LRC    *lrcctx = ctx;
-  SORCtx_MPIAIJ *mpictx = lrcctx->basectx;
+  SORCtx_LRC lrcctx = *ctx;
+  void      *mpictx;
+
   PetscFunctionBeginUser;
-  PetscCall(ContextDestroy_MPIAIJ(mpictx));
+  if (lrcctx->basectx) {
+    mpictx = &lrcctx->basectx;
+    PetscCall(ContextDestroy_MPIAIJ(&mpictx));
+  }
+  PetscCall(PetscFree(lrcctx));
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
@@ -35,7 +40,7 @@ PetscErrorCode MatMultiColorSOR_MPIAIJ(Mat mat, const PetscInt *diagptrs, Vec id
   const PetscReal *idiagarr, *barr, *ghostarr;
   PetscReal       *matvals, *bMatvals, *yarr;
   IS              *isc;
-  SORCtx_MPIAIJ   *ctx = sor_ctx;
+  SORCtx_MPIAIJ    ctx = sor_ctx;
 
   PetscFunctionBeginUser;
   PetscCall(MatMPIAIJGetSeqAIJ(mat, &ad, &ao, NULL));
@@ -123,8 +128,8 @@ PetscErrorCode MatMultiColorSOR_SEQAIJ(Mat mat, const PetscInt *diagptrs, Vec id
 
 PetscErrorCode MatMultiColorSOR_LRC(Mat mat, const PetscInt *diagptrs, Vec idiag, Vec b, PetscReal omega, ISColoring ic, void *sor_ctx, Vec y)
 {
-  SORCtx_LRC *ctx = sor_ctx;
-  Mat         A;
+  SORCtx_LRC ctx = sor_ctx;
+  Mat        A;
 
   PetscFunctionBeginUser;
   PetscCall(MatLRCGetMats(mat, &A, NULL, NULL, NULL));
