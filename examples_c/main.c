@@ -2,10 +2,13 @@
 
 #include <petscdm.h>
 #include <petscdmda.h>
+#include <petscis.h>
 #include <petscksp.h>
+#include <petscmat.h>
 #include <petscpc.h>
 #include <petscsys.h>
 
+#include <petscsystypes.h>
 #include <petscviewer.h>
 #include <stdio.h>
 
@@ -68,6 +71,21 @@ static PetscErrorCode MatAssembleShiftedLaplaceFD(DM dm, PetscReal kappainv, Mat
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
+PetscErrorCode MatCreateObservationMat(IS obs, PetscInt n, Mat *mat)
+{
+  PetscInt        nobs;
+  const PetscInt *obsidx;
+
+  PetscFunctionBeginUser;
+  PetscCall(ISGetLocalSize(obs, &nobs));
+  PetscCall(MatCreateDense(MPI_COMM_WORLD, PETSC_DECIDE, PETSC_DECIDE, n, nobs, NULL, mat));
+  PetscCall(ISGetIndices(obs, &obsidx));
+  for (PetscInt i = 0; i < nobs; ++i) PetscCall(MatSetValue(*mat, obsidx[i], i, 1., INSERT_VALUES));
+  PetscCall(MatAssemblyBegin(*mat, MAT_FINAL_ASSEMBLY));
+  PetscCall(MatAssemblyEnd(*mat, MAT_FINAL_ASSEMBLY));
+  PetscFunctionReturn(PETSC_SUCCESS);
+}
+
 int main(int argc, char *argv[])
 {
   PetscCall(PetscInitialize(&argc, &argv, NULL, NULL));
@@ -78,9 +96,25 @@ int main(int argc, char *argv[])
   PetscCall(DMSetFromOptions(da));
   PetscCall(DMSetUp(da));
 
+  Mat A;
+  PetscCall(DMCreateMatrix(da, &A));
+  PetscCall(MatAssembleShiftedLaplaceFD(da, 1, A));
+
+  Mat      B;
+  PetscInt nobs = 5, rows;
+  IS       obs;
+  PetscCall(MatGetSize(A, &rows, NULL));
+  PetscInt obsidx[] = {2, 6, 12, 18, 22};
+  PetscCall(ISCreateGeneral(MPI_COMM_WORLD, nobs, obsidx, PETSC_COPY_VALUES, &obs));
+  PetscCall(MatCreateObservationMat(obs, rows, &B));
+
+  Vec       S;
+  PetscReal obsvar = 1e-4;
+  PetscCall(MatCreateVecs(B, &S, NULL));
+  PetscCall(VecSet(S, obsvar));
+
   Mat mat;
-  PetscCall(DMCreateMatrix(da, &mat));
-  PetscCall(MatAssembleShiftedLaplaceFD(da, 1, mat));
+  PetscCall(MatCreateLRC(A, B, S, B, &mat));
 
   KSP ksp;
   PetscCall(KSPCreate(MPI_COMM_WORLD, &ksp));
@@ -89,7 +123,7 @@ int main(int argc, char *argv[])
   PetscCall(KSPSetUp(ksp));
 
   Vec x, b;
-  PetscCall(MatCreateVecs(mat, &x, &b));
+  PetscCall(MatCreateVecs(A, &x, &b));
   PetscCall(VecSet(b, 1));
   PetscCall(KSPSolve(ksp, b, x));
 
@@ -98,6 +132,10 @@ int main(int argc, char *argv[])
   PetscCall(VecDestroy(&b));
   PetscCall(KSPDestroy(&ksp));
   PetscCall(MatDestroy(&mat));
+  PetscCall(VecDestroy(&S));
+  PetscCall(ISDestroy(&obs));
+  PetscCall(MatDestroy(&B));
+  PetscCall(MatDestroy(&A));
   PetscCall(DMDestroy(&da));
 
   PetscCall(PetscFinalize());

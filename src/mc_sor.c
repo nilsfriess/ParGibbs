@@ -1,8 +1,31 @@
 #include "parmgmc/mc_sor.h"
 
+#include <stdbool.h>
+
 #include <petscsys.h>
 #include <petscis.h>
 #include <petscmat.h>
+
+PetscErrorCode ContextDestroy_MPIAIJ(void *ctx)
+{
+  SORCtx_MPIAIJ *mpictx = ctx;
+  PetscFunctionBeginUser;
+  for (PetscInt i = 0; i < mpictx->ncolors; ++i) {
+    PetscCall(VecScatterDestroy(&mpictx->scatters[i]));
+    PetscCall(VecDestroy(&mpictx->ghostvecs[i]));
+  }
+  PetscCall(PetscFree(ctx));
+  PetscFunctionReturn(PETSC_SUCCESS);
+}
+
+PetscErrorCode ContextDestroy_LRC(void *ctx)
+{
+  SORCtx_LRC    *lrcctx = ctx;
+  SORCtx_MPIAIJ *mpictx = lrcctx->basectx;
+  PetscFunctionBeginUser;
+  PetscCall(ContextDestroy_MPIAIJ(mpictx));
+  PetscFunctionReturn(PETSC_SUCCESS);
+}
 
 PetscErrorCode MatMultiColorSOR_MPIAIJ(Mat mat, const PetscInt *diagptrs, Vec idiag, Vec b, PetscReal omega, ISColoring ic, void *sor_ctx, Vec y)
 {
@@ -12,7 +35,7 @@ PetscErrorCode MatMultiColorSOR_MPIAIJ(Mat mat, const PetscInt *diagptrs, Vec id
   const PetscReal *idiagarr, *barr, *ghostarr;
   PetscReal       *matvals, *bMatvals, *yarr;
   IS              *isc;
-  CTX_SOR         *ctx = sor_ctx;
+  SORCtx_MPIAIJ   *ctx = sor_ctx;
 
   PetscFunctionBeginUser;
   PetscCall(MatMPIAIJGetSeqAIJ(mat, &ad, &ao, NULL));
@@ -95,5 +118,17 @@ PetscErrorCode MatMultiColorSOR_SEQAIJ(Mat mat, const PetscInt *diagptrs, Vec id
   PetscCall(VecRestoreArrayRead(idiag, &idiagarr));
   PetscCall(ISColoringRestoreIS(ic, PETSC_USE_POINTER, &isc));
 
+  PetscFunctionReturn(PETSC_SUCCESS);
+}
+
+PetscErrorCode MatMultiColorSOR_LRC(Mat mat, const PetscInt *diagptrs, Vec idiag, Vec b, PetscReal omega, ISColoring ic, void *sor_ctx, Vec y)
+{
+  SORCtx_LRC *ctx = sor_ctx;
+  Mat         A;
+
+  PetscFunctionBeginUser;
+  PetscCall(MatLRCGetMats(mat, &A, NULL, NULL, NULL));
+  PetscCall(ctx->basesor(A, diagptrs, idiag, b, omega, ic, ctx->basectx, y));
+  // TODO: Handle low rank part
   PetscFunctionReturn(PETSC_SUCCESS);
 }
