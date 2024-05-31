@@ -22,7 +22,7 @@ add_library(parmgmc SHARED
 		    )
 target_include_directories(parmgmc PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/include")
 target_include_directories(parmgmc SYSTEM PUBLIC ${PETSC_INCLUDE_DIRS})
-target_compile_options(parmgmc PRIVATE -Wall -Wextra -Wpedantic)
+target_compile_options(parmgmc PRIVATE -Wall -Wextra -Wpedantic -pedantic -Wshadow -Wpointer-arith -Wcast-qual -Wstrict-prototypes -Wmissing-prototypes)
 target_compile_options(parmgmc PUBLIC ${PETSC_CFLAGS})
 target_link_libraries(parmgmc PUBLIC PkgConfig::PETSC)
 
