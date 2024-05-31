@@ -14,18 +14,25 @@
 #include <stdio.h>
 #include <time.h>
 
+typedef struct _SampleCtx {
+  PetscReal norm_ex;
+  Vec       mean;
+} *SampleCtx;
+
 PetscErrorCode SampleCallback(PetscInt it, Vec y, void *ctx)
 {
-  Vec *mean = ctx;
+  SampleCtx *sctx    = ctx;
+  Vec        mean    = (*sctx)->mean;
+  PetscReal  norm_ex = (*sctx)->norm_ex;
 
   PetscFunctionBeginUser;
-  PetscCall(VecScale(*mean, it));
-  PetscCall(VecAXPY(*mean, 1., y));
-  PetscCall(VecScale(*mean, 1. / (it + 1)));
+  PetscCall(VecScale(mean, it));
+  PetscCall(VecAXPY(mean, 1., y));
+  PetscCall(VecScale(mean, 1. / (it + 1)));
 
   PetscScalar norm;
-  PetscCall(VecNorm(*mean, NORM_2, &norm));
-  PetscCall(PetscPrintf(MPI_COMM_WORLD, "%d: %f\n", it, fabs(norm - 5)));
+  PetscCall(VecNorm(mean, NORM_2, &norm));
+  PetscCall(PetscPrintf(MPI_COMM_WORLD, "%f\n", fabs(norm - norm_ex) / norm_ex));
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
@@ -149,16 +156,19 @@ int main(int argc, char *argv[])
   PetscCall(PetscRandomSetSeed(pr, 1));
   PetscCall(PetscRandomSeed(pr));
 
-  Vec mean;
-  PetscCall(MatCreateVecs(A, &mean, NULL));
-  PetscCall(PCGibbsSetSampleCallback(pc, SampleCallback, &mean));
-
   Vec x, b, f;
   PetscCall(MatCreateVecs(A, &x, &b));
   PetscCall(VecSet(b, 1));
   PetscCall(VecSet(x, 0));
   PetscCall(VecDuplicate(b, &f));
   PetscCall(MatMult(A, b, f));
+
+  SampleCtx ctx;
+  PetscCall(PetscNew(&ctx));
+  PetscCall(MatCreateVecs(A, &(ctx->mean), NULL));
+  PetscCall(VecNorm(b, NORM_2, &ctx->norm_ex));
+  PetscCall(PCGibbsSetSampleCallback(pc, SampleCallback, &ctx));
+
   PetscCall(KSPSolve(ksp, f, x));
 
   // Clean up
@@ -167,7 +177,7 @@ int main(int argc, char *argv[])
   PetscCall(VecDestroy(&f));
   PetscCall(KSPDestroy(&ksp));
   /* PetscCall(MatDestroy(&mat)); */
-  PetscCall(VecDestroy(&mean));
+  PetscCall(VecDestroy(&ctx->mean));
   PetscCall(VecDestroy(&S));
   PetscCall(ISDestroy(&obs));
   PetscCall(MatDestroy(&B));
