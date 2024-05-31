@@ -8,7 +8,7 @@
 #include <petscpc.h>
 #include <petscsys.h>
 
-PetscClassId PARMGMC_CLASSID;
+PetscClassId  PARMGMC_CLASSID;
 PetscLogEvent MULTICOL_SOR;
 
 static PetscErrorCode ParMGMCRegisterPCAll(void)

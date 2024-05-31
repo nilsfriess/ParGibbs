@@ -1,7 +1,7 @@
 #include <math.h>
-#include <petscmacros.h>
 #include <stdint.h>
 
+#include <petscmacros.h>
 #include <petscsystypes.h>
 #include <petsc/private/randomimpl.h>
 
