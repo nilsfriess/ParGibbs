@@ -1,4 +1,5 @@
 #include "parmgmc/mc_sor.h"
+#include "parmgmc/parmgmc.h"
 
 #include <stdbool.h>
 
@@ -134,8 +135,10 @@ PetscErrorCode MCSORApply(MCSOR mc, Vec b, Vec y)
   MCSOR_Ctx ctx = mc->ctx;
 
   PetscFunctionBeginUser;
+  PetscCall(PetscLogEventBegin(MULTICOL_SOR, ctx->A, b, y, NULL));
   if (ctx->omega_changed) PetscCall(MCSORUpdateIDiag(mc));
   PetscCall(ctx->sor(ctx, b, y));
+  PetscCall(PetscLogEventEnd(MULTICOL_SOR, ctx->A, b, y, NULL));
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
