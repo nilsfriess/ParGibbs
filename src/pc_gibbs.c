@@ -1,8 +1,8 @@
 #include "parmgmc/pc/pc_gibbs.h"
-#include "parmgmc/coloring.h"
 #include "parmgmc/mc_sor.h"
 #include "parmgmc/parmgmc.h"
 
+#include <petscdm.h>
 #include <petscis.h>
 #include <petscistypes.h>
 #include <petsclog.h>
@@ -13,21 +13,24 @@
 #include <petscpc.h>
 #include <petsc/private/pcimpl.h>
 #include <petsc/private/matimpl.h>
+
+#include <petscsystypes.h>
 #include <petscvec.h>
 
 #include <stdbool.h>
 #include <string.h>
 
 typedef struct {
+  Mat         A;
   PetscRandom prand;
-  ISColoring  ic;
-  Vec         idiag, sqrtdiag; // Both include omega
-  PetscInt   *diagptrs;        // Index of the diagonal entry in the csr array for each row
+  Vec         sqrtdiag; // Both include omega
   PetscReal   omega;
+  PetscBool   omega_changed;
+  MCSOR       mc;
 
-  PetscErrorCode (*sor)(Mat, const PetscInt *, Vec, Vec, PetscReal, ISColoring, void *, Vec); // The multicolor SOR implementation (can be different for different matrix types)
-  void *sor_ctx;                                                                              // Context that can be passed to the multicolor SOR routine
-  PetscErrorCode (*sor_ctx_destroy)(void **);
+  PetscErrorCode (*prepare_rhs)(PC, Vec, Vec, Vec);
+  PetscErrorCode (*sample_callback)(PetscInt, Vec, void *);
+  void *callbackctx;
 } PC_Gibbs;
 
 static PetscErrorCode PCDestroy_Gibbs(PC pc)
@@ -35,25 +38,35 @@ static PetscErrorCode PCDestroy_Gibbs(PC pc)
   PC_Gibbs *pg = pc->data;
 
   PetscFunctionBeginUser;
-  if (pg->sor_ctx_destroy) PetscCall(pg->sor_ctx_destroy(&pg->sor_ctx));
   PetscCall(PetscRandomDestroy(&pg->prand));
-  PetscCall(ISColoringDestroy(&pg->ic));
-  PetscCall(VecDestroy(&pg->idiag));
   PetscCall(VecDestroy(&pg->sqrtdiag));
-  PetscCall(PetscFree(pg->diagptrs));
-  PetscCall(PetscFree(pc->data));
+  PetscCall(MCSORDestroy(&pg->mc));
+  PetscCall(PetscFree(pg));
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
-// TODO: The addition of random noise to the rhs is missing here
-static PetscErrorCode PCApply_Gibbs(PC pc, Vec x, Vec y)
+static PetscErrorCode PrepareRHS_Default(PC pc, Vec y, Vec rhsin, Vec rhsout)
+{
+  (void)y;
+  PC_Gibbs *pg = pc->data;
+
+  PetscFunctionBeginUser;
+  PetscCall(VecSetRandom(rhsout, pg->prand));
+  PetscCall(VecPointwiseMult(rhsout, rhsout, pg->sqrtdiag));
+  PetscCall(VecAXPY(rhsout, 1., rhsin));
+  PetscFunctionReturn(PETSC_SUCCESS);
+}
+
+static PetscErrorCode PCGibbsUpdateSqrtDiag(PC pc)
 {
   PC_Gibbs *pg = pc->data;
 
   PetscFunctionBeginUser;
-  PetscCall(PetscLogEventBegin(MULTICOL_SOR, pc, x, y, NULL));
-  PetscCall(pg->sor(pc->pmat, pg->diagptrs, pg->idiag, x, pg->omega, pg->ic, pg->sor_ctx, y));
-  PetscCall(PetscLogEventEnd(MULTICOL_SOR, pc, x, y, NULL));
+  PetscCall(MCSORSetOmega(pg->mc, pg->omega));
+  PetscCall(MatGetDiagonal(pg->A, pg->sqrtdiag));
+  PetscCall(VecSqrtAbs(pg->sqrtdiag));
+  PetscCall(VecScale(pg->sqrtdiag, PetscSqrtReal((2 - pg->omega) / pg->omega)));
+  pg->omega_changed = PETSC_FALSE;
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
@@ -67,165 +80,79 @@ static PetscErrorCode PCApplyRichardson_Gibbs(PC pc, Vec b, Vec y, Vec w, PetscR
   PC_Gibbs *pg = pc->data;
 
   PetscFunctionBeginUser;
+  if (pg->omega_changed) PetscCall(PCGibbsUpdateSqrtDiag(pc));
+
   for (PetscInt it = 0; it < its; ++it) {
-    PetscCall(VecSetRandom(w, pg->prand));
-    PetscCall(VecAXPY(w, 1., b)); // TODO: For omega != 1 this is not doing the right thing
-    PetscCall(PetscLogEventBegin(MULTICOL_SOR, pc, b, y, NULL));
-    PetscCall(pg->sor(pc->pmat, pg->diagptrs, pg->idiag, w, pg->omega, pg->ic, pg->sor_ctx, y));
-    PetscCall(PetscLogEventEnd(MULTICOL_SOR, pc, b, y, NULL));
+    PetscCall(pg->prepare_rhs(pc, y, b, w));
+    PetscCall(MCSORApply(pg->mc, w, y));
+    if (pg->sample_callback) PetscCall(pg->sample_callback(it, y, pg->callbackctx));
   }
   *outits = its;
   *reason = PCRICHARDSON_CONVERGED_ITS;
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
-static PetscErrorCode MatCreateScatters(Mat mat, ISColoring isc, SORCtx_MPIAIJ *ctx)
+static PetscErrorCode PCSetFromOptions_Gibbs(PC pc, PetscOptionItems *PetscOptionsObject)
 {
-  PetscInt ncolors;
-  IS      *iss;
+  PC_Gibbs *pg = pc->data;
+  PetscBool flag;
 
   PetscFunctionBeginUser;
-  PetscCall(PetscNew(ctx));
-  PetscCall(ISColoringGetIS(isc, PETSC_USE_POINTER, &ncolors, &iss));
-  PetscCall(PetscMalloc1(ncolors, &(*ctx)->scatters));
-  PetscCall(PetscMalloc1(ncolors, &(*ctx)->ghostvecs));
-  (*ctx)->ncolors = ncolors;
-
-  Mat             ao; // off-processor part of matrix
-  const PetscInt *colmap, *rowptr, *colptr;
-  PetscCall(MatMPIAIJGetSeqAIJ(mat, NULL, &ao, &colmap));
-  PetscCall(MatSeqAIJGetCSRAndMemType(ao, &rowptr, &colptr, NULL, NULL));
-
-  Vec      gvec;
-  PetscInt localRows, globalRows;
-  PetscCall(MatGetSize(mat, &globalRows, NULL));
-  PetscCall(MatGetLocalSize(mat, &localRows, NULL));
-  PetscCall(VecCreateMPIWithArray(MPI_COMM_WORLD, 1, localRows, globalRows, NULL, &gvec));
-
-  int rank;
-  MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-
-  // First count the total number of off-processor values for each color
-  PetscInt *nTotalOffProc;
-  PetscCall(PetscCalloc1(ncolors, &nTotalOffProc));
-  for (PetscInt color = 0; color < ncolors; ++color) {
-    PetscInt        nCurCol;
-    const PetscInt *curidxs;
-    PetscCall(ISGetLocalSize(iss[color], &nCurCol));
-    PetscCall(ISGetIndices(iss[color], &curidxs));
-    for (PetscInt i = 0; i < nCurCol; ++i) nTotalOffProc[color] += rowptr[curidxs[i] + 1] - rowptr[curidxs[i]];
-    PetscCall(ISRestoreIndices(iss[color], &curidxs));
-  }
-
-  // Now we again loop over all colors and create the required VecScatters
-  for (PetscInt color = 0; color < ncolors; ++color) {
-    PetscInt       *offProcIdx;
-    PetscInt        nCurCol;
-    const PetscInt *curidxs;
-    PetscCall(PetscMalloc1(nTotalOffProc[color], &offProcIdx));
-    PetscCall(ISGetLocalSize(iss[color], &nCurCol));
-    PetscCall(ISGetIndices(iss[color], &curidxs));
-    PetscInt cnt = 0;
-    for (PetscInt i = 0; i < nCurCol; ++i)
-      for (PetscInt k = rowptr[curidxs[i]]; k < rowptr[curidxs[i] + 1]; ++k) offProcIdx[cnt++] = colmap[colptr[k]];
-    PetscCall(ISRestoreIndices(iss[color], &curidxs));
-
-    IS is;
-    PetscCall(ISCreateGeneral(PETSC_COMM_SELF, nTotalOffProc[color], offProcIdx, PETSC_USE_POINTER, &is));
-    PetscCall(VecCreateSeq(MPI_COMM_SELF, nTotalOffProc[color], &(*ctx)->ghostvecs[color]));
-    PetscCall(VecScatterCreate(gvec, is, (*ctx)->ghostvecs[color], NULL, &(*ctx)->scatters[color]));
-    PetscCall(ISDestroy(&is));
-    PetscCall(PetscFree(offProcIdx));
-  }
-
-  PetscCall(ISColoringRestoreIS(isc, PETSC_USE_POINTER, &iss));
-  PetscCall(PetscFree(nTotalOffProc));
-  PetscCall(VecDestroy(&gvec));
-
-  PetscFunctionReturn(PETSC_SUCCESS);
-}
-
-static PetscErrorCode MatGetDiagonalPointers(Mat mat, PetscInt **diagptrs)
-{
-  PetscInt rows;
-  PetscFunctionBeginUser;
-  PetscCall(MatGetSize(mat, &rows, NULL));
-  PetscCall(PetscMalloc1(rows, diagptrs));
-
-  // TODO: Make sure the matrix does not contain any zeros on the diagonal
-  const PetscInt *i, *j;
-  PetscReal      *a;
-  PetscCall(MatSeqAIJGetCSRAndMemType(mat, &i, &j, &a, NULL));
-  for (PetscInt row = 0; row < rows; ++row) {
-    for (PetscInt k = i[row]; k < i[row + 1]; ++k) {
-      PetscInt col = j[k];
-      if (col == row) (*diagptrs)[row] = k;
-    }
-  }
-
+  PetscOptionsHeadBegin(PetscOptionsObject, "Gibbs options");
+  PetscCall(PetscOptionsRangeReal("-pc_gibbs_omega", "Gibbs SOR parameter", NULL, pg->omega, &pg->omega, &flag, 0.0, 2.0));
+  if (flag) pg->omega_changed = PETSC_TRUE;
+  PetscOptionsHeadEnd();
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
 static PetscErrorCode PCSetUp_Gibbs(PC pc)
 {
   PC_Gibbs *pg = pc->data;
-  Mat       A;
   MatType   type;
 
   PetscFunctionBeginUser;
+  PetscCall(MCSORCreate(pc->pmat, pg->omega, &pg->mc));
+
   PetscCall(MatGetType(pc->pmat, &type));
-  if (strcmp(type, MATMPIAIJ) == 0) {
-    SORCtx_MPIAIJ ctx;
-    PetscCall(MatMPIAIJGetSeqAIJ(pc->pmat, &A, NULL, NULL));
-    PetscCall(MatCreateISColoring_AIJ(pc->pmat, &pg->ic));
-    PetscCall(MatCreateScatters(pc->pmat, pg->ic, &ctx));
-    pg->sor_ctx         = ctx;
-    pg->sor             = MatMultiColorSOR_MPIAIJ;
-    pg->sor_ctx_destroy = ContextDestroy_MPIAIJ;
-  } else if (strcmp(type, MATSEQAIJ) == 0) {
-    A = pc->pmat;
-    PetscCall(MatCreateISColoring_AIJ(pc->pmat, &pg->ic));
-    pg->sor = MatMultiColorSOR_SEQAIJ;
-  } else if (strcmp(type, MATLRC) == 0) {
-    SORCtx_LRC ctx;
-    MatType    Atype;
-
-    PetscCall(MatLRCGetMats(pc->pmat, &A, NULL, NULL, NULL));
-    PetscCall(MatCreateISColoring_AIJ(A, &pg->ic));
-    PetscCall(MatGetType(A, &Atype));
-    PetscCall(PetscNew(&ctx));
-
-    if (strcmp(Atype, MATMPIAIJ) == 0) {
-      SORCtx_MPIAIJ mpictx;
-      PetscCall(MatCreateScatters(A, pg->ic, &mpictx));
-      ctx->basectx = mpictx;
-      ctx->basesor = MatMultiColorSOR_MPIAIJ;
-    } else if (strcmp(Atype, MATSEQAIJ) == 0) {
-      ctx->basectx = NULL;
-      ctx->basesor = MatMultiColorSOR_SEQAIJ;
-    } else {
-      PetscCheck(false, MPI_COMM_WORLD, PETSC_ERR_SUP, "Matrix type not supported");
-    }
-
-    pg->sor             = MatMultiColorSOR_LRC;
-    pg->sor_ctx         = ctx;
-    pg->sor_ctx_destroy = ContextDestroy_LRC;
+  if (strcmp(type, MATSEQAIJ) == 0) {
+    pg->A = pc->pmat;
+  } else if (strcmp(type, MATMPIAIJ) == 0) {
+    pg->A = pc->pmat;
   } else {
     PetscCheck(false, MPI_COMM_WORLD, PETSC_ERR_SUP, "Matrix type not supported");
   }
 
-  PetscCall(MatCreateVecs(A, &pg->idiag, NULL));
-  PetscCall(VecDuplicate(pg->idiag, &pg->sqrtdiag));
+  PetscCall(MatCreateVecs(pg->A, &pg->sqrtdiag, NULL));
+  pg->omega_changed = PETSC_TRUE;
+  PetscFunctionReturn(PETSC_SUCCESS);
+}
 
-  PetscCall(MatGetDiagonal(A, pg->sqrtdiag));
-  PetscCall(VecSqrtAbs(pg->sqrtdiag));
-  PetscCall(VecScale(pg->sqrtdiag, PetscSqrtReal((2 - pg->omega) / pg->omega)));
+PetscErrorCode PCGibbsSetSampleCallback(PC pc, PetscErrorCode (*cb)(PetscInt, Vec, void *), void *ctx)
+{
+  PC_Gibbs *pg = pc->data;
 
-  PetscCall(MatGetDiagonal(A, pg->idiag));
-  PetscCall(VecReciprocal(pg->idiag));
-  PetscCall(VecScale(pg->idiag, pg->omega));
+  PetscFunctionBeginUser;
+  pg->sample_callback = cb;
+  pg->callbackctx     = ctx;
+  PetscFunctionReturn(PETSC_SUCCESS);
+}
 
-  PetscCall(MatGetDiagonalPointers(A, &pg->diagptrs));
+PetscErrorCode PCGibbsGetPetscRandom(PC pc, PetscRandom *pr)
+{
+  PC_Gibbs *pg = pc->data;
+
+  PetscFunctionBeginUser;
+  *pr = pg->prand;
+  PetscFunctionReturn(PETSC_SUCCESS);
+}
+
+PetscErrorCode PCGibbsSetOmega(PC pc, PetscReal omega)
+{
+  PC_Gibbs *pg = pc->data;
+
+  PetscFunctionBeginUser;
+  pg->omega         = omega;
+  pg->omega_changed = PETSC_TRUE;
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
@@ -235,9 +162,8 @@ PetscErrorCode PCCreate_Gibbs(PC pc)
 
   PetscFunctionBeginUser;
   PetscCall(PetscNew(&gibbs));
-  gibbs->omega           = 1.0; // TODO: Allow user to change omega
-  gibbs->sor_ctx         = NULL;
-  gibbs->sor_ctx_destroy = NULL;
+  gibbs->omega       = 1; // TODO: Allow user to change omega
+  gibbs->prepare_rhs = PrepareRHS_Default;
 
   // TODO: Allow user to pass own PetscRandom
   PetscCall(PetscRandomCreate(PetscObjectComm((PetscObject)pc), &gibbs->prand));
@@ -247,6 +173,7 @@ PetscErrorCode PCCreate_Gibbs(PC pc)
   pc->ops->setup           = PCSetUp_Gibbs;
   pc->ops->destroy         = PCDestroy_Gibbs;
   pc->ops->applyrichardson = PCApplyRichardson_Gibbs;
-  pc->ops->apply           = PCApply_Gibbs;
+  pc->ops->setfromoptions  = PCSetFromOptions_Gibbs;
+  /* pc->ops->apply           = PCApply_Gibbs; */
   PetscFunctionReturn(PETSC_SUCCESS);
 }

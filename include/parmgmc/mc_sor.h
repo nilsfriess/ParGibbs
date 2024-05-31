@@ -1,23 +1,12 @@
 #pragma once
 
-#include <petscsys.h>
-#include <petscis.h>
 #include <petscmat.h>
 
-typedef struct _SORCtx_MPIAIJ {
-  PetscInt    ncolors;
-  VecScatter *scatters;  // A VecScatter context for scattering the boundary nodes for each color
-  Vec        *ghostvecs; // A Vec of the correct size to scatter the boundary values for each color into
-} *SORCtx_MPIAIJ;
+typedef struct _MCSOR {
+  void *ctx;
+} *MCSOR;
 
-typedef struct _SORCtx_LRC {
-  SORCtx_MPIAIJ basectx;
-  PetscErrorCode (*basesor)(Mat, const PetscInt *, Vec, Vec, PetscReal, ISColoring, void *, Vec);
-} *SORCtx_LRC;
-
-PETSC_EXTERN PetscErrorCode ContextDestroy_MPIAIJ(void **);
-PETSC_EXTERN PetscErrorCode ContextDestroy_LRC(void **);
-
-PETSC_EXTERN PetscErrorCode MatMultiColorSOR_MPIAIJ(Mat, const PetscInt *, Vec, Vec, PetscReal, ISColoring, void *, Vec);
-PETSC_EXTERN PetscErrorCode MatMultiColorSOR_SEQAIJ(Mat, const PetscInt *, Vec, Vec, PetscReal, ISColoring, void *, Vec);
-PETSC_EXTERN PetscErrorCode MatMultiColorSOR_LRC(Mat, const PetscInt *, Vec, Vec, PetscReal, ISColoring, void *, Vec);
+PETSC_EXTERN PetscErrorCode MCSORCreate(Mat, PetscReal, MCSOR *);
+PETSC_EXTERN PetscErrorCode MCSORDestroy(MCSOR *);
+PETSC_EXTERN PetscErrorCode MCSORApply(MCSOR, Vec, Vec);
+PETSC_EXTERN PetscErrorCode MCSORSetOmega(MCSOR, PetscReal);

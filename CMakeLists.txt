@@ -18,7 +18,6 @@ add_library(parmgmc SHARED
 		    src/pc_gibbs.c
 		    src/ziggurat.c
 		    src/mc_sor.c
-		    src/coloring.c
 		    src/parmgmc.c
 		    )
 target_include_directories(parmgmc PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/include")

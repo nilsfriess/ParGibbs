@@ -1,4 +1,5 @@
 #include "parmgmc/parmgmc.h"
+#include "parmgmc/pc/pc_gibbs.h"
 
 #include <petscdm.h>
 #include <petscdmda.h>
@@ -7,10 +8,26 @@
 #include <petscmat.h>
 #include <petscpc.h>
 #include <petscsys.h>
-
-#include <petscsystypes.h>
+#include <petscvec.h>
 #include <petscviewer.h>
+
 #include <stdio.h>
+#include <time.h>
+
+PetscErrorCode SampleCallback(PetscInt it, Vec y, void *ctx)
+{
+  Vec *mean = ctx;
+
+  PetscFunctionBeginUser;
+  PetscCall(VecScale(*mean, it));
+  PetscCall(VecAXPY(*mean, 1., y));
+  PetscCall(VecScale(*mean, 1. / (it + 1)));
+
+  PetscScalar norm;
+  PetscCall(VecNorm(*mean, NORM_2, &norm));
+  PetscCall(PetscPrintf(MPI_COMM_WORLD, "%d: %f\n", it, fabs(norm - 5)));
+  PetscFunctionReturn(PETSC_SUCCESS);
+}
 
 static PetscErrorCode MatAssembleShiftedLaplaceFD(DM dm, PetscReal kappainv, Mat mat)
 {
@@ -51,14 +68,14 @@ static PetscErrorCode MatAssembleShiftedLaplaceFD(DM dm, PetscReal kappainv, Mat
       if (j != info.my - 1) {
         cols[k].j = j + 1;
         cols[k].i = i;
-        vals[k]   = hinv2;
+        vals[k]   = -hinv2;
         ++k;
       }
 
       if (i != info.mx - 1) {
         cols[k].j = j;
         cols[k].i = i + 1;
-        vals[k]   = hinv2;
+        vals[k]   = -hinv2;
         ++k;
       }
 
@@ -109,29 +126,48 @@ int main(int argc, char *argv[])
   PetscCall(MatCreateObservationMat(obs, rows, &B));
 
   Vec       S;
-  PetscReal obsvar = 1e-4;
+  PetscReal obsvar = 0.1;
   PetscCall(MatCreateVecs(B, &S, NULL));
   PetscCall(VecSet(S, obsvar));
+  PetscCall(VecReciprocal(S));
 
-  Mat mat;
-  PetscCall(MatCreateLRC(A, B, S, B, &mat));
+  Mat mat = A;
+  /* PetscCall(MatCreateLRC(A, B, S, B, &mat)); */
 
   KSP ksp;
   PetscCall(KSPCreate(MPI_COMM_WORLD, &ksp));
   PetscCall(KSPSetOperators(ksp, mat, mat));
   PetscCall(KSPSetFromOptions(ksp));
   PetscCall(KSPSetUp(ksp));
+  PetscCall(KSPSetInitialGuessNonzero(ksp, PETSC_TRUE));
 
-  Vec x, b;
+  PC pc;
+  PetscCall(KSPGetPC(ksp, &pc));
+
+  PetscRandom pr;
+  PetscCall(PCGibbsGetPetscRandom(pc, &pr));
+  PetscCall(PetscRandomSetSeed(pr, 1));
+  PetscCall(PetscRandomSeed(pr));
+
+  Vec mean;
+  PetscCall(MatCreateVecs(A, &mean, NULL));
+  PetscCall(PCGibbsSetSampleCallback(pc, SampleCallback, &mean));
+
+  Vec x, b, f;
   PetscCall(MatCreateVecs(A, &x, &b));
   PetscCall(VecSet(b, 1));
-  PetscCall(KSPSolve(ksp, b, x));
+  PetscCall(VecSet(x, 0));
+  PetscCall(VecDuplicate(b, &f));
+  PetscCall(MatMult(A, b, f));
+  PetscCall(KSPSolve(ksp, f, x));
 
   // Clean up
   PetscCall(VecDestroy(&x));
   PetscCall(VecDestroy(&b));
+  PetscCall(VecDestroy(&f));
   PetscCall(KSPDestroy(&ksp));
-  PetscCall(MatDestroy(&mat));
+  /* PetscCall(MatDestroy(&mat)); */
+  PetscCall(VecDestroy(&mean));
   PetscCall(VecDestroy(&S));
   PetscCall(ISDestroy(&obs));
   PetscCall(MatDestroy(&B));
