@@ -141,15 +141,13 @@ PetscErrorCode MCSORApply(MCSOR mc, Vec b, Vec y)
 
 static PetscErrorCode MCSORApply_SEQAIJ(MCSOR_Ctx ctx, Vec b, Vec y)
 {
-  PetscInt         nind, ncolors, rows;
+  PetscInt         nind, ncolors;
   const PetscInt  *rowptr, *colptr, *rowind;
   const PetscReal *idiagarr, *barr;
   PetscReal       *matvals, *yarr;
   IS              *iss;
 
   PetscFunctionBeginUser;
-  PetscCall(MatGetLocalSize(ctx->A, &rows, NULL));
-
   PetscCall(MatSeqAIJGetCSRAndMemType(ctx->A, &rowptr, &colptr, &matvals, NULL));
   PetscCall(ISColoringGetIS(ctx->isc, PETSC_USE_POINTER, &ncolors, &iss));
   PetscCall(VecGetArrayRead(ctx->idiag, &idiagarr));
