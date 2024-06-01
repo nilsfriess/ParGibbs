@@ -3,6 +3,8 @@
 
 #include <petscdm.h>
 #include <petscdmda.h>
+#include <petscdmdatypes.h>
+#include <petscerror.h>
 #include <petscis.h>
 #include <petscksp.h>
 #include <petscmat.h>
@@ -95,75 +97,97 @@ static PetscErrorCode MatAssembleShiftedLaplaceFD(DM dm, PetscReal kappainv, Mat
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
-PetscErrorCode MatCreateObservationMat(IS obs, PetscInt n, Mat *mat)
+#define N_OBS 5
+
+PetscErrorCode MatCreateObservationMat(DM dm, PetscReal obs_coords[][2], PetscInt nobs, Mat A, Mat *O)
 {
-  PetscInt        nobs;
-  const PetscInt *obsidx;
+  PetscInt      ii, jj, lobs = 0, Arows;
+  PetscInt     *II, *JJ, *oi;
+  DMDALocalInfo info;
 
   PetscFunctionBeginUser;
-  PetscCall(ISGetLocalSize(obs, &nobs));
-  PetscCall(MatCreateDense(MPI_COMM_WORLD, PETSC_DECIDE, PETSC_DECIDE, n, nobs, NULL, mat));
-  PetscCall(ISGetIndices(obs, &obsidx));
-  for (PetscInt i = 0; i < nobs; ++i) PetscCall(MatSetValue(*mat, obsidx[i], i, 1., INSERT_VALUES));
-  PetscCall(MatAssemblyBegin(*mat, MAT_FINAL_ASSEMBLY));
-  PetscCall(MatAssemblyEnd(*mat, MAT_FINAL_ASSEMBLY));
+  PetscCall(PetscCalloc1(nobs, &II));
+  PetscCall(PetscCalloc1(nobs, &JJ));
+
+  for (PetscInt i = 0; i < nobs; ++i) {
+    PetscCall(DMDAGetLogicalCoordinate(dm, obs_coords[i][0], obs_coords[i][1], 0, &ii, &jj, NULL, NULL, NULL, NULL));
+    if (ii != -1 && jj != -1) {
+      II[lobs] = ii;
+      JJ[lobs] = jj;
+      lobs++;
+    }
+  }
+
+  PetscCall(PetscMalloc1(lobs, &oi));
+  PetscCall(DMDAGetLocalInfo(dm, &info));
+  for (PetscInt i = 0; i < lobs; ++i) oi[i] = II[i] + JJ[i] * info.mx;
+
+  PetscCall(MatGetLocalSize(A, &Arows, NULL));
+  PetscCall(MatCreateDense(MPI_COMM_WORLD, Arows, lobs, PETSC_DECIDE, PETSC_DECIDE, NULL, O));
+  for (PetscInt i = 0; i < lobs; ++i) PetscCall(MatSetValue(*O, oi[i], i, 1., INSERT_VALUES));
+  PetscCall(MatAssemblyBegin(*O, MAT_FINAL_ASSEMBLY));
+  PetscCall(MatAssemblyEnd(*O, MAT_FINAL_ASSEMBLY));
+
+  PetscCall(PetscFree(oi));
+  PetscCall(PetscFree(II));
+  PetscCall(PetscFree(JJ));
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
 int main(int argc, char *argv[])
 {
+  Mat A, B, ALR;
+  DM  da;
+  Vec Sinv, x, b, f;
+  KSP ksp;
+  PC  pc;
+  /* PetscRandom pr; */
+  SampleCtx ctx;
+  PetscReal obs[N_OBS][2] = {
+    {0.25, 0.25},
+    {0.25, 0.75},
+    {0.5,  0.5 },
+    {0.75, 0.25},
+    {0.75, 0.75}
+  };
+
   PetscCall(PetscInitialize(&argc, &argv, NULL, NULL));
   PetscCall(ParMGMCInitialize());
 
-  DM da;
   PetscCall(DMDACreate2d(MPI_COMM_WORLD, DM_BOUNDARY_NONE, DM_BOUNDARY_NONE, DMDA_STENCIL_STAR, 9, 9, PETSC_DECIDE, PETSC_DECIDE, 1, 1, NULL, NULL, &da));
   PetscCall(DMSetFromOptions(da));
   PetscCall(DMSetUp(da));
-
-  Mat A;
+  PetscCall(DMDASetUniformCoordinates(da, 0, 1, 0, 1, 0, 1));
   PetscCall(DMCreateMatrix(da, &A));
   PetscCall(MatAssembleShiftedLaplaceFD(da, 1, A));
 
-  Mat      B;
-  PetscInt nobs = 5, rows;
-  IS       obs;
-  PetscCall(MatGetSize(A, &rows, NULL));
-  PetscInt obsidx[] = {2, 6, 12, 18, 22};
-  PetscCall(ISCreateGeneral(MPI_COMM_WORLD, nobs, obsidx, PETSC_COPY_VALUES, &obs));
-  PetscCall(MatCreateObservationMat(obs, rows, &B));
+  PetscCall(MatCreateObservationMat(da, obs, N_OBS, A, &B));
+  PetscCall(MatCreateVecs(B, &Sinv, NULL));
+  PetscCall(VecSet(Sinv, 1));
+  PetscCall(VecReciprocal(Sinv));
+  PetscCall(MatCreateLRC(A, B, Sinv, NULL, &ALR));
 
-  Vec       S;
-  PetscReal obsvar = 0.1;
-  PetscCall(MatCreateVecs(B, &S, NULL));
-  PetscCall(VecSet(S, obsvar));
-  PetscCall(VecReciprocal(S));
-
-  Mat mat = A;
-  /* PetscCall(MatCreateLRC(A, B, S, B, &mat)); */
-
-  KSP ksp;
   PetscCall(KSPCreate(MPI_COMM_WORLD, &ksp));
-  PetscCall(KSPSetOperators(ksp, mat, mat));
+  PetscCall(KSPSetOperators(ksp, ALR, ALR));
   PetscCall(KSPSetFromOptions(ksp));
   PetscCall(KSPSetUp(ksp));
   PetscCall(KSPSetInitialGuessNonzero(ksp, PETSC_TRUE));
 
-  PC pc;
   PetscCall(KSPGetPC(ksp, &pc));
+  /* PetscCall(PCGibbsGetPetscRandom(pc, &pr)); */
+  /* PetscCall(PetscRandomSetSeed(pr, 1)); */
+  /* PetscCall(PetscRandomSeed(pr)); */
 
-  PetscRandom pr;
-  PetscCall(PCGibbsGetPetscRandom(pc, &pr));
-  PetscCall(PetscRandomSetSeed(pr, 1));
-  PetscCall(PetscRandomSeed(pr));
-
-  Vec x, b, f;
-  PetscCall(MatCreateVecs(A, &x, &b));
-  PetscCall(VecSet(b, 1));
+  Vec o;
+  PetscCall(MatCreateVecs(B, &o, NULL));
+  PetscCall(VecSet(o, 1));
+  PetscCall(MatCreateVecs(ALR, &x, &b));
+  PetscCall(VecSet(b, 0));
+  PetscCall(MatMultAdd(B, o, b, b));
   PetscCall(VecSet(x, 0));
   PetscCall(VecDuplicate(b, &f));
-  PetscCall(MatMult(A, b, f));
+  PetscCall(MatMult(ALR, b, f));
 
-  SampleCtx ctx;
   PetscCall(PetscNew(&ctx));
   PetscCall(MatCreateVecs(A, &(ctx->mean), NULL));
   PetscCall(VecNorm(b, NORM_2, &ctx->norm_ex));
@@ -172,16 +196,17 @@ int main(int argc, char *argv[])
   PetscCall(KSPSolve(ksp, f, x));
 
   // Clean up
+  PetscCall(VecDestroy(&o));
   PetscCall(VecDestroy(&x));
   PetscCall(VecDestroy(&b));
   PetscCall(VecDestroy(&f));
   PetscCall(KSPDestroy(&ksp));
-  /* PetscCall(MatDestroy(&mat)); */
   PetscCall(VecDestroy(&ctx->mean));
-  PetscCall(VecDestroy(&S));
-  PetscCall(ISDestroy(&obs));
+  PetscCall(PetscFree(ctx));
+  PetscCall(VecDestroy(&Sinv));
   PetscCall(MatDestroy(&B));
   PetscCall(MatDestroy(&A));
+  PetscCall(MatDestroy(&ALR));
   PetscCall(DMDestroy(&da));
 
   PetscCall(PetscFinalize());

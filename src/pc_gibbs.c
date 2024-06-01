@@ -21,7 +21,7 @@
 #include <string.h>
 
 typedef struct {
-  Mat         A;
+  Mat         A, Asor;
   PetscRandom prand;
   Vec         sqrtdiag; // Both include omega
   PetscReal   omega;
@@ -63,7 +63,7 @@ static PetscErrorCode PCGibbsUpdateSqrtDiag(PC pc)
 
   PetscFunctionBeginUser;
   PetscCall(MCSORSetOmega(pg->mc, pg->omega));
-  PetscCall(MatGetDiagonal(pg->A, pg->sqrtdiag));
+  PetscCall(MatGetDiagonal(pg->Asor, pg->sqrtdiag));
   PetscCall(VecSqrtAbs(pg->sqrtdiag));
   PetscCall(VecScale(pg->sqrtdiag, PetscSqrtReal((2 - pg->omega) / pg->omega)));
   pg->omega_changed = PETSC_FALSE;
@@ -115,9 +115,14 @@ static PetscErrorCode PCSetUp_Gibbs(PC pc)
 
   PetscCall(MatGetType(pc->pmat, &type));
   if (strcmp(type, MATSEQAIJ) == 0) {
-    pg->A = pc->pmat;
+    pg->A    = pc->pmat;
+    pg->Asor = pg->A;
   } else if (strcmp(type, MATMPIAIJ) == 0) {
+    pg->A    = pc->pmat;
+    pg->Asor = pg->A;
+  } else if (strcmp(type, MATLRC) == 0) {
     pg->A = pc->pmat;
+    PetscCall(MatLRCGetMats(pg->A, &pg->Asor, NULL, NULL, NULL));
   } else {
     PetscCheck(false, MPI_COMM_WORLD, PETSC_ERR_SUP, "Matrix type not supported");
   }
