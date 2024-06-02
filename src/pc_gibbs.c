@@ -109,19 +109,20 @@ static PetscErrorCode PCSetUp_Gibbs(PC pc)
 {
   PC_Gibbs *pg = pc->data;
   MatType   type;
+  Mat       P = pc->pmat;
 
   PetscFunctionBeginUser;
-  PetscCall(MCSORCreate(pc->pmat, pg->omega, &pg->mc));
+  PetscCall(MCSORCreate(P, pg->omega, &pg->mc));
 
-  PetscCall(MatGetType(pc->pmat, &type));
+  PetscCall(MatGetType(P, &type));
   if (strcmp(type, MATSEQAIJ) == 0) {
-    pg->A    = pc->pmat;
+    pg->A    = P;
     pg->Asor = pg->A;
   } else if (strcmp(type, MATMPIAIJ) == 0) {
-    pg->A    = pc->pmat;
+    pg->A    = P;
     pg->Asor = pg->A;
   } else if (strcmp(type, MATLRC) == 0) {
-    pg->A = pc->pmat;
+    pg->A = P;
     PetscCall(MatLRCGetMats(pg->A, &pg->Asor, NULL, NULL, NULL));
   } else {
     PetscCheck(false, MPI_COMM_WORLD, PETSC_ERR_SUP, "Matrix type not supported");

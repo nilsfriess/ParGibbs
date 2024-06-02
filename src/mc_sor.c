@@ -1,6 +1,8 @@
 #include "parmgmc/mc_sor.h"
 #include "parmgmc/parmgmc.h"
 
+#include <petscksp.h>
+#include <petscvec.h>
 #include <stdbool.h>
 
 #include <petscsys.h>
@@ -91,7 +93,7 @@ static PetscErrorCode MatLUFactorLowerTriangular(Mat A, Mat *LL)
   PetscCall(MatAssemblyBegin(L, MAT_FINAL_ASSEMBLY));
   PetscCall(MatAssemblyEnd(L, MAT_FINAL_ASSEMBLY));
   PetscCall(MatEliminateZeros(L, PETSC_TRUE));
-  PetscCall(MatGetOrdering(L, MATORDERINGNATURAL, &rowperm, &colperm));
+  PetscCall(MatGetOrdering(L, MATORDERINGEXTERNAL, &rowperm, &colperm));
   PetscCall(MatGetFactor(L, MATSOLVERMUMPS, MAT_FACTOR_LU, LL));
   PetscCall(MatLUFactorSymbolic(*LL, L, rowperm, colperm, NULL));
   PetscCall(MatLUFactorNumeric(*LL, L, NULL));
@@ -362,9 +364,12 @@ PetscErrorCode MCSORCreate(Mat A, PetscReal omega, MCSOR *m)
   } else if (strcmp(type, MATMPIAIJ) == 0) {
     ctx->Asor = A;
   } else if (strcmp(type, MATLRC) == 0) {
-    Mat tmp, tmp2, Id;
-    Vec S, Si;
-    IS  rowperm, colperm;
+    Mat        tmp, tmp2, Id;
+    KSP        ksp;
+    Vec        S, Si;
+    IS         sctis;
+    VecScatter sct;
+    PetscInt   sctsize;
     PetscCall(MatLRCGetMats(A, &ctx->Asor, &ctx->B, &S, NULL));
     PetscCall(MatLUFactorLowerTriangular(ctx->Asor, &ctx->L));
     PetscCall(MatCreateVecs(ctx->L, &ctx->z, NULL));
@@ -372,22 +377,33 @@ PetscErrorCode MCSORCreate(Mat A, PetscReal omega, MCSOR *m)
     PetscCall(MatMatSolve(ctx->L, ctx->B, tmp)); // tmp = L^-1 B
     PetscCall(MatTransposeMatMult(ctx->B, tmp, MAT_INITIAL_MATRIX, 1, &tmp2));
 
+    PetscCall(VecGetSize(S, &sctsize));
+    PetscCall(ISCreateStride(MPI_COMM_WORLD, sctsize, 0, 1, &sctis));
     PetscCall(MatCreateVecs(tmp, &Si, NULL));
-    PetscCall(VecCopy(S, Si));
+    PetscCall(VecScatterCreate(S, sctis, Si, NULL, &sct));
+    PetscCall(VecScatterBegin(sct, S, Si, INSERT_VALUES, SCATTER_FORWARD));
+    PetscCall(VecScatterEnd(sct, S, Si, INSERT_VALUES, SCATTER_FORWARD));
+    PetscCall(VecScatterDestroy(&sct));
+    PetscCall(ISDestroy(&sctis));
     PetscCall(VecReciprocal(Si));
+
     PetscCall(MatDiagonalSet(tmp2, Si, ADD_VALUES));
+    PetscCall(KSPCreate(MPI_COMM_WORLD, &ksp));
+    PetscCall(KSPSetOperators(ksp, tmp2, tmp2));
     PetscCall(MatDuplicate(tmp2, MAT_DO_NOT_COPY_VALUES, &Id));
     PetscCall(MatShift(Id, 1));
     PetscCall(MatDuplicate(tmp2, MAT_DO_NOT_COPY_VALUES, &ctx->Sb));
-    PetscCall(MatGetOrdering(tmp2, MATORDERINGNATURAL, &rowperm, &colperm));
-    PetscCall(MatLUFactor(tmp2, rowperm, colperm, NULL));
-    PetscCall(MatMatSolve(tmp2, Id, ctx->Sb));
+    PetscCall(KSPMatSolve(ksp, Id, ctx->Sb));
+
+    /* PetscCall(MatGetOrdering(tmp2, MATORDERINGNATURAL, &rowperm, &colperm)); */
+    /* PetscCall(MatLUFactor(tmp2, rowperm, colperm, NULL)); */
+    /* PetscCall(MatMatSolve(tmp2, Id, ctx->Sb)); */
+
     PetscCall(MatCreateVecs(ctx->Sb, &ctx->w, NULL));
     PetscCall(MatCreateVecs(ctx->Sb, &ctx->v, NULL));
     PetscCall(MatCreateVecs(ctx->B, NULL, &ctx->u));
 
-    PetscCall(ISDestroy(&rowperm));
-    PetscCall(ISDestroy(&colperm));
+    PetscCall(KSPDestroy(&ksp));
     PetscCall(VecDestroy(&Si));
     PetscCall(MatDestroy(&Id));
     PetscCall(MatDestroy(&tmp));
