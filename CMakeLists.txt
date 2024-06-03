@@ -28,6 +28,7 @@ target_sources(parmgmc
 	    src/ziggurat.c
 	    src/mc_sor.c
 	    src/parmgmc.c
+	    src/problems.c
 	 PUBLIC
 	    FILE_SET parmgmcheaders
 	    BASE_DIRS include
@@ -40,6 +41,7 @@ target_compile_options(parmgmc PUBLIC ${PETSC_CFLAGS})
 target_link_libraries(parmgmc PUBLIC PkgConfig::PETSC)
 
 include(GNUInstallDirs)
+list(APPEND CMAKE_INSTALL_RPATH ${CMAKE_INSTALL_LIBDIR})
 install(TARGETS parmgmc 
         LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
 	FILE_SET parmgmcheaders
