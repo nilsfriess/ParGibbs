@@ -1,5 +1,9 @@
 cmake_minimum_required(VERSION 3.20)
-project(ParMGMC LANGUAGES C CXX)
+project(ParMGMC
+	LANGUAGES C CXX
+	VERSION 0.0.1
+	DESCRIPTION "Implementation of the Multigrid Monte Carlo method in PETSc"
+	HOMEPAGE_URL "https://github.com/nilsfriess/ParMGMC.git")
 
 set(CMAKE_COLOR_DIAGNOSTICS ON)
 
@@ -35,11 +39,20 @@ target_compile_options(parmgmc PRIVATE -Wall -Wextra -Wpedantic -pedantic -Wshad
 target_compile_options(parmgmc PUBLIC ${PETSC_CFLAGS})
 target_link_libraries(parmgmc PUBLIC PkgConfig::PETSC)
 
+include(GNUInstallDirs)
 install(TARGETS parmgmc 
         LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
 	FILE_SET parmgmcheaders
         PUBLIC_HEADER DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
 )
+
+configure_file(
+    ${CMAKE_CURRENT_SOURCE_DIR}/share/pkgconfig/parmgmc.pc.in
+    ${CMAKE_CURRENT_BINARY_DIR}/parmgmc.pc
+    @ONLY
+)
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/parmgmc.pc
+	DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig)
 
 add_subdirectory(examples_c)
 add_subdirectory(examples_cpp)
