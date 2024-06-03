@@ -17,5 +17,5 @@ $ cmake .. -DCMAKE_PREFIX_PATH="/path/to/petsc;/path/to/parmgmc"
 Finally, execute the test suite by running
 
 ```bash
-make check
+$ make check
 ```
