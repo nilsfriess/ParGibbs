@@ -1,0 +1,34 @@
+name: ubuntu
+on: [push]
+jobs:
+  run-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          wget -O- https://apt.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB | gpg --dearmor | sudo tee /usr/share/keyrings/oneapi-archive-keyring.gpg > /dev/null
+          echo "deb [signed-by=/usr/share/keyrings/oneapi-archive-keyring.gpg] https://apt.repos.intel.com/oneapi all main" | sudo tee /etc/apt/sources.list.d/oneAPI.list
+          sudo apt update
+          sudo apt install -y cmake intel-oneapi-mkl intel-oneapi-mkl-devel
+
+      - name: Cache PETSc
+        id: cache-petsc
+        uses: actions/cache@v4
+        with: 
+          path: ${{github.workspace}}/petsc
+          key: ${{runner.os}}-petsc
+
+      - name: Build PETSc
+        if: steps.cache-petsc.outputs.cache-hit != 'true'
+        run: |
+          git clone --depth 1 -b main https://gitlab.com/petsc/petsc.git petsc
+          cd petsc
+          ./configure --with-debugging=no --download-mpich --with-fortran-bindings=0 --with-blas-lapack-dir=/opt/intel/oneapi/mkl/latest/lib --with-mkl_cpardiso --with-mkl_pardiso --download-mumps --download-scalapack COPTFLAGS="-O3 -march=native" CXXOPTFLAGS="-O3 -march=native"
+          make PETSC_DIR=${GITHUB_WORKSPACE}/petsc PETSC_ARCH=arch-linux-c-opt all
+
+      - name: Build ParMGMC
+        run: |
+          mkdir build && cd build
+          cmake .. -DCMAKE_C_COMPILER=${GITHUB_WORKSPACE}/petsc/arch-linux-c-opt/bin/mpicc -DCMAKE_CXX_COMPILER=${GITHUB_WORKSPACE}/petsc/arch-linux-c-opt/bin/mpic++ -DCMAKE_PREFIX_PATH=${GITHUB_WORKSPACE}/petsc/arch-linux-c-opt
+          make
