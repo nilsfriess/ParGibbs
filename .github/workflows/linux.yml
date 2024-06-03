@@ -10,7 +10,9 @@ jobs:
           wget -O- https://apt.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB | gpg --dearmor | sudo tee /usr/share/keyrings/oneapi-archive-keyring.gpg > /dev/null
           echo "deb [signed-by=/usr/share/keyrings/oneapi-archive-keyring.gpg] https://apt.repos.intel.com/oneapi all main" | sudo tee /etc/apt/sources.list.d/oneAPI.list
           sudo apt update
-          sudo apt install -y cmake intel-oneapi-mkl intel-oneapi-mkl-devel
+          sudo apt install -y cmake intel-oneapi-mkl intel-oneapi-mkl-devel python3-dev python3-pip python3-venv python3-virtualenv
+          pip install pipx
+          pipx install lit
 
       - name: Cache PETSc
         id: cache-petsc
@@ -30,5 +32,17 @@ jobs:
       - name: Build ParMGMC
         run: |
           mkdir build && cd build
-          cmake .. -DCMAKE_C_COMPILER=${GITHUB_WORKSPACE}/petsc/arch-linux-c-opt/bin/mpicc -DCMAKE_CXX_COMPILER=${GITHUB_WORKSPACE}/petsc/arch-linux-c-opt/bin/mpic++ -DCMAKE_PREFIX_PATH=${GITHUB_WORKSPACE}/petsc/arch-linux-c-opt
+          cmake .. -DCMAKE_C_COMPILER=${GITHUB_WORKSPACE}/petsc/arch-linux-c-opt/bin/mpicc -DCMAKE_CXX_COMPILER=${GITHUB_WORKSPACE}/petsc/arch-linux-c-opt/bin/mpic++ -DCMAKE_PREFIX_PATH=${GITHUB_WORKSPACE}/petsc/arch-linux-c-opt -DCMAKE_INSTALL_PREFIX=${GITHUB_WORKSPACE}/install
           make
+
+      - name: Install ParMGMC
+        run: |
+          cd ${GITHUB_WORKSPACE}/build
+          make install
+
+      - name: Configure tests
+        run: |
+          cd ${GITHUB_WORKSPACE}/test
+          mkdir build && cd build
+          cmake .. -DCMAKE_PREFIX_PATH="${GITHUB_WORKSPACE}/petsc/arch-linux-c-opt;${GITHUB_WORKSPACE}/install"
+          make check
