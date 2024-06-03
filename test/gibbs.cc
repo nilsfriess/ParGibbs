@@ -1,3 +1,11 @@
+/*  ParMGMC - Implementation of the Multigrid Monte Carlo method in PETSc.
+    Copyright (C) 2024  Nils Friess
+
+    This file is part of ParMGMC which is released under the GNU LESSER GENERAL
+    PUBLIC LICENSE (LGPL). See file LICENSE in the project root folder for full
+    license details.
+*/
+
 // RUN: %cxx %s -O3 -o %t %flags && %t -ksp_type richardson -pc_type gibbs -ksp_max_it 1000000
 // RUN: %cxx %s -O3 -o %t %flags && %t -ksp_type richardson -pc_type gibbs -pc_gibbs_omega 1.4 -ksp_max_it 1000000
 
