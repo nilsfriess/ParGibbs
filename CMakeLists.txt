@@ -16,6 +16,7 @@ endif()
 add_library(parmgmc SHARED
 		    src/pc_hogwild.c
 		    src/pc_gibbs.c
+		    src/pc_gmgmc.c
 		    src/ziggurat.c
 		    src/mc_sor.c
 		    src/parmgmc.c

@@ -28,31 +28,33 @@ typedef struct _MCSOR_Ctx {
 
 PetscErrorCode MCSORDestroy(MCSOR *mc)
 {
-  MCSOR_Ctx ctx = (*mc)->ctx;
-  PetscInt  ncolors;
-
   PetscFunctionBeginUser;
-  PetscCall(PetscFree(ctx->diagptrs));
-  PetscCall(ISColoringGetIS(ctx->isc, PETSC_USE_POINTER, &ncolors, NULL));
-  if (ctx->scatters && ctx->ghostvecs) {
-    for (PetscInt i = 0; i < ncolors; ++i) {
-      PetscCall(VecScatterDestroy(&ctx->scatters[i]));
-      PetscCall(VecDestroy(&ctx->ghostvecs[i]));
+  if (*mc) {
+    MCSOR_Ctx ctx = (*mc)->ctx;
+    PetscInt  ncolors;
+
+    PetscCall(PetscFree(ctx->diagptrs));
+    PetscCall(ISColoringGetIS(ctx->isc, PETSC_USE_POINTER, &ncolors, NULL));
+    if (ctx->scatters && ctx->ghostvecs) {
+      for (PetscInt i = 0; i < ncolors; ++i) {
+        PetscCall(VecScatterDestroy(&ctx->scatters[i]));
+        PetscCall(VecDestroy(&ctx->ghostvecs[i]));
+      }
     }
+    PetscCall(VecDestroy(&ctx->idiag));
+
+    if (ctx->L) PetscCall(MatDestroy(&ctx->L));
+    if (ctx->Sb) PetscCall(MatDestroy(&ctx->Sb));
+    if (ctx->z) PetscCall(VecDestroy(&ctx->z));
+    if (ctx->w) PetscCall(VecDestroy(&ctx->w));
+    if (ctx->v) PetscCall(VecDestroy(&ctx->v));
+    if (ctx->u) PetscCall(VecDestroy(&ctx->u));
+
+    PetscCall(ISColoringDestroy(&ctx->isc));
+    PetscCall(PetscFree(ctx));
+    PetscCall(PetscFree(*mc));
+    *mc = NULL;
   }
-  PetscCall(VecDestroy(&ctx->idiag));
-
-  if (ctx->L) PetscCall(MatDestroy(&ctx->L));
-  if (ctx->Sb) PetscCall(MatDestroy(&ctx->Sb));
-  if (ctx->z) PetscCall(VecDestroy(&ctx->z));
-  if (ctx->w) PetscCall(VecDestroy(&ctx->w));
-  if (ctx->v) PetscCall(VecDestroy(&ctx->v));
-  if (ctx->u) PetscCall(VecDestroy(&ctx->u));
-
-  PetscCall(ISColoringDestroy(&ctx->isc));
-  PetscCall(PetscFree(ctx));
-  PetscCall(PetscFree(*mc));
-  *mc = NULL;
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 

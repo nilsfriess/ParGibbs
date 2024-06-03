@@ -28,6 +28,10 @@ typedef struct {
   PetscBool   omega_changed;
   MCSOR       mc;
 
+  Mat B;
+  Vec w;
+  Vec sqrtS;
+
   PetscErrorCode (*prepare_rhs)(PC, Vec, Vec, Vec);
   PetscErrorCode (*sample_callback)(PetscInt, Vec, void *);
   void *callbackctx;
@@ -41,7 +45,21 @@ static PetscErrorCode PCDestroy_Gibbs(PC pc)
   PetscCall(PetscRandomDestroy(&pg->prand));
   PetscCall(VecDestroy(&pg->sqrtdiag));
   PetscCall(MCSORDestroy(&pg->mc));
+  PetscCall(VecDestroy(&pg->w));
+  PetscCall(VecDestroy(&pg->sqrtS));
   PetscCall(PetscFree(pg));
+  PetscFunctionReturn(PETSC_SUCCESS);
+}
+
+static PetscErrorCode PCReset_Gibbs(PC pc)
+{
+  PC_Gibbs *pg = pc->data;
+
+  PetscFunctionBeginUser;
+  PetscCall(VecDestroy(&pg->sqrtdiag));
+  PetscCall(MCSORDestroy(&pg->mc));
+  PetscCall(VecDestroy(&pg->w));
+  PetscCall(VecDestroy(&pg->sqrtS));
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
@@ -54,6 +72,19 @@ static PetscErrorCode PrepareRHS_Default(PC pc, Vec y, Vec rhsin, Vec rhsout)
   PetscCall(VecSetRandom(rhsout, pg->prand));
   PetscCall(VecPointwiseMult(rhsout, rhsout, pg->sqrtdiag));
   PetscCall(VecAXPY(rhsout, 1., rhsin));
+  PetscFunctionReturn(PETSC_SUCCESS);
+}
+
+static PetscErrorCode PrepareRHS_LRC(PC pc, Vec y, Vec rhsin, Vec rhsout)
+{
+  (void)y;
+  PC_Gibbs *pg = pc->data;
+
+  PetscFunctionBeginUser;
+  PetscCall(PrepareRHS_Default(pc, y, rhsin, rhsout));
+  PetscCall(VecSetRandom(pg->w, pg->prand));
+  PetscCall(VecPointwiseMult(pg->w, pg->w, pg->sqrtS));
+  PetscCall(MatMultAdd(pg->B, pg->w, rhsout, rhsout));
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
@@ -112,6 +143,12 @@ static PetscErrorCode PCSetUp_Gibbs(PC pc)
   Mat       P = pc->pmat;
 
   PetscFunctionBeginUser;
+  if (pc->setupcalled) {
+    PetscCall(VecDestroy(&pg->sqrtS));
+    PetscCall(VecDestroy(&pg->sqrtdiag));
+    PetscCall(MCSORDestroy(&pg->mc));
+  }
+
   PetscCall(MCSORCreate(P, pg->omega, &pg->mc));
 
   PetscCall(MatGetType(P, &type));
@@ -122,8 +159,15 @@ static PetscErrorCode PCSetUp_Gibbs(PC pc)
     pg->A    = P;
     pg->Asor = pg->A;
   } else if (strcmp(type, MATLRC) == 0) {
+    Vec S;
+
     pg->A = P;
-    PetscCall(MatLRCGetMats(pg->A, &pg->Asor, NULL, NULL, NULL));
+    PetscCall(MatLRCGetMats(pg->A, &pg->Asor, &pg->B, &S, NULL));
+    PetscCall(VecDuplicate(S, &pg->sqrtS));
+    PetscCall(VecCopy(S, pg->sqrtS));
+    PetscCall(VecSqrtAbs(pg->sqrtS));
+    PetscCall(MatCreateVecs(pg->B, &pg->w, NULL));
+    pg->prepare_rhs = PrepareRHS_LRC;
   } else {
     PetscCheck(false, MPI_COMM_WORLD, PETSC_ERR_SUP, "Matrix type not supported");
   }
@@ -162,6 +206,9 @@ PetscErrorCode PCGibbsSetOmega(PC pc, PetscReal omega)
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
+/*@
+  PCGibbs - A Gibbs sampler wrapped as a PETSc PC
+@*/
 PetscErrorCode PCCreate_Gibbs(PC pc)
 {
   PC_Gibbs *gibbs;
@@ -180,6 +227,7 @@ PetscErrorCode PCCreate_Gibbs(PC pc)
   pc->ops->destroy         = PCDestroy_Gibbs;
   pc->ops->applyrichardson = PCApplyRichardson_Gibbs;
   pc->ops->setfromoptions  = PCSetFromOptions_Gibbs;
+  pc->ops->reset           = PCReset_Gibbs;
   /* pc->ops->apply           = PCApply_Gibbs; */
   PetscFunctionReturn(PETSC_SUCCESS);
 }

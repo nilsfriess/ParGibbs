@@ -1,5 +1,6 @@
 #include "parmgmc/parmgmc.h"
 #include "parmgmc/pc/pc_gibbs.h"
+#include "parmgmc/pc/pc_gmgmc.h"
 
 #include <petscdm.h>
 #include <petscdmda.h>
@@ -25,16 +26,16 @@ PetscErrorCode SampleCallback(PetscInt it, Vec y, void *ctx)
 {
   SampleCtx *sctx    = ctx;
   Vec        mean    = (*sctx)->mean;
-  PetscReal  norm_ex = (*sctx)->norm_ex;
+  PetscReal  norm_ex = (*sctx)->norm_ex, norm_m, norm_y;
 
   PetscFunctionBeginUser;
   PetscCall(VecScale(mean, it));
   PetscCall(VecAXPY(mean, 1., y));
   PetscCall(VecScale(mean, 1. / (it + 1)));
 
-  PetscScalar norm;
-  PetscCall(VecNorm(mean, NORM_2, &norm));
-  PetscCall(PetscPrintf(MPI_COMM_WORLD, "%f\n", fabs(norm - norm_ex) / norm_ex));
+  PetscCall(VecNorm(mean, NORM_2, &norm_m));
+  PetscCall(VecNorm(y, NORM_2, &norm_y));
+  PetscCall(PetscPrintf(MPI_COMM_WORLD, "%d: %f, %f\n", it, norm_y, fabs(norm_m - norm_ex) / norm_ex));
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
@@ -169,14 +170,14 @@ int main(int argc, char *argv[])
 
   PetscCall(KSPCreate(MPI_COMM_WORLD, &ksp));
   PetscCall(KSPSetOperators(ksp, ALR, ALR));
+  PetscCall(KSPSetDM(ksp, da));
+  PetscCall(KSPSetDMActive(ksp, PETSC_FALSE));
   PetscCall(KSPSetFromOptions(ksp));
-  PetscCall(KSPSetUp(ksp));
-  PetscCall(KSPSetInitialGuessNonzero(ksp, PETSC_TRUE));
 
   PetscCall(KSPGetPC(ksp, &pc));
-  /* PetscCall(PCGibbsGetPetscRandom(pc, &pr)); */
-  /* PetscCall(PetscRandomSetSeed(pr, 1)); */
-  /* PetscCall(PetscRandomSeed(pr)); */
+  PetscCall(PCGMGMCSetLevels(pc, 3));
+  PetscCall(KSPSetUp(ksp));
+  PetscCall(KSPSetInitialGuessNonzero(ksp, PETSC_TRUE));
 
   Vec o;
   PetscCall(MatCreateVecs(B, &o, NULL));
@@ -184,16 +185,18 @@ int main(int argc, char *argv[])
   PetscCall(MatCreateVecs(ALR, &x, &b));
   PetscCall(VecSet(b, 0));
   PetscCall(MatMultAdd(B, o, b, b));
-  PetscCall(VecSet(x, 0));
   PetscCall(VecDuplicate(b, &f));
   PetscCall(MatMult(ALR, b, f));
 
   PetscCall(PetscNew(&ctx));
-  PetscCall(MatCreateVecs(A, &(ctx->mean), NULL));
+  PetscCall(MatCreateVecs(ALR, &(ctx->mean), NULL));
   PetscCall(VecNorm(b, NORM_2, &ctx->norm_ex));
-  PetscCall(PCGibbsSetSampleCallback(pc, SampleCallback, &ctx));
+  PetscCall(PCGMGMCSetSampleCallback(pc, SampleCallback, &ctx));
 
   PetscCall(KSPSolve(ksp, f, x));
+  /* PetscCall(VecView(ctx->mean, PETSC_VIEWER_STDOUT_WORLD)); */
+
+  /* PetscCall(KSPView(ksp, PETSC_VIEWER_STDOUT_WORLD)); */
 
   // Clean up
   PetscCall(VecDestroy(&o));
