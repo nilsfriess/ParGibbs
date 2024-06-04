@@ -19,5 +19,11 @@ Finally, execute the test suite by running
 ```bash
 $ make check
 ```
+This runs both the sequential tests and the parallel tests. They can also be executed separately using `make check-seq` and `make check-par`, respectively.
 
-This runs the `lit` executable which automatically detects the test examples in the `tests` directory and parses the comments at the top of the file which contains information on how to compile and run the program.
+### How this works
+Each test file contains comments of the form
+```c
+// RUN: %cc %s -o %t %flags && %mpirun -np %NP %t ...
+```
+at the top. The `lit` executable automatically parses all files in the `tests` directory and substitutes the variables in the comments to generate commands that are then executed.

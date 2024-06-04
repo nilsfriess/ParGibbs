@@ -21,6 +21,11 @@ message(STATUS "LIT compile arguments: ${PARMGMC_COMP}")
 
 configure_file(lit.site.cfg.py.in lit.site.cfg.py @ONLY)
 add_custom_target(check-seq
+		  COMMENT "Running sequential tests"
 		  COMMAND lit "${CMAKE_CURRENT_BINARY_DIR}/tests" -v -DNP=1)
 add_custom_target(check-par
+		  COMMENT "Running parallel tests"
 		  COMMAND lit "${CMAKE_CURRENT_BINARY_DIR}/tests" -v -DNP=4)
+
+add_custom_target(check
+		  DEPENDS check-par check-seq)
