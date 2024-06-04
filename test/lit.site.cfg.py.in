@@ -2,7 +2,7 @@ import os
 
 config.my_src_root    = r'@CMAKE_SOURCE_DIR@'
 config.my_obj_root    = r'@CMAKE_BINARY_DIR@'
-config.parmgmc_cxx    = r'@CMAKE_CXX_COMPILER@'
+config.parmgmc_cc     = r'@CMAKE_C_COMPILER@'
 config.parmgmc_comp   = r'@PARMGMC_COMP@'
 config.parmgmc_mpirun = r'@MPIRUN_PATH@'
 
