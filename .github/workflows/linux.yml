@@ -45,4 +45,13 @@ jobs:
           cd ${GITHUB_WORKSPACE}/test
           mkdir build && cd build
           cmake .. -DCMAKE_PREFIX_PATH="${GITHUB_WORKSPACE}/petsc/arch-linux-c-opt;${GITHUB_WORKSPACE}/install"
-          make check
+
+      - name: Run sequential tests
+        run: |
+          cd ${GITHUB_WORKSPACE}/test/build
+          make check-seq
+
+      - name: Run parallel tests
+        run: |
+          cd ${GITHUB_WORKSPACE}/test/build
+          make check-par
