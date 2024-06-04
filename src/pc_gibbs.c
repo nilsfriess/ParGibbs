@@ -41,15 +41,15 @@ typedef struct {
   Vec sqrtS;
 
   PetscErrorCode (*prepare_rhs)(PC, Vec, Vec, Vec);
-  PetscErrorCode (*sample_callback)(PetscInt, Vec, void *);
-  void *callbackctx;
 } PC_Gibbs;
 
 static PetscErrorCode PCDestroy_Gibbs(PC pc)
 {
-  PC_Gibbs *pg = pc->data;
+  SampleCallbackCtx cbctx = pc->user;
+  PC_Gibbs         *pg    = pc->data;
 
   PetscFunctionBeginUser;
+  PetscCall(PetscFree(cbctx));
   PetscCall(PetscRandomDestroy(&pg->prand));
   PetscCall(VecDestroy(&pg->sqrtdiag));
   PetscCall(MCSORDestroy(&pg->mc));
@@ -116,7 +116,8 @@ static PetscErrorCode PCApplyRichardson_Gibbs(PC pc, Vec b, Vec y, Vec w, PetscR
   (void)dtol;
   (void)guesszero;
 
-  PC_Gibbs *pg = pc->data;
+  PC_Gibbs         *pg    = pc->data;
+  SampleCallbackCtx cbctx = pc->user;
 
   PetscFunctionBeginUser;
   if (pg->omega_changed) PetscCall(PCGibbsUpdateSqrtDiag(pc));
@@ -124,7 +125,7 @@ static PetscErrorCode PCApplyRichardson_Gibbs(PC pc, Vec b, Vec y, Vec w, PetscR
   for (PetscInt it = 0; it < its; ++it) {
     PetscCall(pg->prepare_rhs(pc, y, b, w));
     PetscCall(MCSORApply(pg->mc, w, y));
-    if (pg->sample_callback) PetscCall(pg->sample_callback(it, y, pg->callbackctx));
+    if (cbctx->cb) PetscCall(cbctx->cb(it, y, cbctx->ctx));
   }
   *outits = its;
   *reason = PCRICHARDSON_CONVERGED_ITS;
@@ -174,7 +175,7 @@ static PetscErrorCode PCSetUp_Gibbs(PC pc)
     PetscCall(VecDuplicate(S, &pg->sqrtS));
     PetscCall(VecCopy(S, pg->sqrtS));
     PetscCall(VecSqrtAbs(pg->sqrtS));
-    PetscCall(MatCreateVecs(pg->B, &pg->w, NULL));
+    PetscCall(VecDuplicate(S, &pg->w));
     pg->prepare_rhs = PrepareRHS_LRC;
   } else {
     PetscCheck(false, MPI_COMM_WORLD, PETSC_ERR_SUP, "Matrix type not supported");
@@ -182,16 +183,6 @@ static PetscErrorCode PCSetUp_Gibbs(PC pc)
 
   PetscCall(MatCreateVecs(pg->A, &pg->sqrtdiag, NULL));
   pg->omega_changed = PETSC_TRUE;
-  PetscFunctionReturn(PETSC_SUCCESS);
-}
-
-PetscErrorCode PCGibbsSetSampleCallback(PC pc, PetscErrorCode (*cb)(PetscInt, Vec, void *), void *ctx)
-{
-  PC_Gibbs *pg = pc->data;
-
-  PetscFunctionBeginUser;
-  pg->sample_callback = cb;
-  pg->callbackctx     = ctx;
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
@@ -219,7 +210,8 @@ PetscErrorCode PCGibbsSetOmega(PC pc, PetscReal omega)
 @*/
 PetscErrorCode PCCreate_Gibbs(PC pc)
 {
-  PC_Gibbs *gibbs;
+  PC_Gibbs         *gibbs;
+  SampleCallbackCtx cbctx;
 
   PetscFunctionBeginUser;
   PetscCall(PetscNew(&gibbs));
@@ -229,6 +221,9 @@ PetscErrorCode PCCreate_Gibbs(PC pc)
   // TODO: Allow user to pass own PetscRandom
   PetscCall(PetscRandomCreate(PetscObjectComm((PetscObject)pc), &gibbs->prand));
   PetscCall(PetscRandomSetType(gibbs->prand, PARMGMC_ZIGGURAT));
+
+  PetscCall(PetscNew(&cbctx));
+  pc->user = cbctx;
 
   pc->data                 = gibbs;
   pc->ops->setup           = PCSetUp_Gibbs;

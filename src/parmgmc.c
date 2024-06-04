@@ -16,6 +16,7 @@
 #include <petsclog.h>
 #include <petscpc.h>
 #include <petscsys.h>
+#include <petsc/private/pcimpl.h>
 
 PetscClassId  PARMGMC_CLASSID;
 PetscLogEvent MULTICOL_SOR;
@@ -44,5 +45,19 @@ PetscErrorCode ParMGMCInitialize(void)
 
   PetscCall(PetscClassIdRegister("ParMGMC", &PARMGMC_CLASSID));
   PetscCall(PetscLogEventRegister("MulticolSOR", PARMGMC_CLASSID, &MULTICOL_SOR));
+  PetscFunctionReturn(PETSC_SUCCESS);
+}
+
+PetscErrorCode PCSetSampleCallback(PC pc, PetscErrorCode (*cb)(PetscInt, Vec, void *), void *ctx)
+{
+  SampleCallbackCtx cbctx;
+
+  PetscFunctionBeginUser;
+  if (!pc->user) PetscFunctionReturn(PETSC_SUCCESS);
+
+  cbctx = pc->user;
+  cbctx->cb  = cb;
+  cbctx->ctx = ctx;
+
   PetscFunctionReturn(PETSC_SUCCESS);
 }

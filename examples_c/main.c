@@ -8,7 +8,6 @@
 
 #include "parmgmc/parmgmc.h"
 #include "parmgmc/problems.h"
-#include "parmgmc/pc/pc_gmgmc.h"
 
 #include <petscdm.h>
 #include <petscdmda.h>
@@ -123,7 +122,6 @@ int main(int argc, char *argv[])
   PetscCall(KSPSetFromOptions(ksp));
 
   PetscCall(KSPGetPC(ksp, &pc));
-  PetscCall(PCGMGMCSetLevels(pc, 3));
   PetscCall(KSPSetUp(ksp));
   PetscCall(KSPSetInitialGuessNonzero(ksp, PETSC_TRUE));
 
@@ -139,12 +137,9 @@ int main(int argc, char *argv[])
   PetscCall(PetscNew(&ctx));
   PetscCall(MatCreateVecs(ALR, &(ctx->mean), NULL));
   PetscCall(VecNorm(b, NORM_2, &ctx->norm_ex));
-  PetscCall(PCGMGMCSetSampleCallback(pc, SampleCallback, &ctx));
+  PetscCall(PCSetSampleCallback(pc, SampleCallback, &ctx));
 
   PetscCall(KSPSolve(ksp, f, x));
-  /* PetscCall(VecView(ctx->mean, PETSC_VIEWER_STDOUT_WORLD)); */
-
-  /* PetscCall(KSPView(ksp, PETSC_VIEWER_STDOUT_WORLD)); */
 
   // Clean up
   PetscCall(VecDestroy(&o));

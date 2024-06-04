@@ -7,6 +7,7 @@
 */
 
 #include "parmgmc/pc/pc_gmgmc.h"
+#include "parmgmc/parmgmc.h"
 
 #include <petsc/private/pcimpl.h>
 #include <petscerror.h>
@@ -19,17 +20,16 @@
 typedef struct _PC_GMGMC {
   PC   mg;
   Mat *As; // The actual matrices used (in case of A+LR this differs from the matrices used to setup the multigrid hierarchy).
-
-  PetscErrorCode (*sample_callback)(PetscInt, Vec, void *);
-  void *callbackctx;
 } *PC_GMGMC;
 
 static PetscErrorCode PCDestroy_GMGMC(PC pc)
 {
-  PC_GMGMC pg = pc->data;
-  PetscInt levels;
+  SampleCallbackCtx cbctx = pc->user;
+  PC_GMGMC          pg    = pc->data;
+  PetscInt          levels;
 
   PetscFunctionBeginUser;
+  PetscCall(PetscFree(cbctx));
   if (pg->As) {
     PetscCall(PCMGGetLevels(pg->mg, &levels));
     for (PetscInt l = 0; l < levels - 1; ++l) {
@@ -63,26 +63,17 @@ static PetscErrorCode PCApplyRichardson_GMGMC(PC pc, Vec b, Vec y, Vec w, PetscR
   (void)guesszero;
   (void)w;
 
-  PC_GMGMC pg = pc->data;
+  PC_GMGMC          pg    = pc->data;
+  SampleCallbackCtx cbctx = pc->user;
 
   PetscFunctionBeginUser;
 
   for (PetscInt i = 0; i < its; ++i) {
     PetscCall(PCApplyRichardson(pg->mg, b, y, w, 0, 0, 0, 1, PETSC_TRUE, outits, reason));
-    if (pg->sample_callback) PetscCall(pg->sample_callback(i, y, pg->callbackctx));
+    if (cbctx->cb) PetscCall(cbctx->cb(i, y, cbctx->ctx));
   }
   *outits = its;
   *reason = PCRICHARDSON_CONVERGED_ITS;
-  PetscFunctionReturn(PETSC_SUCCESS);
-}
-
-PetscErrorCode PCGMGMCSetSampleCallback(PC pc, PetscErrorCode (*cb)(PetscInt, Vec, void *), void *ctx)
-{
-  PC_GMGMC pg = pc->data;
-
-  PetscFunctionBeginUser;
-  pg->sample_callback = cb;
-  pg->callbackctx     = ctx;
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
@@ -112,6 +103,7 @@ static PetscErrorCode PCSetUp_GMGMC(PC pc)
   PetscCall(PCSetOperators(pg->mg, P, P));
   PetscCall(PCSetDM(pg->mg, pc->dm));
   PetscCall(PCMGSetGalerkin(pg->mg, PC_MG_GALERKIN_BOTH));
+  PetscCall(PCSetFromOptions(pg->mg));
   PetscCall(PCSetUp(pg->mg));
 
   if (islrc) {
@@ -149,13 +141,18 @@ static PetscErrorCode PCSetUp_GMGMC(PC pc)
 
 PetscErrorCode PCCreate_GMGMC(PC pc)
 {
-  PC_GMGMC pg;
+  PC_GMGMC          pg;
+  SampleCallbackCtx cbctx;
 
   PetscFunctionBeginUser;
   PetscCall(PetscNew(&pg));
   PetscCall(PCCreate(MPI_COMM_WORLD, &pg->mg));
+  PetscCall(PCSetOptionsPrefix(pg->mg, "gmgmc_"));
   PetscCall(PCSetType(pg->mg, PCMG));
   pg->As = NULL;
+
+  PetscCall(PetscNew(&cbctx));
+  pc->user = cbctx;
 
   pc->data                 = pg;
   pc->ops->setup           = PCSetUp_GMGMC;
