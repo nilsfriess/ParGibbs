@@ -6,8 +6,8 @@
     license details.
 */
 
-// RUN: %cxx %s -O3 -o %t %flags && %t -ksp_type richardson -pc_type gibbs -ksp_max_it 1000000
-// RUN: %cxx %s -O3 -o %t %flags && %t -ksp_type richardson -pc_type gibbs -pc_gibbs_omega 1.4 -ksp_max_it 1000000
+// RUN: %cxx %s -o %t %flags && %t -ksp_type richardson -pc_type gibbs -ksp_max_it 1000000
+// RUN: %cxx %s -o %t %flags && %t -ksp_type richardson -pc_type gibbs -pc_gibbs_omega 1.4 -ksp_max_it 1000000
 
 #define DOCTEST_CONFIG_IMPLEMENT
 #include <doctest.h>
@@ -82,5 +82,3 @@ int main(int argc, char *argv[])
   PetscCall(KSPDestroy(&ksp));
   PetscCall(PetscFinalize());
 }
-
-// CHECK: 0.0000
