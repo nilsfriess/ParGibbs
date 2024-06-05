@@ -34,17 +34,15 @@
     level using four iterations on the coarsest level and two iterations on the
     remaining levels can be configured with the following options:
 
-    ```bash
-    -ksp_type richardson -pc_type gmgmc
-    -gmgmc_mg_levels_ksp_type richardson
-    -gmgmc_mg_levels_pc_type gibbs
-    -gmgmc_mg_coarse_ksp_type richardson
-    -gmgmc_mg_coarse_pc_type gibbs
-    -gmgmc_mg_levels_ksp_max_it 2
-    -gmgmc_mg_coarse_ksp_max_it 4
-    -gmgmc_pc_mg_levels 3
-    -ksp_max_it 100
-    ```
+        -ksp_type richardson -pc_type gmgmc
+        -gmgmc_mg_levels_ksp_type richardson
+        -gmgmc_mg_levels_pc_type gibbs
+        -gmgmc_mg_coarse_ksp_type richardson
+        -gmgmc_mg_coarse_pc_type gibbs
+        -gmgmc_mg_levels_ksp_max_it 2
+        -gmgmc_mg_coarse_ksp_max_it 4
+        -gmgmc_pc_mg_levels 3
+        -ksp_max_it 100
 
     Note that you have to provide additional information about the coarser grid
     matrices and grid transfer operators for this sampler by attaching a `DM` to

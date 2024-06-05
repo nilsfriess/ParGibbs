@@ -26,20 +26,16 @@
     as a stand-alone sampler or as a random smoother in Multigrid Monte Carlo.
     As a stand-alone sampler, its usage is as follows:
 
-    ```c
-    KSPSetType(ksp, KSPRICHARDSON);
-    KSPGetPC(KSP, &pc);
-    PCSetType(pc, "gibbs");
-    KSPSetUp(ksp);
-    ...
-    KSPSolve(ksp, b, x); // This performs the sampling    
-    ```
+        KSPSetType(ksp, KSPRICHARDSON);
+        KSPGetPC(KSP, &pc);
+        PCSetType(pc, "gibbs");
+        KSPSetUp(ksp);
+        ...
+        KSPSolve(ksp, b, x); // This performs the sampling    
     
     This PC supports setting a callback which is called for each sample by calling
 
-    ```c
-    PCSetSampleCallback(pc, SampleCallback, &ctx);
-    ```
+        PCSetSampleCallback(pc, SampleCallback, &ctx);
     
     where `ctx` is a user defined context (can also be NULL) that is passed to the
     callback along with the sample.
@@ -235,12 +231,10 @@ static PetscErrorCode PCSetUp_Gibbs(PC pc)
 
    This can be used to seed the random number generator:
 
-   ```c
-   PetscRandom *pr;
-   PetscCall(PCGibbsGetPetscRandom(pc, &pr));
-   PetscCall(PetscRandomSetSeed(*pr, seed));
-   PetscCall(PetscRandomSeed(*pr));
-   ```
+       PetscRandom *pr;
+       PCGibbsGetPetscRandom(pc, &pr);
+       PetscRandomSetSeed(*pr, seed);
+       PetscRandomSeed(*pr);
  */
 PetscErrorCode PCGibbsGetPetscRandom(PC pc, PetscRandom *pr)
 {
