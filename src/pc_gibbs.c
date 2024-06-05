@@ -11,6 +11,7 @@
     
     # Options database keys
     - `-pc_gibbs_omega` - the SOR parameter (default is omega = 1)
+    - `-pc_gibbs_explicit_lr` - If set, computes the matrix used in the rank one-update explicitly instead of solving a linear system in each iteration. Can be beneficial if \#samples > rank of update matrix.
 
     # Notes
     This implements a Gibbs sampler wrapped as a PETSc PC. In parallel this uses
@@ -57,6 +58,7 @@
 #include <petsclog.h>
 #include <petscmat.h>
 #include <petscmath.h>
+#include <petscoptions.h>
 #include <petscsf.h>
 #include <petscsys.h>
 #include <petscpc.h>
@@ -74,7 +76,7 @@ typedef struct {
   PetscRandom prand;
   Vec         sqrtdiag; // Both include omega
   PetscReal   omega;
-  PetscBool   omega_changed;
+  PetscBool   omega_changed, explicit_lr;
   MCSOR       mc;
 
   Mat B;
@@ -182,6 +184,7 @@ static PetscErrorCode PCSetFromOptions_Gibbs(PC pc, PetscOptionItems *PetscOptio
   PetscOptionsHeadBegin(PetscOptionsObject, "Gibbs options");
   PetscCall(PetscOptionsRangeReal("-pc_gibbs_omega", "Gibbs SOR parameter", NULL, pg->omega, &pg->omega, &flag, 0.0, 2.0));
   if (flag) pg->omega_changed = PETSC_TRUE;
+  PetscCall(PetscOptionsBool("-pc_gibbs_explicit_lr", "Pre-compute the matrix used in the low rank update", NULL, pg->explicit_lr, &pg->explicit_lr, NULL));
   PetscOptionsHeadEnd();
   PetscFunctionReturn(PETSC_SUCCESS);
 }
@@ -199,7 +202,7 @@ static PetscErrorCode PCSetUp_Gibbs(PC pc)
     PetscCall(MCSORDestroy(&pg->mc));
   }
 
-  PetscCall(MCSORCreate(P, pg->omega, &pg->mc));
+  PetscCall(MCSORCreate(P, pg->omega, pg->explicit_lr, &pg->mc));
 
   PetscCall(MatGetType(P, &type));
   if (strcmp(type, MATSEQAIJ) == 0) {
@@ -270,6 +273,7 @@ PetscErrorCode PCCreate_Gibbs(PC pc)
   PetscCall(PetscNew(&gibbs));
   gibbs->omega       = 1;
   gibbs->prepare_rhs = PrepareRHS_Default;
+  gibbs->explicit_lr = PETSC_FALSE;
 
   // TODO: Allow user to pass own PetscRandom
   PetscCall(PetscRandomCreate(PetscObjectComm((PetscObject)pc), &gibbs->prand));
