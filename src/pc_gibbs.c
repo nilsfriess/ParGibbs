@@ -33,10 +33,13 @@
     ...
     KSPSolve(ksp, b, x); // This performs the sampling    
     ```
+    
     This PC supports setting a callback which is called for each sample by calling
+
     ```c
     PCSetSampleCallback(pc, SampleCallback, &ctx);
     ```
+    
     where `ctx` is a user defined context (can also be NULL) that is passed to the
     callback along with the sample.
 
@@ -228,6 +231,7 @@ static PetscErrorCode PCSetUp_Gibbs(PC pc)
    @brief Get the PetscRandom context used to generate random numbers
 
    This can be used to seed the random number generator:
+
    ```c
    PetscRandom *pr;
    PetscCall(PCGibbsGetPetscRandom(pc, &pr));
