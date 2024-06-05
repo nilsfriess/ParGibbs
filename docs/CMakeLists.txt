@@ -35,7 +35,7 @@ add_custom_command(OUTPUT ${SPHINX_INDEX_FILE}
                    COMMAND 
                      ${SPHINX_EXECUTABLE} -b html
                      # Tell Breathe where to find the Doxygen output
-                     -Dbreathe_projects.CatCutifier=${DOXYGEN_OUTPUT_DIR}/xml
+                     -Dbreathe_projects.ParMGMC=${DOXYGEN_OUTPUT_DIR}/xml
                    ${SPHINX_SOURCE} ${SPHINX_BUILD}
                    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
                    DEPENDS
@@ -52,3 +52,6 @@ add_custom_target(Sphinx ALL DEPENDS ${SPHINX_INDEX_FILE})
 include(GNUInstallDirs)
 install(DIRECTORY ${SPHINX_BUILD}
 DESTINATION ${CMAKE_INSTALL_DOCDIR})
+
+set_target_properties(doxygen PROPERTIES EXCLUDE_FROM_ALL TRUE)
+set_target_properties(Sphinx PROPERTIES EXCLUDE_FROM_ALL TRUE)
