@@ -52,13 +52,14 @@ PetscErrorCode MatCreateObservationMat(DM dm, PetscReal obs_coords[][2], PetscIn
   PetscInt      ii, jj, lobs = 0, Arows;
   PetscInt     *II, *JJ, *oi;
   DMDALocalInfo info;
+  PetscScalar   X, Y;
 
   PetscFunctionBeginUser;
   PetscCall(PetscCalloc1(nobs, &II));
   PetscCall(PetscCalloc1(nobs, &JJ));
 
   for (PetscInt i = 0; i < nobs; ++i) {
-    PetscCall(DMDAGetLogicalCoordinate(dm, obs_coords[i][0], obs_coords[i][1], 0, &ii, &jj, NULL, NULL, NULL, NULL));
+    PetscCall(DMDAGetLogicalCoordinate(dm, obs_coords[i][0], obs_coords[i][1], 0, &ii, &jj, NULL, &X, &Y, NULL));
     if (ii != -1 && jj != -1) {
       II[lobs] = ii;
       JJ[lobs] = jj;
