@@ -6,6 +6,44 @@
     license details.
 */
 
+/** @file pc_gibbs.c
+    @brief A Gibbs sampler wrapped as a PETSc PC
+    
+    # Options database keys
+    - `-pc_gibbs_omega` - the SOR parameter (default is omega = 1)
+
+    # Notes
+    This implements a Gibbs sampler wrapped as a PETSc PC. In parallel this uses
+    a multicolour Gauss-Seidel implementation to obtain a true parallel Gibbs
+    sampler.
+
+    Implemented for PETSc's MATAIJ and MATLRC formats. The latter is used for
+    matrices of the form \f$A + B \Sigma^{-1} B^T\f$ which come up in Bayesian
+    linear inverse problems with Gaussian priors.
+
+    This is supposed to be used in conjunction with `KSPRICHARDSON`, either
+    as a stand-alone sampler or as a random smoother in Multigrid Monte Carlo.
+    As a stand-alone sampler, its usage is as follows:
+
+    ```c
+    KSPSetType(ksp, KSPRICHARDSON);
+    KSPGetPC(KSP, &pc);
+    PCSetType(pc, "gibbs");
+    KSPSetUp(ksp);
+    ...
+    KSPSolve(ksp, b, x); // This performs the sampling    
+    ```
+    This PC supports setting a callback which is called for each sample by calling
+    ```c
+    PCSetSampleCallback(pc, SampleCallback, &ctx);
+    ```
+    where `ctx` is a user defined context (can also be NULL) that is passed to the
+    callback along with the sample.
+
+    ## Developer notes
+    A `PCGibbs` define should exist that equals "gibbs".
+ */
+
 #include "parmgmc/pc/pc_gibbs.h"
 #include "parmgmc/mc_sor.h"
 #include "parmgmc/parmgmc.h"
@@ -186,6 +224,17 @@ static PetscErrorCode PCSetUp_Gibbs(PC pc)
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
+/**
+   @brief Get the PetscRandom context used to generate random numbers
+
+   This can be used to seed the random number generator:
+   ```c
+   PetscRandom *pr;
+   PetscCall(PCGibbsGetPetscRandom(pc, &pr));
+   PetscCall(PetscRandomSetSeed(*pr, seed));
+   PetscCall(PetscRandomSeed(*pr));
+   ```
+ */
 PetscErrorCode PCGibbsGetPetscRandom(PC pc, PetscRandom *pr)
 {
   PC_Gibbs *pg = pc->data;
@@ -195,6 +244,9 @@ PetscErrorCode PCGibbsGetPetscRandom(PC pc, PetscRandom *pr)
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
+/**
+   @brief Sets the Gibbs-SOR parameter. Default is omega = 1.
+ */
 PetscErrorCode PCGibbsSetOmega(PC pc, PetscReal omega)
 {
   PC_Gibbs *pg = pc->data;
@@ -205,9 +257,6 @@ PetscErrorCode PCGibbsSetOmega(PC pc, PetscReal omega)
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
-/*@
-  PCGibbs - A Gibbs sampler wrapped as a PETSc PC
-@*/
 PetscErrorCode PCCreate_Gibbs(PC pc)
 {
   PC_Gibbs         *gibbs;
@@ -215,7 +264,7 @@ PetscErrorCode PCCreate_Gibbs(PC pc)
 
   PetscFunctionBeginUser;
   PetscCall(PetscNew(&gibbs));
-  gibbs->omega       = 1; // TODO: Allow user to change omega
+  gibbs->omega       = 1;
   gibbs->prepare_rhs = PrepareRHS_Default;
 
   // TODO: Allow user to pass own PetscRandom

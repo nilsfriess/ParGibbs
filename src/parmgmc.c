@@ -18,6 +18,10 @@
 #include <petscsys.h>
 #include <petsc/private/pcimpl.h>
 
+/** @file
+    @brief This file contains general purpose functions for the ParMGMC library.
+*/
+
 PetscClassId  PARMGMC_CLASSID;
 PetscLogEvent MULTICOL_SOR;
 
@@ -48,6 +52,13 @@ PetscErrorCode ParMGMCInitialize(void)
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
+/**
+   @brief Set a callback function that is called everytime a sampler generated a new sample.
+
+   For PETSc's own PC's this does nothing. This works by abusing the `void* user` field
+   in the `PC` class which also means that the `user` field cannot be used for anything
+   else.
+*/
 PetscErrorCode PCSetSampleCallback(PC pc, PetscErrorCode (*cb)(PetscInt, Vec, void *), void *ctx)
 {
   SampleCallbackCtx cbctx;
@@ -55,7 +66,7 @@ PetscErrorCode PCSetSampleCallback(PC pc, PetscErrorCode (*cb)(PetscInt, Vec, vo
   PetscFunctionBeginUser;
   if (!pc->user) PetscFunctionReturn(PETSC_SUCCESS);
 
-  cbctx = pc->user;
+  cbctx      = pc->user;
   cbctx->cb  = cb;
   cbctx->ctx = ctx;
 

@@ -17,6 +17,20 @@
 #include <petscis.h>
 #include <petscmat.h>
 
+/** @file mc_sor.c
+    @brief Multicolour Gauss-Seidel/SOR
+
+    # Notes
+    This implements a true parallel Gauss-Seidel method (as opposed to PETSc's
+    parallel SOR which is actually block Jacobi with Gauss-Seidel in the blocks.
+
+    Implemented for `MATAIJ` and `MATLRC` matrices (with `MATAIJ` as the base
+    matrix type).
+
+    Users should not use this class directly but rather access it through
+    PCSOR.
+*/
+
 typedef struct _MCSOR_Ctx {
   Mat         A, Asor;
   PetscInt   *diagptrs, ncolors;

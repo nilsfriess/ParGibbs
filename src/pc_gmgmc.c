@@ -17,6 +17,45 @@
 #include <petscstring.h>
 #include <petscsys.h>
 
+/** @file pc_gmgmc.c
+    @brief A (geometric) Multigrid Monte Carlo sampler wrapped as a PETSc PC.
+
+    # Notes
+    
+    This is essentially a wrapper around PETSc's `PCMG` geometric multigrid
+    preconditioner that handles the case where the sytem matrix is of type
+    `MATLRC` which represents a low-rank update of a matrix
+    \f$A + B \Sigma^{-1} B^T\f$. If the matrix is a simple `MATAIJ` matrix,
+    then `PCMG` can be used directly.
+
+    The underyling `PCMG` can be configured using the options database by
+    prepending the prefix `gmgmc_`. For example, a three-level MGMC sampler
+    to generate 100 samples with Gibbs samplers used as random smoothers on each
+    level using four iterations on the coarsest level and two iterations on the
+    remaining levels can be configured with the following options:
+
+    ```bash
+    -ksp_type richardson -pc_type gmgmc
+    -gmgmc_mg_levels_ksp_type richardson
+    -gmgmc_mg_levels_pc_type gibbs
+    -gmgmc_mg_coarse_ksp_type richardson
+    -gmgmc_mg_coarse_pc_type gibbs
+    -gmgmc_mg_levels_ksp_max_it 2
+    -gmgmc_mg_coarse_ksp_max_it 4
+    -gmgmc_pc_mg_levels 3
+    -ksp_max_it 100
+    ```
+
+    Note that you have to provide additional information about the coarser grid
+    matrices and grid transfer operators for this sampler by attaching a `DM` to
+    the outher `KSP` via `KSPSetDM(ksp, dm)`.
+
+    ## Developer notes
+    
+    It should be possible to obtain the underlying `PCMG` object to modify it
+    directly.
+*/
+
 typedef struct _PC_GMGMC {
   PC   mg;
   Mat *As; // The actual matrices used (in case of A+LR this differs from the matrices used to setup the multigrid hierarchy).

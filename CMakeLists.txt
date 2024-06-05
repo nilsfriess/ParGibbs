@@ -6,6 +6,7 @@ project(ParMGMC
 	HOMEPAGE_URL "https://github.com/nilsfriess/ParMGMC.git")
 
 set(CMAKE_COLOR_DIAGNOSTICS ON)
+set(CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake" ${CMAKE_MODULE_PATH})
 
 # find_package(MPI REQUIRED)
 # set(MPI_TARGET MPI::MPI_C)
@@ -75,4 +76,11 @@ if(${PARMGMC_ENABLE_PYTHON_BINDINGS})
   add_subdirectory(python)
 endif()
 
+if(NOT DEFINED PARMGMC_BUILD_DOCS)
+  set(PARMGMC_BUILD_DOCS False)
+endif()
+
+if(${PARMGMC_BUILD_DOCS})
+  add_subdirectory(docs)
+endif()
 
