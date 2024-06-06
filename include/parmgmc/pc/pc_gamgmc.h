@@ -10,5 +10,5 @@
 
 #include <petscpc.h>
 
-PETSC_EXTERN PetscErrorCode PCGMGMCSetLevels(PC, PetscInt);
-PETSC_EXTERN PetscErrorCode PCCreate_GMGMC(PC);
+PETSC_EXTERN PetscErrorCode PCGAMGMCSetLevels(PC, PetscInt);
+PETSC_EXTERN PetscErrorCode PCCreate_GAMGMC(PC);

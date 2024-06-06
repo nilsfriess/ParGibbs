@@ -25,7 +25,7 @@ target_sources(parmgmc
 	PRIVATE
 	    src/pc_hogwild.c
 	    src/pc_gibbs.c
-	    src/pc_gmgmc.c
+	    src/pc_gamgmc.c
 	    src/ziggurat.c
 	    src/mc_sor.c
 	    src/parmgmc.c
