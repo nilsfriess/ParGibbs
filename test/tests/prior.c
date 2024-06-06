@@ -7,9 +7,17 @@
 */
 
 /**************************** Test specification ****************************/
+// Gibbs with default omega
 // RUN: %cc %s -o %t %flags && %mpirun -np %NP %t -ksp_type richardson -pc_type gibbs -ksp_norm_type none -ksp_max_it 5000000
+
+// Gibbs with custom omega
 // RUN: %cc %s -o %t %flags && %mpirun -np %NP %t -ksp_type richardson -pc_type gibbs -pc_gibbs_omega 1.4 -ksp_norm_type none -ksp_max_it 5000000
-// RUN: %cc %s -o %t %flags && %mpirun -np %NP %t -ksp_type richardson -pc_type gmgmc -da_grid_x 5 -da_grid_y 5 -gmgmc_mg_levels_ksp_type richardson -gmgmc_mg_levels_pc_type gibbs -gmgmc_mg_coarse_ksp_type richardson -gmgmc_mg_coarse_pc_type gibbs -gmgmc_mg_coarse_ksp_max_it 2 -gmgmc_mg_levels_ksp_max_it 2 -da_refine 1 -ksp_norm_type none -gmgmc_pc_mg_levels 3 -ksp_max_it 5000000
+
+// Geometric MGMC
+// RUN: %cc %s -o %t %flags && %mpirun -np %NP %t -ksp_type richardson -pc_type gamgmc -da_grid_x 3 -da_grid_y 3 -gamgmc_mg_levels_ksp_type richardson -gamgmc_mg_levels_pc_type gibbs -gamgmc_mg_coarse_ksp_type richardson -gamgmc_mg_coarse_pc_type gibbs -gamgmc_mg_coarse_ksp_max_it 2 -gamgmc_mg_levels_ksp_max_it 2 -da_refine 3 -ksp_norm_type none -ksp_max_it 5000000
+
+// Algebraic MGMC
+// RUN: %cc %s -o %t %flags && %mpirun -np %NP %t -ksp_type richardson -pc_type gamgmc -pc_gamgmc_mg_type mg -da_grid_x 3 -da_grid_y 3 -gamgmc_mg_levels_ksp_type richardson -gamgmc_mg_levels_pc_type gibbs -gamgmc_mg_coarse_ksp_type richardson -gamgmc_mg_coarse_pc_type gibbs -gamgmc_mg_coarse_ksp_max_it 2 -gamgmc_mg_levels_ksp_max_it 2 -da_refine 3 -ksp_norm_type none -ksp_max_it 5000000
 /****************************************************************************/
 
 #include <petsc.h>
