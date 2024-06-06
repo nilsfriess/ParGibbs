@@ -43,7 +43,7 @@
     remaining levels can be configured with the following options:
 
         -ksp_type richardson -pc_type gamgmc
-	-pc_gamgmc_mg_type gamg                # This is already the default
+        -pc_gamgmc_mg_type gamg
         -gamgmc_mg_levels_ksp_type richardson
         -gamgmc_mg_levels_pc_type gibbs
         -gamgmc_mg_coarse_ksp_type richardson
