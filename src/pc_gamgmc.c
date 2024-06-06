@@ -31,7 +31,7 @@
     # Notes
     
     This is essentially a wrapper around PETSc's `PCMG` or `PCGAMG` multigrid
-    preconditioner that handles the case where the sytem matrix is of type
+    preconditioner that handles the case where the system matrix is of type
     `MATLRC` which represents a low-rank update of a matrix
     \f$A + B \Sigma^{-1} B^T\f$. If the matrix is a simple `MATAIJ` matrix,
     then `PCMG`/`PCGAMG` could also be used directly.

@@ -231,10 +231,10 @@ static PetscErrorCode PCSetUp_Gibbs(PC pc)
 
    This can be used to seed the random number generator:
 
-       PetscRandom *pr;
+       PetscRandom pr;
        PCGibbsGetPetscRandom(pc, &pr);
-       PetscRandomSetSeed(*pr, seed);
-       PetscRandomSeed(*pr);
+       PetscRandomSetSeed(pr, seed);
+       PetscRandomSeed(pr);
  */
 PetscErrorCode PCGibbsGetPetscRandom(PC pc, PetscRandom *pr)
 {
