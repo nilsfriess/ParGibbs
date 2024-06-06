@@ -6,7 +6,7 @@ API Overview
    :caption: Samplers
 
    pc_gibbs
-   pc_gmgmc
+   pc_gamgmc
    
 
 .. toctree::

@@ -1,8 +1,8 @@
 ***********************
-PCGMGMC
+PCGAMGMC
 ***********************
 
 
-.. doxygenfile:: pc_gmgmc.c
+.. doxygenfile:: pc_gamgmc.c
    :sections: briefdescription detaileddescription
 
