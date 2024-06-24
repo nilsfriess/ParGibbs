@@ -57,16 +57,15 @@
     matrices and grid transfer operators if you want to use the geometric version
     of this sampler by attaching a `DM` to the outer `KSP` via `KSPSetDM(ksp, dm)`.
 
-    ## Developer notes
-    
-    It should be possible to obtain the underlying `PC` object to modify it
-    directly.
+    The underlying PCGAMG preconditioner can also be extracted using the function
+    `PCGAMGGetInternalPC(PC, PC*)`.
 */
 
 typedef struct _PC_GAMGMC {
-  char mgtype[64];
-  PC   mg;
-  Mat *As; // The actual matrices used (in case of A+LR this differs from the matrices used to setup the multigrid hierarchy).
+  char      mgtype[64];
+  PC        mg;
+  Mat      *As; // The actual matrices used (in case of A+LR this differs from the matrices used to setup the multigrid hierarchy).
+  PetscBool setup_called;
 } *PC_GAMGMC;
 
 static PetscErrorCode PCDestroy_GAMGMC(PC pc)
@@ -92,6 +91,15 @@ static PetscErrorCode PCDestroy_GAMGMC(PC pc)
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
+PetscErrorCode PCGAMGGetInternalPC(PC pc, PC *mg)
+{
+  PC_GAMGMC pg = pc->data;
+
+  PetscFunctionBeginUser;
+  if (mg) *mg = pg->mg;
+  PetscFunctionReturn(PETSC_SUCCESS);
+}
+
 PetscErrorCode PCGAMGMCSetLevels(PC pc, PetscInt levels)
 {
   PC_GAMGMC pg = pc->data;
@@ -102,60 +110,16 @@ PetscErrorCode PCGAMGMCSetLevels(PC pc, PetscInt levels)
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
-static PetscErrorCode PCApplyRichardson_GAMGMC(PC pc, Vec b, Vec y, Vec w, PetscReal rtol, PetscReal abstol, PetscReal dtol, PetscInt its, PetscBool guesszero, PetscInt *outits, PCRichardsonConvergedReason *reason)
+static PetscErrorCode PCGAMGMC_SetUpHierarchy(PC pc)
 {
-  (void)rtol;
-  (void)abstol;
-  (void)dtol;
-  (void)guesszero;
-  (void)w;
-
-  PC_GAMGMC         pg    = pc->data;
-  SampleCallbackCtx cbctx = pc->user;
-
-  PetscFunctionBeginUser;
-
-  for (PetscInt i = 0; i < its; ++i) {
-    PetscCall(PCApply(pg->mg, b, y));
-    if (cbctx->cb) PetscCall(cbctx->cb(i, y, cbctx->ctx));
-  }
-  *outits = its;
-  *reason = PCRICHARDSON_CONVERGED_ITS;
-  PetscFunctionReturn(PETSC_SUCCESS);
-}
-
-static PetscErrorCode PCView_GAMGMC(PC pc, PetscViewer v)
-{
-  PC_GAMGMC pg = pc->data;
-
-  PetscFunctionBeginUser;
-  PetscCall(PCView(pg->mg, v));
-  PetscFunctionReturn(PETSC_SUCCESS);
-}
-
-static PetscErrorCode PCSetUp_GAMGMC(PC pc)
-{
+  PetscInt  levels;
   PC_GAMGMC pg = pc->data;
   MatType   type;
-  Mat       P;
-  PetscInt  levels;
   PetscBool islrc;
 
   PetscFunctionBeginUser;
-  PetscCall(PCSetType(pg->mg, pg->mgtype));
-  PetscCall(PCSetOptionsPrefix(pg->mg, "gamgmc_"));
   PetscCall(MatGetType(pc->pmat, &type));
   PetscCall(PetscStrcmp(type, MATLRC, &islrc));
-  if (islrc) PetscCall(MatLRCGetMats(pc->pmat, &P, NULL, NULL, NULL));
-  else P = pc->pmat;
-
-  PetscCall(PCSetOperators(pg->mg, P, P));
-  if (strcmp(pg->mgtype, PCMG) == 0) {
-    PetscCall(PCSetDM(pg->mg, pc->dm));
-    PetscCall(PCMGSetGalerkin(pg->mg, PC_MG_GALERKIN_BOTH));
-  }
-  PetscCall(PCSetFromOptions(pg->mg));
-  PetscCall(PCSetUp(pg->mg));
 
   PetscCall(PCMGGetLevels(pg->mg, &levels));
   if (islrc) {
@@ -199,6 +163,72 @@ static PetscErrorCode PCSetUp_GAMGMC(PC pc)
     PetscCall(PetscRandomSetSeed(pr, time(0)));
     PetscCall(PetscRandomSeed(pr));
   }
+  PetscFunctionReturn(PETSC_SUCCESS);
+}
+
+static PetscErrorCode PCApplyRichardson_GAMGMC(PC pc, Vec b, Vec y, Vec w, PetscReal rtol, PetscReal abstol, PetscReal dtol, PetscInt its, PetscBool guesszero, PetscInt *outits, PCRichardsonConvergedReason *reason)
+{
+  (void)rtol;
+  (void)abstol;
+  (void)dtol;
+  (void)guesszero;
+  (void)w;
+
+  PC_GAMGMC         pg    = pc->data;
+  SampleCallbackCtx cbctx = pc->user;
+
+  PetscFunctionBeginUser;
+  if (!pg->setup_called) {
+    PetscCall(PCGAMGMC_SetUpHierarchy(pc));
+    pg->setup_called = PETSC_TRUE;
+  }
+
+  for (PetscInt i = 0; i < its; ++i) {
+    PetscCall(PCApply(pg->mg, b, y));
+    if (cbctx->cb) PetscCall(cbctx->cb(i, y, cbctx->ctx));
+  }
+  *outits = its;
+  *reason = PCRICHARDSON_CONVERGED_ITS;
+  PetscFunctionReturn(PETSC_SUCCESS);
+}
+
+static PetscErrorCode PCView_GAMGMC(PC pc, PetscViewer v)
+{
+  PC_GAMGMC pg = pc->data;
+
+  PetscFunctionBeginUser;
+  PetscCall(PCView(pg->mg, v));
+  PetscFunctionReturn(PETSC_SUCCESS);
+}
+
+static PetscErrorCode PCSetUp_GAMGMC(PC pc)
+{
+  PC_GAMGMC pg = pc->data;
+  MatType   type;
+  Mat       P;
+  PetscBool islrc;
+
+  PetscFunctionBeginUser;
+  PetscCall(PCSetType(pg->mg, pg->mgtype));
+  PetscCall(PCSetOptionsPrefix(pg->mg, "gamgmc_"));
+  PetscCall(MatGetType(pc->pmat, &type));
+  PetscCall(PetscStrcmp(type, MATLRC, &islrc));
+  if (islrc) PetscCall(MatLRCGetMats(pc->pmat, &P, NULL, NULL, NULL));
+  else P = pc->pmat;
+
+  PetscCall(PCSetOperators(pg->mg, P, P));
+  if (strcmp(pg->mgtype, PCMG) == 0) {
+    PetscCall(PCSetDM(pg->mg, pc->dm));
+    PetscCall(PCMGSetGalerkin(pg->mg, PC_MG_GALERKIN_BOTH));
+  }
+
+  // Ugly way to set the default "smoother" (=sampler) to be Gibbs
+  PetscCall(PetscOptionsSetValue(NULL, "-gamgmc_mg_levels_ksp_type", "richardson"));
+  PetscCall(PetscOptionsSetValue(NULL, "-gamgmc_mg_levels_pc_type", "gibbs"));
+  PetscCall(PetscOptionsSetValue(NULL, "-gamgmc_mg_levels_ksp_max_it", "1"));
+
+  PetscCall(PCSetFromOptions(pg->mg));
+  PetscCall(PCSetUp(pg->mg));
 
   PetscFunctionReturn(PETSC_SUCCESS);
 }

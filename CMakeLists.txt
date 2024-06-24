@@ -30,6 +30,7 @@ target_sources(parmgmc
 	    src/mc_sor.c
 	    src/parmgmc.c
 	    src/problems.c
+	    src/ms.c
 	 PUBLIC
 	    FILE_SET parmgmcheaders
 	    BASE_DIRS include
