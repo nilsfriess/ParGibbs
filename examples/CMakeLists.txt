@@ -25,7 +25,7 @@ add_custom_target(check-seq
 		  COMMAND lit "${CMAKE_CURRENT_BINARY_DIR}" -a --time-tests -DNP=1)
 add_custom_target(check-par
 		  COMMENT "Running parallel tests"
-		  COMMAND lit "${CMAKE_CURRENT_BINARY_DIR}/examples" -a --time-tests -DNP=4)
+		  COMMAND lit "${CMAKE_CURRENT_BINARY_DIR}" -a --time-tests -DNP=4)
 
 add_custom_target(check
 		  DEPENDS check-par check-seq)
