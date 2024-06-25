@@ -4,7 +4,8 @@ This directory contains some examples (that also function as the test suite for 
 
 | Example | Description                                                                                                                                              |
 |---------|----------------------------------------------------------------------------------------------------------------------------------------------------------|
-| ex1.c   | Sample from Gaussian random fields using PETSc's KSP interface and custom "preconditioners" (=samplers). Works with stand-alone Gibbs samplers and MGMC. |
+| ex1.c   | Sample from Gaussian random fields with Matern covariance using PETSc's KSP interface and custom "preconditioners" (=samplers). Works with stand-alone Gibbs samplers and MGMC. |
+| ex2.c   | Sample from Gaussian random fields with Matern covariance using the MS (Matern Sampler) interface. Currently does not test anything, but only checks if everything compiles and runs without error. |
 
 # Test suite
 

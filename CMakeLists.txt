@@ -58,17 +58,6 @@ configure_file(
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/parmgmc.pc
 	DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig)
 
-add_subdirectory(examples_c)
-add_subdirectory(examples_cpp)
-
-# if(NOT DEFINED PARMGMC_ENABLE_TESTS)
-#   set(PARMGMC_ENABLE_TESTS TRUE)
-# endif()
-
-# if(${PARMGMC_ENABLE_TESTS})
-#   add_subdirectory(tests)
-# endif()
-
 if(NOT DEFINED PARMGMC_ENABLE_PYTHON_BINDINGS)
   set(PARMGMC_ENABLE_PYTHON_BINDINGS False)
 endif()
