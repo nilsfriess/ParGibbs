@@ -6,6 +6,18 @@
     license details.
 */
 
+/*  Description
+ *
+ *  Samples from a Gaussian random field with Matern covariance using standalone
+ *  Gibbs samplers and the the GAMGMC Multigrid Monte Carlo sampler. The
+ *  precision operator is discretised using using finite differences.
+ *  For GAMGMC, this tests both the fully algrabic variant and the geometric
+ *  variant.
+ *
+ *  TODO: Add a test using the Cholesky sampler on the coarsest level as soon as
+ *  it's implemented.
+ */
+
 /**************************** Test specification ****************************/
 // Gibbs with default omega
 // RUN: %cc %s -o %t %flags && %mpirun -np %NP %t -ksp_type richardson -pc_type gibbs -ksp_norm_type none -ksp_max_it 5000000
