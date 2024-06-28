@@ -163,12 +163,29 @@ static PetscErrorCode PCGAMGMC_SetUpHierarchy(PC pc)
     PetscCall(PCMGGetSmoother(pg->mg, l, &ksps));
     PetscCall(KSPGetPC(ksps, &pcs));
     PetscCall(PCGetType(pcs, &pct));
-    if (strcmp(pct, PCGIBBS) == 0) PetscCall(PCGibbsGetPetscRandom(pcs, &pr));
-    else if (strcmp(pct, PCCHOLSAMPLER) == 0) PetscCall(PCCholSamplerGetPetscRandom(pcs, &pr));
-    else PetscCheck(PETSC_FALSE, MPI_COMM_WORLD, PETSC_ERR_SUP, "Only Gibbs and Cholesky samplers supported");
-    PetscCall(PetscRandomSetSeed(pr, time(0)));
+    if (strcmp(pct, PCGIBBS) == 0) {
+      PetscCall(PCGibbsGetPetscRandom(pcs, &pr));
+      PetscCall(KSPSetInitialGuessNonzero(ksps, PETSC_TRUE));
+    } else if (strcmp(pct, PCCHOLSAMPLER) == 0) PetscCall(PCCholSamplerGetPetscRandom(pcs, &pr));
+    else PetscCheck(PETSC_FALSE, MPI_COMM_WORLD, PETSC_ERR_SUP, "Only Gibbs and Cholesky samplers supported, got: %s", pct);
+    PetscCall(PetscRandomSetSeed(pr, time(0) + l));
     PetscCall(PetscRandomSeed(pr));
   }
+  PetscFunctionReturn(PETSC_SUCCESS);
+}
+
+static PetscErrorCode PCApply_GAMGMC(PC pc, Vec x, Vec y)
+{
+  PC_GAMGMC pg = pc->data;
+
+  PetscFunctionBeginUser;
+  if (!pg->setup_called) {
+    PetscCall(PCGAMGMC_SetUpHierarchy(pc));
+    pg->setup_called = PETSC_TRUE;
+  }
+
+  PetscCall(PCApply(pg->mg, x, y));
+
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
@@ -267,6 +284,7 @@ PetscErrorCode PCCreate_GAMGMC(PC pc)
   pc->data                 = pg;
   pc->ops->setup           = PCSetUp_GAMGMC;
   pc->ops->applyrichardson = PCApplyRichardson_GAMGMC;
+  pc->ops->apply           = PCApply_GAMGMC;
   pc->ops->view            = PCView_GAMGMC;
   pc->ops->destroy         = PCDestroy_GAMGMC;
   pc->ops->setfromoptions  = PCSetFromOptions_GAMGMC;

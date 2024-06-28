@@ -71,6 +71,7 @@ typedef struct {
   PetscReal   omega;
   PetscBool   omega_changed, explicit_lr;
   MCSOR       mc;
+  Vec         z; // work vec
 
   Mat B;
   Vec w;
@@ -91,6 +92,7 @@ static PetscErrorCode PCDestroy_Gibbs(PC pc)
   PetscCall(MCSORDestroy(&pg->mc));
   PetscCall(VecDestroy(&pg->w));
   PetscCall(VecDestroy(&pg->sqrtS));
+  PetscCall(VecDestroy(&pg->z));
   PetscCall(PetscFree(pg));
   PetscFunctionReturn(PETSC_SUCCESS);
 }
@@ -145,6 +147,18 @@ static PetscErrorCode PCGibbsUpdateSqrtDiag(PC pc)
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
+static PetscErrorCode PCApply_Gibbs(PC pc, Vec x, Vec y)
+{
+  PC_Gibbs *pg = pc->data;
+
+  PetscFunctionBeginUser;
+  if (pg->omega_changed) PetscCall(PCGibbsUpdateSqrtDiag(pc));
+
+  PetscCall(pg->prepare_rhs(pc, y, x, pg->z));
+  PetscCall(MCSORApply(pg->mc, pg->z, y));
+  PetscFunctionReturn(PETSC_SUCCESS);
+}
+
 static PetscErrorCode PCApplyRichardson_Gibbs(PC pc, Vec b, Vec y, Vec w, PetscReal rtol, PetscReal abstol, PetscReal dtol, PetscInt its, PetscBool guesszero, PetscInt *outits, PCRichardsonConvergedReason *reason)
 {
   (void)rtol;
@@ -161,6 +175,7 @@ static PetscErrorCode PCApplyRichardson_Gibbs(PC pc, Vec b, Vec y, Vec w, PetscR
   for (PetscInt it = 0; it < its; ++it) {
     PetscCall(pg->prepare_rhs(pc, y, b, w));
     PetscCall(MCSORApply(pg->mc, w, y));
+    /* PetscCall(MatSOR(pc->pmat, w, 1, SOR_FORWARD_SWEEP, 0, 1, 1, y)); */
     if (cbctx->cb) PetscCall(cbctx->cb(it, y, cbctx->ctx));
   }
   *outits = its;
@@ -218,7 +233,7 @@ static PetscErrorCode PCSetUp_Gibbs(PC pc)
     PetscCheck(false, MPI_COMM_WORLD, PETSC_ERR_SUP, "Matrix type not supported");
   }
 
-  PetscCall(MatCreateVecs(pg->A, &pg->sqrtdiag, NULL));
+  PetscCall(MatCreateVecs(pg->A, &pg->sqrtdiag, &pg->z));
   pg->omega_changed = PETSC_TRUE;
   PetscFunctionReturn(PETSC_SUCCESS);
 }
@@ -279,6 +294,6 @@ PetscErrorCode PCCreate_Gibbs(PC pc)
   pc->ops->applyrichardson = PCApplyRichardson_Gibbs;
   pc->ops->setfromoptions  = PCSetFromOptions_Gibbs;
   pc->ops->reset           = PCReset_Gibbs;
-  /* pc->ops->apply           = PCApply_Gibbs; */
+  pc->ops->apply           = PCApply_Gibbs;
   PetscFunctionReturn(PETSC_SUCCESS);
 }
