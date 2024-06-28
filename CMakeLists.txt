@@ -26,6 +26,7 @@ target_sources(parmgmc
 	    src/pc_hogwild.c
 	    src/pc_gibbs.c
 	    src/pc_gamgmc.c
+	    src/pc_chols.c
 	    src/ziggurat.c
 	    src/mc_sor.c
 	    src/parmgmc.c
@@ -41,6 +42,11 @@ target_include_directories(parmgmc SYSTEM PUBLIC ${PETSC_INCLUDE_DIRS})
 target_compile_options(parmgmc PRIVATE -Wall -Wextra -Wpedantic -pedantic -Wshadow -Wpointer-arith -Wcast-qual -Wstrict-prototypes -Wmissing-prototypes)
 target_compile_options(parmgmc PUBLIC ${PETSC_CFLAGS})
 target_link_libraries(parmgmc PUBLIC PkgConfig::PETSC)
+
+add_executable(test test.c)
+target_include_directories(test PRIVATE include)
+target_compile_options(test PRIVATE -Wall -Wextra -Wpedantic)
+target_link_libraries(test parmgmc)
 
 include(GNUInstallDirs)
 list(APPEND CMAKE_INSTALL_RPATH ${CMAKE_INSTALL_LIBDIR})

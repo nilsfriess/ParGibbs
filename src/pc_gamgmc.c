@@ -8,8 +8,10 @@
 
 #include "parmgmc/pc/pc_gamgmc.h"
 #include "parmgmc/parmgmc.h"
+#include "parmgmc/pc/pc_chols.h"
 #include "parmgmc/pc/pc_gibbs.h"
 
+#include <string.h>
 #include <time.h>
 
 #include <petsc/private/pcimpl.h>
@@ -156,10 +158,14 @@ static PetscErrorCode PCGAMGMC_SetUpHierarchy(PC pc)
     KSP         ksps;
     PC          pcs;
     PetscRandom pr;
+    PCType      pct;
 
     PetscCall(PCMGGetSmoother(pg->mg, l, &ksps));
     PetscCall(KSPGetPC(ksps, &pcs));
-    PetscCall(PCGibbsGetPetscRandom(pcs, &pr));
+    PetscCall(PCGetType(pcs, &pct));
+    if (strcmp(pct, PCGIBBS) == 0) PetscCall(PCGibbsGetPetscRandom(pcs, &pr));
+    else if (strcmp(pct, PCCHOLSAMPLER) == 0) PetscCall(PCCholSamplerGetPetscRandom(pcs, &pr));
+    else PetscCheck(PETSC_FALSE, MPI_COMM_WORLD, PETSC_ERR_SUP, "Only Gibbs and Cholesky samplers supported");
     PetscCall(PetscRandomSetSeed(pr, time(0)));
     PetscCall(PetscRandomSeed(pr));
   }

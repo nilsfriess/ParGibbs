@@ -10,7 +10,7 @@
 
 #include <petscdmda.h>
 
-PetscErrorCode MatAssembleShiftedLaplaceFD(DM dm, PetscReal kappainv, Mat mat)
+PetscErrorCode MatAssembleShiftedLaplaceFD(DM dm, PetscReal kappa, Mat mat)
 {
   PetscInt      k;
   MatStencil    row, cols[5];
@@ -43,7 +43,7 @@ PetscErrorCode MatAssembleShiftedLaplaceFD(DM dm, PetscReal kappainv, Mat mat)
 
       cols[k].j = j;
       cols[k].i = i;
-      vals[k]   = 4 * hinv2 + 1. / (kappainv * kappainv);
+      vals[k]   = (4 + kappa * kappa) * hinv2;
       ++k;
 
       if (j != info.my - 1) {

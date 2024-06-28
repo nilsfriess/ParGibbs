@@ -7,6 +7,7 @@
 */
 
 #include "parmgmc/parmgmc.h"
+#include "parmgmc/pc/pc_chols.h"
 #include "parmgmc/pc/pc_gibbs.h"
 #include "parmgmc/pc/pc_gamgmc.h"
 #include "parmgmc/pc/pc_hogwild.h"
@@ -28,9 +29,10 @@ PetscLogEvent MULTICOL_SOR;
 static PetscErrorCode ParMGMCRegisterPCAll(void)
 {
   PetscFunctionBeginUser;
-  PetscCall(PCRegister("hogwild", PCCreate_Hogwild));
-  PetscCall(PCRegister("gibbs", PCCreate_Gibbs));
-  PetscCall(PCRegister("gamgmc", PCCreate_GAMGMC));
+  PetscCall(PCRegister(PCHOGWILD, PCCreate_Hogwild));
+  PetscCall(PCRegister(PCGIBBS, PCCreate_Gibbs));
+  PetscCall(PCRegister(PCGAMGMC, PCCreate_GAMGMC));
+  PetscCall(PCRegister(PCCHOLSAMPLER, PCCreate_CholSampler));
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 

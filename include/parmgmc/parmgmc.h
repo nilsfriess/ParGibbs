@@ -16,6 +16,11 @@
 
 #define PARMGMC_ZIGGURAT "ziggurat"
 
+#define PCGIBBS       "gibbs"
+#define PCGAMGMC      "gamgmc"
+#define PCHOGWILD     "hogwild"
+#define PCCHOLSAMPLER "cholsampler"
+
 typedef struct _SampleCallbackCtx {
   PetscErrorCode (*cb)(PetscInt, Vec, void *);
   void *ctx;

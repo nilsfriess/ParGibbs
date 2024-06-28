@@ -39,9 +39,6 @@
     
     where `ctx` is a user defined context (can also be NULL) that is passed to the
     callback along with the sample.
-
-    ## Developer notes
-    A `PCGibbs` define should exist that equals "gibbs".
  */
 
 #include "parmgmc/pc/pc_gibbs.h"
