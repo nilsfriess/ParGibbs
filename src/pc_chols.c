@@ -1,18 +1,22 @@
 #include "parmgmc/pc/pc_chols.h"
 #include "parmgmc/parmgmc.h"
 
+#include <petscmacros.h>
 #include <petscmat.h>
 #include <petscpc.h>
 #include <petscsys.h>
 #include <petsc/private/pcimpl.h>
 #include <petscvec.h>
 
+#include <mpi.h>
+
 #include <time.h>
 
 typedef struct {
-  Vec         r, v;
-  Mat         F;
-  PetscRandom pr;
+  Vec           r, v;
+  Mat           F;
+  PetscRandom   pr;
+  MatSolverType st;
 } *PC_CholSampler;
 
 static PetscErrorCode PCDestroy_CholSampler(PC pc)
@@ -31,18 +35,19 @@ static PetscErrorCode PCDestroy_CholSampler(PC pc)
 static PetscErrorCode PCSetUp_CholSampler(PC pc)
 {
   PC_CholSampler chol = pc->data;
-  IS             rowperm, colperm;
-  MatFactorInfo  info;
+  Mat            S;
+  PetscMPIInt    size;
 
   PetscFunctionBeginUser;
-  PetscCall(MatCreateVecs(pc->pmat, &chol->r, &chol->v));
-  PetscCall(MatGetOrdering(pc->pmat, MATORDERINGNATURAL, &rowperm, &colperm));
-  PetscCall(MatGetFactor(pc->pmat, MATSOLVERPETSC, MAT_FACTOR_CHOLESKY, &chol->F));
-  PetscCall(MatCholeskyFactorSymbolic(chol->F, pc->pmat, rowperm, &info));
-  PetscCall(MatCholeskyFactorNumeric(chol->F, pc->pmat, &info));
+  PetscCallMPI(MPI_Comm_size(PetscObjectComm((PetscObject)pc), &size));
+  if (size != 1) PetscCall(MatConvert(pc->pmat, MATSBAIJ, MAT_INITIAL_MATRIX, &S));
+  else S = pc->pmat;
+  PetscCall(MatSetOption(S, MAT_SPD, PETSC_TRUE));
+  PetscCall(MatCreateVecs(S, &chol->r, &chol->v));
+  PetscCall(MatGetFactor(S, chol->st, MAT_FACTOR_CHOLESKY, &chol->F));
 
-  PetscCall(ISDestroy(&rowperm));
-  PetscCall(ISDestroy(&colperm));
+  PetscCall(MatCholeskyFactorSymbolic(chol->F, S, NULL, NULL));
+  PetscCall(MatCholeskyFactorNumeric(chol->F, S, NULL));
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
@@ -70,6 +75,7 @@ PetscErrorCode PCCholSamplerGetPetscRandom(PC pc, PetscRandom *pr)
 PetscErrorCode PCCreate_CholSampler(PC pc)
 {
   PC_CholSampler chol;
+  PetscMPIInt    size;
 
   PetscFunctionBeginUser;
   PetscCall(PetscNew(&chol));
@@ -77,6 +83,10 @@ PetscErrorCode PCCreate_CholSampler(PC pc)
   PetscCall(PetscRandomSetType(chol->pr, PARMGMC_ZIGGURAT));
   PetscCall(PetscRandomSetSeed(chol->pr, time(0)));
   PetscCall(PetscRandomSeed(chol->pr));
+
+  PetscCallMPI(MPI_Comm_size(PetscObjectComm((PetscObject)pc), &size));
+  if (size == 1) chol->st = MATSOLVERMKL_PARDISO;
+  else chol->st = MATSOLVERMKL_CPARDISO;
 
   pc->data         = chol;
   pc->ops->destroy = PCDestroy_CholSampler;

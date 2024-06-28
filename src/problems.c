@@ -66,5 +66,6 @@ PetscErrorCode MatAssembleShiftedLaplaceFD(DM dm, PetscReal kappa, Mat mat)
 
   PetscCall(MatAssemblyBegin(mat, MAT_FINAL_ASSEMBLY));
   PetscCall(MatAssemblyEnd(mat, MAT_FINAL_ASSEMBLY));
+  PetscCall(MatSetOption(mat, MAT_SPD, PETSC_TRUE));
   PetscFunctionReturn(PETSC_SUCCESS);
 }
