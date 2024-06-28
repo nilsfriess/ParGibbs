@@ -53,7 +53,7 @@ int main(int argc, char *argv[])
   Vec            b, x, f, mean;
   KSP            ksp;
   PetscReal      err;
-  const PetscInt n_samples = 5000000;
+  const PetscInt n_samples = 10000000;
 
   PetscCall(PetscInitialize(&argc, &argv, NULL, NULL));
   PetscCall(ParMGMCInitialize());
