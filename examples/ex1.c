@@ -26,16 +26,16 @@
 // RUN: %cc %s -o %t %flags && %mpirun -np %NP %t -ksp_type preonly -pc_type cholsampler
 
 // Algebraic MGMC with coarse Gibbs
-// RUN: %cc %s -o %t %flags && %mpirun -np %NP %t -ksp_type richardson -pc_type gamgmc -da_grid_x 3 -da_grid_y 3 -gamgmc_mg_levels_ksp_type richardson -gamgmc_mg_levels_pc_type gibbs -gamgmc_mg_coarse_ksp_type richardson -gamgmc_mg_coarse_pc_type gibbs -gamgmc_mg_coarse_ksp_max_it 2 -gamgmc_mg_levels_ksp_max_it 2 -da_refine 3
+// RUN: %cc %s -o %t %flags && %mpirun -np %NP %t -ksp_type richardson -pc_type gamgmc -da_grid_x 3 -da_grid_y 3 -gamgmc_mg_levels_ksp_type richardson -gamgmc_mg_levels_pc_type gibbs -gamgmc_mg_coarse_ksp_type richardson -gamgmc_mg_coarse_pc_type gibbs -gamgmc_mg_coarse_ksp_max_it 2 -gamgmc_mg_levels_ksp_max_it 2 -da_refine 2
 
 // Algebraic MGMC with coarse Cholesky
-// RUN: %cc %s -o %t %flags && %mpirun -np %NP %t -ksp_type richardson -pc_type gamgmc -da_grid_x 3 -da_grid_y 3 -gamgmc_mg_levels_ksp_type richardson -gamgmc_mg_levels_pc_type gibbs -gamgmc_mg_coarse_ksp_type preonly -gamgmc_mg_coarse_pc_type cholsampler -gamgmc_mg_levels_ksp_max_it 2 -da_refine 3
+// RUN: %cc %s -o %t %flags && %mpirun -np %NP %t -ksp_type richardson -pc_type gamgmc -da_grid_x 3 -da_grid_y 3 -gamgmc_mg_levels_ksp_type richardson -gamgmc_mg_levels_pc_type gibbs -gamgmc_mg_coarse_ksp_type preonly -gamgmc_mg_coarse_pc_type cholsampler -gamgmc_mg_levels_ksp_max_it 2 -da_refine 2
 
 // Geometric MGMC with coarse Gibbs
-// RUN: %cc %s -o %t %flags && %mpirun -np %NP %t -ksp_type richardson -pc_type gamgmc -pc_gamgmc_mg_type mg -gamgmc_pc_mg_levels 3 -da_grid_x 3 -da_grid_y 3 -gamgmc_mg_levels_ksp_type richardson -gamgmc_mg_levels_pc_type gibbs -gamgmc_mg_coarse_ksp_type richardson -gamgmc_mg_coarse_pc_type gibbs -gamgmc_mg_coarse_ksp_max_it 2 -gamgmc_mg_levels_ksp_max_it 2 -da_refine 3
+// RUN: %cc %s -o %t %flags && %mpirun -np %NP %t -ksp_type richardson -pc_type gamgmc -pc_gamgmc_mg_type mg -gamgmc_pc_mg_levels 3 -da_grid_x 3 -da_grid_y 3 -gamgmc_mg_levels_ksp_type richardson -gamgmc_mg_levels_pc_type gibbs -gamgmc_mg_coarse_ksp_type richardson -gamgmc_mg_coarse_pc_type gibbs -gamgmc_mg_coarse_ksp_max_it 2 -gamgmc_mg_levels_ksp_max_it 2 -da_refine 2
 
 // Geometric MGMC with coarse Cholesky
-// RUN: %cc %s -o %t %flags && %mpirun -np %NP %t -ksp_type richardson -pc_type gamgmc -pc_gamgmc_mg_type mg -gamgmc_pc_mg_levels 3 -da_grid_x 3 -da_grid_y 3 -gamgmc_mg_levels_ksp_type richardson -gamgmc_mg_levels_pc_type gibbs -gamgmc_mg_coarse_ksp_type preonly -gamgmc_mg_coarse_pc_type cholsampler -gamgmc_mg_levels_ksp_max_it 2 -da_refine 3
+// RUN: %cc %s -o %t %flags && %mpirun -np %NP %t -ksp_type richardson -pc_type gamgmc -pc_gamgmc_mg_type mg -gamgmc_pc_mg_levels 3 -da_grid_x 3 -da_grid_y 3 -gamgmc_mg_levels_ksp_type richardson -gamgmc_mg_levels_pc_type gibbs -gamgmc_mg_coarse_ksp_type preonly -gamgmc_mg_coarse_pc_type cholsampler -gamgmc_mg_levels_ksp_max_it 2 -da_refine 2
 /****************************************************************************/
 
 #include <parmgmc/parmgmc.h>
@@ -58,7 +58,7 @@ int main(int argc, char *argv[])
   PetscCall(PetscInitialize(&argc, &argv, NULL, NULL));
   PetscCall(ParMGMCInitialize());
 
-  PetscCall(DMDACreate2d(MPI_COMM_WORLD, DM_BOUNDARY_NONE, DM_BOUNDARY_NONE, DMDA_STENCIL_STAR, 9, 9, PETSC_DECIDE, PETSC_DECIDE, 1, 1, NULL, NULL, &da));
+  PetscCall(DMDACreate2d(MPI_COMM_WORLD, DM_BOUNDARY_NONE, DM_BOUNDARY_NONE, DMDA_STENCIL_STAR, 5, 5, PETSC_DECIDE, PETSC_DECIDE, 1, 1, NULL, NULL, &da));
   PetscCall(DMSetFromOptions(da));
   PetscCall(DMSetUp(da));
   PetscCall(DMDASetUniformCoordinates(da, 0, 1, 0, 1, 0, 1));
@@ -72,6 +72,7 @@ int main(int argc, char *argv[])
   PetscCall(KSPSetTolerances(ksp, 0, 0, 0, 1));
   PetscCall(KSPSetNormType(ksp, KSP_NORM_NONE));
   PetscCall(KSPSetFromOptions(ksp));
+  PetscCall(KSPSetInitialGuessNonzero(ksp, PETSC_TRUE));
 
   PetscCall(MatCreateVecs(A, &mean, NULL));
   PetscCall(MatCreateVecs(A, &x, &b));
@@ -88,8 +89,7 @@ int main(int argc, char *argv[])
   PetscCall(VecAXPY(mean, -1, b));
   PetscCall(VecNorm(mean, NORM_2, &err));
 
-  /* PetscCheck(PetscIsCloseAtTol(err, 0, 0.01, 0.01), MPI_COMM_WORLD, PETSC_ERR_NOT_CONVERGED, "Sample mean has not converged: got %.4f, expected %.4f", err, 0.f); */
-  printf("Mean err: %.5f\n", err);
+  PetscCheck(PetscIsCloseAtTol(err, 0, 0.01, 0.01), MPI_COMM_WORLD, PETSC_ERR_NOT_CONVERGED, "Sample mean has not converged: got %.4f, expected %.4f", err, 0.f);
 
   PetscCall(VecDestroy(&mean));
   PetscCall(VecDestroy(&x));
