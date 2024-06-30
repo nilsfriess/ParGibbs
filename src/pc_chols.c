@@ -48,6 +48,9 @@ static PetscErrorCode PCSetUp_CholSampler(PC pc)
 
   PetscCall(MatCholeskyFactorSymbolic(chol->F, S, NULL, NULL));
   PetscCall(MatCholeskyFactorNumeric(chol->F, S, NULL));
+
+  pc->setupcalled         = PETSC_TRUE;
+  pc->reusepreconditioner = PETSC_TRUE;
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
