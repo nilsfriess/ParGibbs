@@ -3,16 +3,22 @@ on: [push]
 jobs:
   run-tests:
     runs-on: ubuntu-latest
+    container:
+      image: ubuntu
     steps:
       - uses: actions/checkout@v4
       - name: Install dependencies
         run: |
-          wget -O- https://apt.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB | gpg --dearmor | sudo tee /usr/share/keyrings/oneapi-archive-keyring.gpg > /dev/null
-          echo "deb [signed-by=/usr/share/keyrings/oneapi-archive-keyring.gpg] https://apt.repos.intel.com/oneapi all main" | sudo tee /etc/apt/sources.list.d/oneAPI.list
-          sudo apt update
-          sudo apt install -y cmake intel-oneapi-mkl intel-oneapi-mkl-devel python3-dev python3-pip python3-venv python3-virtualenv
-          pip install pipx
+          export DEBIAN_FRONTEND=noninteractive
+          apt update
+          apt install -y wget gpg build-essential cmake pipx flex bison gfortran pkg-config
+          wget -O- https://apt.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB | gpg --dearmor |  tee /usr/share/keyrings/oneapi-archive-keyring.gpg > /dev/null
+          echo "deb [signed-by=/usr/share/keyrings/oneapi-archive-keyring.gpg] https://apt.repos.intel.com/oneapi all main" | tee /etc/apt/sources.list.d/oneAPI.list
+          apt update
+          apt install -y intel-oneapi-mkl intel-oneapi-mkl-devel python3-dev python3-pip python3-venv python3-virtualenv git
           pipx install lit
+          pipx ensurepath
+          echo "/github/home/.local/bin" >> $GITHUB_PATH
 
       - name: Cache PETSc
         id: cache-petsc
@@ -54,5 +60,5 @@ jobs:
       - name: Run parallel tests
         run: |
           cd ${GITHUB_WORKSPACE}/examples/build
-          LD_PRELOAD=/opt/intel/oneapi/mkl/latest/lib/libmkl_blacs_intelmpi_lp64.so
+          export LD_PRELOAD=/opt/intel/oneapi/mkl/latest/lib/libmkl_blacs_intelmpi_lp64.so
           make check-par
