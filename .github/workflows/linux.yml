@@ -19,20 +19,20 @@ jobs:
         uses: actions/cache@v4
         with: 
           path: ${{github.workspace}}/petsc
-          key: ${{runner.os}}-petsc
+          key: ${{runner.os}}-petsc2
 
       - name: Build PETSc
         if: steps.cache-petsc.outputs.cache-hit != 'true'
         run: |
           git clone --depth 1 -b main https://gitlab.com/petsc/petsc.git petsc
           cd petsc
-          ./configure --with-debugging=no --download-mpich --with-fortran-bindings=0 --with-blas-lapack-dir=/opt/intel/oneapi/mkl/latest/lib --with-mkl_cpardiso --with-mkl_pardiso --download-mumps --download-scalapack --download-triangle --download-ctetgen --download-parmetis --download-metis --download-mmg --download-ptscotch COPTFLAGS="-O3 -march=native" CXXOPTFLAGS="-O3 -march=native"
-          make PETSC_DIR=${GITHUB_WORKSPACE}/petsc PETSC_ARCH=arch-linux-c-opt all
+          ./configure --with-debugging=yes --download-mpich --with-fortran-bindings=0 --with-blas-lapack-dir=/opt/intel/oneapi/mkl/latest/lib --with-mkl_cpardiso --with-mkl_pardiso --download-mumps --download-scalapack --download-triangle --download-ctetgen --download-parmetis --download-metis --download-mmg --download-ptscotch
+          make PETSC_DIR=${GITHUB_WORKSPACE}/petsc PETSC_ARCH=arch-linux-c-debug all
 
       - name: Build ParMGMC
         run: |
           mkdir build && cd build
-          cmake .. -DCMAKE_C_COMPILER=${GITHUB_WORKSPACE}/petsc/arch-linux-c-opt/bin/mpicc -DCMAKE_CXX_COMPILER=${GITHUB_WORKSPACE}/petsc/arch-linux-c-opt/bin/mpic++ -DCMAKE_PREFIX_PATH=${GITHUB_WORKSPACE}/petsc/arch-linux-c-opt -DCMAKE_INSTALL_PREFIX=${GITHUB_WORKSPACE}/install
+          cmake .. -DCMAKE_C_COMPILER=${GITHUB_WORKSPACE}/petsc/arch-linux-c-debug/bin/mpicc -DCMAKE_CXX_COMPILER=${GITHUB_WORKSPACE}/petsc/arch-linux-c-debug/bin/mpic++ -DCMAKE_PREFIX_PATH=${GITHUB_WORKSPACE}/petsc/arch-linux-c-debug -DCMAKE_INSTALL_PREFIX=${GITHUB_WORKSPACE}/install -DCMAKE_BUILD_TYPE=Debug
           make
 
       - name: Install ParMGMC
@@ -44,7 +44,7 @@ jobs:
         run: |
           cd ${GITHUB_WORKSPACE}/examples
           mkdir build && cd build
-          cmake .. -DCMAKE_PREFIX_PATH="${GITHUB_WORKSPACE}/petsc/arch-linux-c-opt;${GITHUB_WORKSPACE}/install"
+          cmake .. -DCMAKE_PREFIX_PATH="${GITHUB_WORKSPACE}/petsc/arch-linux-c-debug;${GITHUB_WORKSPACE}/install"
 
       - name: Run sequential tests
         run: |
