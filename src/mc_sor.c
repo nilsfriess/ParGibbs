@@ -10,6 +10,7 @@
 #include "parmgmc/parmgmc.h"
 
 #include <petscksp.h>
+#include <petscoptions.h>
 #include <petscvec.h>
 #include <stdbool.h>
 
@@ -379,7 +380,9 @@ PetscErrorCode MCSORCreate(Mat A, PetscReal omega, PetscBool explicit_lr, MCSOR 
   PetscFunctionBeginUser;
   PetscCall(PetscNew(&mc));
   PetscCall(PetscNew(&ctx));
-  ctx->omega         = omega;
+  ctx->omega = omega;
+  PetscCall(PetscOptionsGetReal(NULL, NULL, "-mc_sor_omega", &ctx->omega, NULL));
+
   ctx->scatters      = NULL;
   ctx->ghostvecs     = NULL;
   ctx->omega_changed = PETSC_TRUE;
