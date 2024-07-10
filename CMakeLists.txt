@@ -27,6 +27,7 @@ target_sources(parmgmc
 	    src/pc_gibbs.c
 	    src/pc_gamgmc.c
 	    src/pc_chols.c
+	    src/pc_tmbsor.c
 	    src/ziggurat.c
 	    src/mc_sor.c
 	    src/parmgmc.c
