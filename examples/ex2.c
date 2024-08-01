@@ -82,7 +82,7 @@ int main(int argc, char *argv[])
       PetscCall(VecView(x, viewer));
     }
   }
-  PetscCall(MSEndSaveSamples(ms, N_SAMPLES));
+  PetscCall(MSEndSaveSamples(ms, N_SAMPLES, NULL));
   PetscCall(MSGetMeanAndVar(ms, &mean, &var));
 
   if (flag) {

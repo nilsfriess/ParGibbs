@@ -13,16 +13,16 @@
 
 /**************************** Test specification ****************************/
 // Omega = 1
-// RUN: %cc %s -o %t %flags && %mpirun -np %NP %t -ksp_type richardson -ksp_error_if_not_converged -dm_refine 2 -ksp_monitor
+// RUN: %cc %s -o %t %flags && %mpirun -np %NP %t -ksp_type richardson -ksp_error_if_not_converged -dm_refine 2
 
 // Omega = 1.2
-// RUN: %cc %s -o %t %flags && %mpirun -np %NP %t -mc_sor_omega 1.2 -ksp_type richardson -ksp_error_if_not_converged -dm_refine 2 -ksp_monitor
+// RUN: %cc %s -o %t %flags && %mpirun -np %NP %t -mc_sor_omega 1.2 -ksp_type richardson -ksp_error_if_not_converged -dm_refine 2
 
 // Standalone SOR with low-rank update
-// RUN: %cc %s -o %t %flags -g && %mpirun -np %NP %t -ksp_type richardson -dm_refine 3 -with_lr -ksp_error_if_not_converged -ksp_monitor
+// RUN: %cc %s -o %t %flags -g && %mpirun -np %NP %t -ksp_type richardson -dm_refine 3 -with_lr -ksp_error_if_not_converged
 
 // FGMRES + SOR with low-rank update
-// RUN: %cc %s -o %t %flags -g && %mpirun -np %NP %t -ksp_type fgmres -dm_refine 4 -with_lr -ksp_converged_reason -ksp_monitor
+// RUN: %cc %s -o %t %flags -g && %mpirun -np %NP %t -ksp_type fgmres -dm_refine 4 -with_lr
 
 // GAMG+Gibbs with low rank update
 // RUN1: %cc %s -o %t %flags -g && %mpirun -np %NP %t -ksp_type richardson -pc_type gamgmc -pc_gamgmc_mg_type gamg  -gamgmc_mg_levels_pc_type gibbs -gamgmc_mg_coarse_pc_type gibbs -gamgmc_mg_levels_ksp_type richardson -gamgmc_mg_coarse_ksp_type richardson -gamgmc_mg_levels_ksp_max_it 2 -gamgmc_mg_coarse_ksp_max_it 4 %opts
