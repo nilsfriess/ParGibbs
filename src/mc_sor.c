@@ -393,15 +393,15 @@ PetscErrorCode MCSORSetOmega(MCSOR mc, PetscReal omega)
 
 static PetscErrorCode MCSORSetupSOR(MCSOR mc)
 {
-  MCSOR_Ctx ctx       = mc->ctx;
-  PetscBool color_seq = PETSC_FALSE;
+  MCSOR_Ctx   ctx = mc->ctx;
+  PetscMPIInt size;
 
   PetscFunctionBeginUser;
   PetscCall(MatGetDiagonalPointers(ctx->Asor, &(ctx->diagptrs)));
   PetscCall(MatCreateVecs(ctx->Asor, &ctx->idiag, NULL));
-  PetscCall(PetscOptionsGetBool(NULL, NULL, "-color_seq", &color_seq, NULL));
-  if (color_seq) PetscCall(MatCreateISColoring_AIJ(ctx->Asor, &ctx->isc));
-  else PetscCall(MatCreateISColoring_Seq(ctx->Asor, &ctx->isc));
+  PetscCallMPI(MPI_Comm_size(PetscObjectComm((PetscObject)ctx->Asor), &size));
+  if (size == 1) PetscCall(MatCreateISColoring_Seq(ctx->Asor, &ctx->isc));
+  else PetscCall(MatCreateISColoring_AIJ(ctx->Asor, &ctx->isc));
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
