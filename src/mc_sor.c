@@ -7,16 +7,23 @@
 */
 
 #include "parmgmc/mc_sor.h"
+#include "mpi.h"
 #include "parmgmc/parmgmc.h"
 
+#include <assert.h>
+#include <stdio.h>
 #include <petscksp.h>
 #include <petscoptions.h>
+#include <petscstring.h>
+#include <petscsystypes.h>
 #include <petscvec.h>
+#include <petscviewer.h>
 #include <stdbool.h>
 
 #include <petscsys.h>
 #include <petscis.h>
 #include <petscmat.h>
+#include <time.h>
 
 /** @file mc_sor.c
     @brief Multicolour Gauss-Seidel/SOR
@@ -27,9 +34,6 @@
 
     Implemented for `MATAIJ` and `MATLRC` matrices (with `MATAIJ` as the base
     matrix type).
-
-    Users should not use this class directly but rather access it through
-    PCSOR.
 
     ## Developer notes
     Should this be a PC?
@@ -45,10 +49,10 @@ typedef struct _MCSOR_Ctx {
   Vec         idiag;
   ISColoring  isc;
 
-  PetscBool explicit_lr; // whether or not to explicitly build the matrix that is used in each iteration to update the solution (
-
   Mat L, B, Sb, Bb;
   Vec z, w, v, u;
+
+  IS rowperm;
 
   PetscErrorCode (*sor)(struct _MCSOR_Ctx *, Vec, Vec);
   PetscErrorCode (*postsor)(MCSOR, Vec);
@@ -78,7 +82,7 @@ PetscErrorCode MCSORDestroy(MCSOR *mc)
     if (ctx->v) PetscCall(VecDestroy(&ctx->v));
     if (ctx->u) PetscCall(VecDestroy(&ctx->u));
 
-    if (ctx->explicit_lr) PetscCall(MatDestroy(&ctx->Bb));
+    PetscCall(MatDestroy(&ctx->Bb));
 
     PetscCall(ISColoringDestroy(&ctx->isc));
     PetscCall(PetscFree(ctx));
@@ -88,57 +92,70 @@ PetscErrorCode MCSORDestroy(MCSOR *mc)
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
-static PetscErrorCode MCSORPostSOR_LRC(MCSOR mc, Vec y)
+PetscErrorCode MCSORGetISColoring(MCSOR mc, ISColoring *isc)
 {
   MCSOR_Ctx ctx = mc->ctx;
 
   PetscFunctionBeginUser;
-  PetscCall(MatMultTranspose(ctx->B, y, ctx->w));
-  if (ctx->explicit_lr) {
-    PetscCall(MatMult(ctx->Bb, ctx->w, ctx->z));
-  } else {
-    PetscCall(MatMult(ctx->Sb, ctx->w, ctx->v));
-    PetscCall(MatMult(ctx->B, ctx->v, ctx->u));
-    PetscCall(MatSolve(ctx->L, ctx->u, ctx->z));
-  }
-  PetscCall(VecAXPY(y, -1, ctx->z));
+  if (isc) *isc = ctx->isc;
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
-static PetscErrorCode MatLUFactorLowerTriangular(Mat A, Mat *LL)
+static PetscErrorCode MCSORPostSOR_LRC(MCSOR mc, Vec y)
 {
-  PetscInt           lstart, lend, ncols, diagcol;
-  const PetscInt    *cols;
-  const PetscScalar *vals;
-  IS                 rowperm, colperm;
-  Mat                L;
+  MCSOR_Ctx ctx = mc->ctx;
+  Vec       yp;
 
   PetscFunctionBeginUser;
-  PetscCall(MatDuplicate(A, MAT_DO_NOT_COPY_VALUES, &L));
-  PetscCall(MatGetOwnershipRange(A, &lstart, &lend));
-  for (PetscInt i = lstart; i < lend; ++i) {
-    PetscCall(MatGetRow(A, i, &ncols, &cols, &vals));
-    diagcol = 0;
-    for (PetscInt j = 0; j < ncols; ++j) {
-      diagcol++;
-      if (cols[j] == i) break;
-    }
-    PetscCall(MatSetValues(L, 1, &i, diagcol, cols, vals, INSERT_VALUES));
-    PetscCall(MatRestoreRow(A, i, &ncols, &cols, &vals));
-  }
-  PetscCall(MatAssemblyBegin(L, MAT_FINAL_ASSEMBLY));
-  PetscCall(MatAssemblyEnd(L, MAT_FINAL_ASSEMBLY));
-  PetscCall(MatEliminateZeros(L, PETSC_TRUE));
-  PetscCall(MatGetOrdering(L, MATORDERINGEXTERNAL, &rowperm, &colperm));
-  PetscCall(MatGetFactor(L, MATSOLVERMUMPS, MAT_FACTOR_LU, LL));
-  PetscCall(MatLUFactorSymbolic(*LL, L, rowperm, colperm, NULL));
-  PetscCall(MatLUFactorNumeric(*LL, L, NULL));
-
-  PetscCall(MatDestroy(&L));
-  PetscCall(ISDestroy(&rowperm));
-  PetscCall(ISDestroy(&colperm));
+  PetscCall(VecDuplicate(y, &yp));
+  PetscCall(VecCopy(y, yp));
+  /* PetscCall(ISView(ctx->rowperm, PETSC_VIEWER_STDOUT_WORLD)); */
+  /* PetscCall(VecPermute(yp, ctx->rowperm, PETSC_FALSE)); */
+  PetscCall(MatMultTranspose(ctx->B, yp, ctx->w));
+  PetscCall(MatMult(ctx->Bb, ctx->w, ctx->z));
+  /* PetscCall(VecPermute(ctx->z, ctx->rowperm, PETSC_TRUE)); */
+  PetscCall(VecAXPY(y, -1, ctx->z));
+  PetscCall(VecDestroy(&yp));
   PetscFunctionReturn(PETSC_SUCCESS);
 }
+
+/* static PetscErrorCode MatLUFactorLowerTriangular(Mat A, Mat *LL) */
+/* { */
+/*   PetscInt           lstart, lend, ncols, diagcol; */
+/*   const PetscInt    *cols; */
+/*   const PetscScalar *vals; */
+/*   IS                 rowperm, colperm; */
+/*   Mat                L; */
+/*   PetscBool          forward = PETSC_TRUE; */
+
+/*   PetscFunctionBeginUser; */
+/*   PetscCall(MatDuplicate(A, MAT_DO_NOT_COPY_VALUES, &L)); */
+/*   PetscCall(MatGetOwnershipRange(A, &lstart, &lend)); */
+/*   for (PetscInt i = lstart; i < lend; ++i) { */
+/*     PetscCall(MatGetRow(A, i, &ncols, &cols, &vals)); */
+/*     diagcol = 0; */
+/*     for (PetscInt j = 0; j < ncols; ++j) { */
+/*       diagcol++; */
+/*       if (cols[j] == i) break; */
+/*     } */
+/*     if (forward) PetscCall(MatSetValues(L, 1, &i, diagcol, cols, vals, INSERT_VALUES)); */
+/*     else PetscCall(MatSetValues(L, 1, &i, ncols - diagcol + 1, &cols[diagcol - 1], &vals[diagcol - 1], INSERT_VALUES)); */
+/*     PetscCall(MatRestoreRow(A, i, &ncols, &cols, &vals)); */
+/*   } */
+
+/*   PetscCall(MatAssemblyBegin(L, MAT_FINAL_ASSEMBLY)); */
+/*   PetscCall(MatAssemblyEnd(L, MAT_FINAL_ASSEMBLY)); */
+/*   PetscCall(MatEliminateZeros(L, PETSC_TRUE)); */
+/*   PetscCall(MatGetOrdering(L, MATORDERINGEXTERNAL, &rowperm, &colperm)); */
+/*   PetscCall(MatGetFactor(L, MATSOLVERMUMPS, MAT_FACTOR_LU, LL)); */
+/*   PetscCall(MatLUFactorSymbolic(*LL, L, rowperm, colperm, NULL)); */
+/*   PetscCall(MatLUFactorNumeric(*LL, L, NULL)); */
+
+/*   PetscCall(MatDestroy(&L)); */
+/*   PetscCall(ISDestroy(&rowperm)); */
+/*   PetscCall(ISDestroy(&colperm)); */
+/*   PetscFunctionReturn(PETSC_SUCCESS); */
+/* } */
 
 static PetscErrorCode MCSORUpdateIDiag(MCSOR mc)
 {
@@ -266,10 +283,9 @@ static PetscErrorCode MCSORApply_SEQAIJ(MCSOR_Ctx ctx, Vec b, Vec y)
   for (PetscInt color = 0; color < ncolors; ++color) {
     PetscCall(ISGetLocalSize(iss[color], &nind));
     PetscCall(ISGetIndices(iss[color], &rowind));
-
     for (PetscInt i = 0; i < nind; ++i) {
-      PetscInt  r   = rowind[i];
-      PetscReal sum = barr[r];
+      const PetscInt r   = rowind[i];
+      PetscReal      sum = barr[r];
 
       for (PetscInt k = rowptr[r]; k < ctx->diagptrs[r]; ++k) sum -= matvals[k] * yarr[colptr[k]];
       for (PetscInt k = ctx->diagptrs[r] + 1; k < rowptr[r + 1]; ++k) sum -= matvals[k] * yarr[colptr[k]];
@@ -343,10 +359,25 @@ static PetscErrorCode MatCreateISColoring_AIJ(Mat A, ISColoring *isc)
   PetscFunctionBeginUser;
   PetscCall(MatColoringCreate(A, &mc));
   PetscCall(MatColoringSetDistance(mc, 1));
-  PetscCall(MatColoringSetType(mc, MATCOLORINGGREEDY));
+  PetscCall(MatColoringSetType(mc, MATCOLORINGJP));
   PetscCall(MatColoringApply(mc, isc));
   PetscCall(ISColoringSetType(*isc, IS_COLORING_LOCAL));
   PetscCall(MatColoringDestroy(&mc));
+  PetscFunctionReturn(PETSC_SUCCESS);
+}
+
+static PetscErrorCode MatCreateISColoring_Seq(Mat A, ISColoring *isc)
+{
+  PetscInt         start, end;
+  ISColoringValue *vals;
+
+  PetscFunctionBeginUser;
+  PetscCall(MatGetOwnershipRange(A, &start, &end));
+  PetscCall(PetscMalloc1(end - start, &vals));
+  for (PetscInt i = 0; i < end - start; ++i) { vals[i] = 0; }
+
+  PetscCall(ISColoringCreate(PetscObjectComm((PetscObject)A), 1, end - start, vals, PETSC_OWN_POINTER, isc));
+  PetscCall(ISColoringSetType(*isc, IS_COLORING_LOCAL));
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
@@ -362,16 +393,19 @@ PetscErrorCode MCSORSetOmega(MCSOR mc, PetscReal omega)
 
 static PetscErrorCode MCSORSetupSOR(MCSOR mc)
 {
-  MCSOR_Ctx ctx = mc->ctx;
+  MCSOR_Ctx ctx       = mc->ctx;
+  PetscBool color_seq = PETSC_FALSE;
 
   PetscFunctionBeginUser;
   PetscCall(MatGetDiagonalPointers(ctx->Asor, &(ctx->diagptrs)));
   PetscCall(MatCreateVecs(ctx->Asor, &ctx->idiag, NULL));
-  PetscCall(MatCreateISColoring_AIJ(ctx->Asor, &ctx->isc));
+  PetscCall(PetscOptionsGetBool(NULL, NULL, "-color_seq", &color_seq, NULL));
+  if (color_seq) PetscCall(MatCreateISColoring_AIJ(ctx->Asor, &ctx->isc));
+  else PetscCall(MatCreateISColoring_Seq(ctx->Asor, &ctx->isc));
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
-PetscErrorCode MCSORCreate(Mat A, PetscReal omega, PetscBool explicit_lr, MCSOR *m)
+PetscErrorCode MCSORCreate(Mat A, PetscReal omega, MCSOR *m)
 {
   MatType   type;
   MCSOR     mc;
@@ -395,7 +429,6 @@ PetscErrorCode MCSORCreate(Mat A, PetscReal omega, PetscBool explicit_lr, MCSOR 
   ctx->w             = NULL;
   ctx->v             = NULL;
   ctx->postsor       = NULL;
-  ctx->explicit_lr   = explicit_lr;
 
   PetscCall(MatGetType(A, &type));
   if (strcmp(type, MATSEQAIJ) == 0) {
@@ -403,22 +436,56 @@ PetscErrorCode MCSORCreate(Mat A, PetscReal omega, PetscBool explicit_lr, MCSOR 
   } else if (strcmp(type, MATMPIAIJ) == 0) {
     ctx->Asor = A;
   } else if (strcmp(type, MATLRC) == 0) {
-    Mat        tmp, tmp2, Id;
+    PetscCall(MatLRCGetMats(A, &ctx->Asor, NULL, NULL, NULL));
+  } else {
+    PetscCheck(false, MPI_COMM_WORLD, PETSC_ERR_SUP, "Matrix type not supported");
+  }
+  PetscCall(MCSORSetupSOR(mc));
+
+  if (strcmp(type, MATLRC) == 0) {
+    Mat        tmp, Id;
     KSP        ksp;
     Vec        S, Si;
     IS         sctis;
     VecScatter sct;
     PetscInt   sctsize;
+    Mat        C;
+
     PetscCall(MatLRCGetMats(A, &ctx->Asor, &ctx->B, &S, NULL));
-    PetscCall(MatLUFactorLowerTriangular(ctx->Asor, &ctx->L));
-    PetscCall(MatCreateVecs(ctx->L, &ctx->z, NULL));
-    PetscCall(MatDuplicate(ctx->B, MAT_DO_NOT_COPY_VALUES, &tmp));
-    PetscCall(MatMatSolve(ctx->L, ctx->B, tmp));                               // tmp = L^-1 B
-    PetscCall(MatTransposeMatMult(ctx->B, tmp, MAT_INITIAL_MATRIX, 1, &tmp2)); // tmp2 = B^T L^-1 B
+
+    // Compute C = M_P^-1 B, where M_P is the lower triangular part of PAP^T.
+    // We compute this column-by-column using multicolour Gauss-Seidel.
+    // This way, we don't need to explicitly permute A and get M_P.
+    PetscCall(MatDuplicate(ctx->B, MAT_DO_NOT_COPY_VALUES, &C));
+    {
+      MCSOR    mca;
+      PetscInt cols;
+      Vec      x;
+
+      PetscCall(MatGetSize(ctx->B, NULL, &cols));
+      PetscCall(MCSORCreate(ctx->Asor, 1., &mca));
+      PetscCall(MatCreateVecs(A, &x, NULL));
+      for (PetscInt i = 0; i < cols; ++i) {
+        Vec b, c;
+
+        PetscCall(VecZeroEntries(x));
+        PetscCall(MatDenseGetColumnVecRead(ctx->B, i, &b));
+        PetscCall(MCSORApply(mca, b, x));
+        PetscCall(MatDenseRestoreColumnVecRead(ctx->B, i, &b));
+
+        PetscCall(MatDenseGetColumnVecWrite(C, i, &c));
+        PetscCall(VecCopy(x, c));
+        PetscCall(MatDenseRestoreColumnVecWrite(C, i, &c));
+      }
+      PetscCall(VecDestroy(&x));
+      PetscCall(MCSORDestroy(&mca));
+    }
+
+    PetscCall(MatTransposeMatMult(ctx->B, C, MAT_INITIAL_MATRIX, 1, &tmp)); // tmp = B^T P^T M_P^-1 P B
 
     PetscCall(VecGetSize(S, &sctsize));
     PetscCall(ISCreateStride(MPI_COMM_WORLD, sctsize, 0, 1, &sctis));
-    PetscCall(MatCreateVecs(tmp, &Si, NULL));
+    PetscCall(MatCreateVecs(C, &Si, NULL));
     PetscCall(VecScatterCreate(S, sctis, Si, NULL, &sct));
     PetscCall(VecScatterBegin(sct, S, Si, INSERT_VALUES, SCATTER_FORWARD));
     PetscCall(VecScatterEnd(sct, S, Si, INSERT_VALUES, SCATTER_FORWARD));
@@ -426,35 +493,31 @@ PetscErrorCode MCSORCreate(Mat A, PetscReal omega, PetscBool explicit_lr, MCSOR 
     PetscCall(ISDestroy(&sctis));
     PetscCall(VecReciprocal(Si));
 
-    PetscCall(MatDiagonalSet(tmp2, Si, ADD_VALUES)); // tmp2 = S^-1 + B^T L^-1 B
+    PetscCall(MatDiagonalSet(tmp, Si, ADD_VALUES)); // tmp = S^-1 +  B^T P^T M_P^-1 P B
     PetscCall(KSPCreate(MPI_COMM_WORLD, &ksp));
-    PetscCall(KSPSetOperators(ksp, tmp2, tmp2));
-    PetscCall(MatDuplicate(tmp2, MAT_DO_NOT_COPY_VALUES, &Id));
+    PetscCall(KSPSetOperators(ksp, tmp, tmp));
+    PetscCall(MatDuplicate(tmp, MAT_DO_NOT_COPY_VALUES, &Id));
     PetscCall(MatShift(Id, 1));
-    PetscCall(MatDuplicate(tmp2, MAT_DO_NOT_COPY_VALUES, &ctx->Sb));
-    PetscCall(KSPMatSolve(ksp, Id, ctx->Sb)); // ctx->Sb = (S^-1 + B^T L^-1 B)^-1
+    PetscCall(MatDuplicate(tmp, MAT_DO_NOT_COPY_VALUES, &ctx->Sb));
+    PetscCall(KSPMatSolve(ksp, Id, ctx->Sb)); // ctx->Sb = ( S^-1 +  B^T P^T M_P^-1 P B )^-1
 
-    if (explicit_lr) {
-      PetscCall(MatMatMult(ctx->B, ctx->Sb, MAT_INITIAL_MATRIX, 1, &ctx->Bb));
-      PetscCall(MatMatSolve(ctx->L, ctx->Bb, ctx->Bb));
-    }
+    PetscCall(MatMatMult(C, ctx->Sb, MAT_INITIAL_MATRIX, 1, &ctx->Bb));
 
     PetscCall(MatCreateVecs(ctx->Sb, &ctx->w, NULL));
     PetscCall(MatCreateVecs(ctx->Sb, &ctx->v, NULL));
     PetscCall(MatCreateVecs(ctx->B, NULL, &ctx->u));
+    PetscCall(MatCreateVecs(A, &ctx->z, NULL));
 
     PetscCall(KSPDestroy(&ksp));
     PetscCall(VecDestroy(&Si));
     PetscCall(MatDestroy(&Id));
     PetscCall(MatDestroy(&tmp));
-    PetscCall(MatDestroy(&tmp2));
+    PetscCall(MatDestroy(&tmp));
+    PetscCall(MatDestroy(&C));
 
     ctx->postsor = MCSORPostSOR_LRC;
-  } else {
-    PetscCheck(false, MPI_COMM_WORLD, PETSC_ERR_SUP, "Matrix type not supported");
   }
 
-  PetscCall(MCSORSetupSOR(mc));
   PetscCall(MatGetType(ctx->Asor, &type));
   if (strcmp(type, MATSEQAIJ) == 0) {
     ctx->sor = MCSORApply_SEQAIJ;

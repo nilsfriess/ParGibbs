@@ -11,7 +11,6 @@
     
     # Options database keys
     - `-pc_gibbs_omega` - the SOR parameter (default is omega = 1)
-    - `-pc_gibbs_explicit_lr` - If set, computes the matrix used in the rank one-update explicitly instead of solving a linear system in each iteration. Can be beneficial if \#samples > rank of update matrix.
 
     # Notes
     This implements a Gibbs sampler wrapped as a PETSc PC. In parallel this uses
@@ -61,6 +60,7 @@
 #include <petscsystypes.h>
 #include <petscvec.h>
 
+#include <petscviewer.h>
 #include <stdbool.h>
 #include <string.h>
 
@@ -69,7 +69,7 @@ typedef struct {
   PetscRandom prand;
   Vec         sqrtdiag; // Both include omega
   PetscReal   omega;
-  PetscBool   omega_changed, explicit_lr;
+  PetscBool   omega_changed;
   MCSOR       mc;
   Vec         z; // work vec
 
@@ -77,7 +77,9 @@ typedef struct {
   Vec w;
   Vec sqrtS;
 
-  PetscErrorCode (*prepare_rhs)(PC, Vec, Vec, Vec);
+  IS rowperm;
+
+  PetscErrorCode (*prepare_rhs)(PC, Vec, Vec);
 } PC_Gibbs;
 
 static PetscErrorCode PCDestroy_Gibbs(PC pc)
@@ -109,9 +111,8 @@ static PetscErrorCode PCReset_Gibbs(PC pc)
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
-static PetscErrorCode PrepareRHS_Default(PC pc, Vec y, Vec rhsin, Vec rhsout)
+static PetscErrorCode PrepareRHS_Default(PC pc, Vec rhsin, Vec rhsout)
 {
-  (void)y;
   PC_Gibbs *pg = pc->data;
 
   PetscFunctionBeginUser;
@@ -121,13 +122,12 @@ static PetscErrorCode PrepareRHS_Default(PC pc, Vec y, Vec rhsin, Vec rhsout)
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
-static PetscErrorCode PrepareRHS_LRC(PC pc, Vec y, Vec rhsin, Vec rhsout)
+static PetscErrorCode PrepareRHS_LRC(PC pc, Vec rhsin, Vec rhsout)
 {
-  (void)y;
   PC_Gibbs *pg = pc->data;
 
   PetscFunctionBeginUser;
-  PetscCall(PrepareRHS_Default(pc, y, rhsin, rhsout));
+  PetscCall(PrepareRHS_Default(pc, rhsin, rhsout));
   PetscCall(VecSetRandom(pg->w, pg->prand));
   PetscCall(VecPointwiseMult(pg->w, pg->w, pg->sqrtS));
   PetscCall(MatMultAdd(pg->B, pg->w, rhsout, rhsout));
@@ -153,8 +153,7 @@ static PetscErrorCode PCApply_Gibbs(PC pc, Vec x, Vec y)
 
   PetscFunctionBeginUser;
   if (pg->omega_changed) PetscCall(PCGibbsUpdateSqrtDiag(pc));
-
-  PetscCall(pg->prepare_rhs(pc, y, x, pg->z));
+  PetscCall(pg->prepare_rhs(pc, x, pg->z));
   PetscCall(MCSORApply(pg->mc, pg->z, y));
   PetscFunctionReturn(PETSC_SUCCESS);
 }
@@ -173,9 +172,8 @@ static PetscErrorCode PCApplyRichardson_Gibbs(PC pc, Vec b, Vec y, Vec w, PetscR
   if (pg->omega_changed) PetscCall(PCGibbsUpdateSqrtDiag(pc));
 
   for (PetscInt it = 0; it < its; ++it) {
-    PetscCall(pg->prepare_rhs(pc, y, b, w));
+    PetscCall(pg->prepare_rhs(pc, b, w));
     PetscCall(MCSORApply(pg->mc, w, y));
-    /* PetscCall(MatSOR(pc->pmat, w, 1, SOR_FORWARD_SWEEP, 0, 1, 1, y)); */
     if (cbctx->cb) PetscCall(cbctx->cb(it, y, cbctx->ctx));
   }
   *outits = its;
@@ -192,7 +190,6 @@ static PetscErrorCode PCSetFromOptions_Gibbs(PC pc, PetscOptionItems *PetscOptio
   PetscOptionsHeadBegin(PetscOptionsObject, "Gibbs options");
   PetscCall(PetscOptionsRangeReal("-pc_gibbs_omega", "Gibbs SOR parameter", NULL, pg->omega, &pg->omega, &flag, 0.0, 2.0));
   if (flag) pg->omega_changed = PETSC_TRUE;
-  PetscCall(PetscOptionsBool("-pc_gibbs_explicit_lr", "Pre-compute the matrix used in the low rank update", NULL, pg->explicit_lr, &pg->explicit_lr, NULL));
   PetscOptionsHeadEnd();
   PetscFunctionReturn(PETSC_SUCCESS);
 }
@@ -210,7 +207,7 @@ static PetscErrorCode PCSetUp_Gibbs(PC pc)
     PetscCall(MCSORDestroy(&pg->mc));
   }
 
-  PetscCall(MCSORCreate(P, pg->omega, pg->explicit_lr, &pg->mc));
+  PetscCall(MCSORCreate(P, pg->omega, &pg->mc));
 
   PetscCall(MatGetType(P, &type));
   if (strcmp(type, MATSEQAIJ) == 0) {
@@ -221,12 +218,39 @@ static PetscErrorCode PCSetUp_Gibbs(PC pc)
     pg->Asor = pg->A;
   } else if (strcmp(type, MATLRC) == 0) {
     Vec S;
+    /* Mat B; */
 
     pg->A = P;
     PetscCall(MatLRCGetMats(pg->A, &pg->Asor, &pg->B, &S, NULL));
+    { // Permute the rows of B to match the colouring
+      IS        *islist, colperm;
+      PetscInt   ncolors, cols;
+      ISColoring isc;
+
+      PetscCall(MatGetLocalSize(pg->B, NULL, &cols));
+      PetscCall(ISCreateStride(MPI_COMM_WORLD, cols, 0, 1, &colperm));
+      PetscCall(MCSORGetISColoring(pg->mc, &isc));
+      PetscCall(ISColoringGetIS(isc, PETSC_USE_POINTER, &ncolors, &islist));
+      PetscCall(ISConcatenate(MPI_COMM_WORLD, ncolors, islist, &pg->rowperm));
+      PetscCall(ISColoringRestoreIS(isc, PETSC_USE_POINTER, &islist));
+
+      // Sanity checks that trigger debug asserts if these ISs are not actually permutations
+      PetscCall(ISSetPermutation(colperm));
+      PetscCall(ISSetPermutation(pg->rowperm));
+
+      /* PetscCall(ISView(pg->rowperm, PETSC_VIEWER_STDOUT_WORLD)); */
+
+      /* PetscCall(ISInvertPermutation(pg->rowperm, PETSC_DECIDE, &pg->rowperm)); */
+      /* PetscCall(ISView(pg->rowperm2, PETSC_VIEWER_STDOUT_WORLD)); */
+
+      /* PetscCall(MatView(B, PETSC_VIEWER_STDOUT_WORLD)); */
+      /* PetscCall(MatPermute(B, pg->rowperm, colperm, &pg->B)); */
+      /* PetscCall(MatView(pg->B, PETSC_VIEWER_STDOUT_WORLD)); */
+    }
     PetscCall(VecDuplicate(S, &pg->sqrtS));
     PetscCall(VecCopy(S, pg->sqrtS));
     PetscCall(VecSqrtAbs(pg->sqrtS));
+    PetscCall(VecView(pg->sqrtS, PETSC_VIEWER_STDOUT_WORLD));
     PetscCall(VecDuplicate(S, &pg->w));
     pg->prepare_rhs = PrepareRHS_LRC;
   } else {
@@ -279,7 +303,6 @@ PetscErrorCode PCCreate_Gibbs(PC pc)
   PetscCall(PetscNew(&gibbs));
   gibbs->omega       = 1;
   gibbs->prepare_rhs = PrepareRHS_Default;
-  gibbs->explicit_lr = PETSC_FALSE;
 
   // TODO: Allow user to pass own PetscRandom
   PetscCall(PetscRandomCreate(PetscObjectComm((PetscObject)pc), &gibbs->prand));

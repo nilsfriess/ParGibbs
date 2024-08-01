@@ -8,6 +8,7 @@
 
 #include "parmgmc/ms.h"
 #include "parmgmc/pc/pc_gamgmc.h"
+#include "parmgmc/parmgmc.h"
 
 #include <petscdmlabel.h>
 #include <petscdmplex.h>
@@ -32,7 +33,7 @@ typedef struct _MSCtx {
   Vec         b, mean, var;
   PetscInt    alpha, cnt;
   PetscScalar kappa, nu, tau;
-  PetscBool   addksp_setup_called, save_samples;
+  PetscBool   addksp_setup_called, save_samples, assemble_only;
   Vec        *samples;
 } *MSCtx;
 
@@ -90,7 +91,7 @@ static void f1(PetscInt dim, PetscInt Nf, PetscInt NfAux, const PetscInt uOff[],
 
 static void g0(PetscInt dim, PetscInt Nf, PetscInt NfAux, const PetscInt uOff[], const PetscInt uOff_x[], const PetscScalar u[], const PetscScalar u_t[], const PetscScalar u_x[], const PetscInt aOff[], const PetscInt aOff_x[], const PetscScalar a[], const PetscScalar a_t[], const PetscScalar a_x[], PetscReal t, PetscReal u_tShift, const PetscReal x[], PetscInt numConstants, const PetscScalar constants[], PetscScalar g0[])
 {
-  g0[0] = constants[0] * constants[0];
+  if (numConstants > 0) g0[0] = constants[0] * constants[0];
 }
 
 static void g3(PetscInt dim, PetscInt Nf, PetscInt NfAux, const PetscInt uOff[], const PetscInt uOff_x[], const PetscScalar u[], const PetscScalar u_t[], const PetscScalar u_x[], const PetscInt aOff[], const PetscInt aOff_x[], const PetscScalar a[], const PetscScalar a_t[], const PetscScalar a_x[], PetscReal t, PetscReal u_tShift, const PetscReal x[], PetscInt numConstants, const PetscScalar constants[], PetscScalar g3[])
@@ -104,11 +105,12 @@ static PetscErrorCode MS_AssembleMat(MS ms)
 {
   MSCtx          ctx = ms->ctx;
   SNES           snes;
-  PetscInt       dim, rows;
+  PetscInt       dim;
   PetscBool      simplex;
   PetscFE        fe;
   PetscDS        ds;
   DMLabel        label;
+  DM             cdm;
   const PetscInt id = 1;
 
   PetscFunctionBeginUser;
@@ -119,27 +121,35 @@ static PetscErrorCode MS_AssembleMat(MS ms)
 
   PetscCall(DMGetDimension(ctx->dm, &dim));
   PetscCall(DMPlexIsSimplex(ctx->dm, &simplex));
-  PetscCall(PetscFECreateLagrange(ctx->comm, dim, 1, simplex, 4, PETSC_DETERMINE, &fe));
+  PetscCall(PetscFECreateLagrange(ctx->comm, dim, 1, simplex, 1, PETSC_DETERMINE, &fe));
   PetscCall(DMSetField(ctx->dm, 0, NULL, (PetscObject)fe));
   PetscCall(DMCreateDS(ctx->dm));
   PetscCall(DMGetDS(ctx->dm, &ds));
-  PetscCall(PetscDSSetConstants(ds, 1, &ctx->kappa));
+  if (ctx->kappa != 0) PetscCall(PetscDSSetConstants(ds, 1, &ctx->kappa));
   PetscCall(PetscDSSetResidual(ds, 0, f0, f1));
   PetscCall(PetscDSSetJacobian(ds, 0, 0, g0, NULL, NULL, g3));
 
-  PetscCall(DMGetLabel(ctx->dm, "Face Sets", &label));
+  PetscCall(DMGetLabel(ctx->dm, "marker", &label));
   if (!label) {
     PetscCall(DMCreateLabel(ctx->dm, "boundary"));
     PetscCall(DMGetLabel(ctx->dm, "boundary", &label));
     PetscCall(DMPlexMarkBoundaryFaces(ctx->dm, PETSC_DETERMINE, label));
   }
   PetscCall(DMPlexLabelComplete(ctx->dm, label));
-  PetscCall(DMAddBoundary(ctx->dm, DM_BC_NATURAL, "wall", label, 1, &id, 0, 0, NULL, NULL, NULL, NULL, NULL));
+  PetscCall(DMAddBoundary(ctx->dm, DM_BC_ESSENTIAL, "wall", label, 1, &id, 0, 0, NULL, NULL, NULL, NULL, NULL));
+
+  cdm = ctx->dm;
+  while (cdm) {
+    /* PetscCall(DMCreateLabel(cdm, "boundary")); */
+    /* PetscCall(DMGetLabel(cdm, "boundary", &label)); */
+    /* PetscCall(DMPlexMarkBoundaryFaces(cdm, PETSC_DETERMINE, label)); */
+    PetscCall(DMCopyDisc(ctx->dm, cdm));
+    PetscCall(DMGetCoarseDM(cdm, &cdm));
+  }
 
   PetscCall(DMPlexSetSNESLocalFEM(ctx->dm, PETSC_FALSE, NULL));
   PetscCall(SNESSetUp(snes));
   PetscCall(DMCreateMatrix(ctx->dm, &ctx->A));
-  PetscCall(MatGetSize(ctx->A, &rows, NULL));
   PetscCall(MatCreateVecs(ctx->A, &ctx->b, NULL));
   PetscCall(SNESComputeJacobian(snes, ctx->b, ctx->A, ctx->A));
 
@@ -223,17 +233,19 @@ static PetscErrorCode MS_ComputeMeanAndVar(MS ms)
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
-PetscErrorCode MSEndSaveSamples(MS ms, PetscInt n)
+PetscErrorCode MSEndSaveSamples(MS ms, PetscInt n, const Vec **samples)
 {
-  (void)n;
   MSCtx ctx = ms->ctx;
 
   PetscFunctionBeginUser;
   PetscCall(MS_ComputeMeanAndVar(ms));
-  for (PetscInt i = 0; i < n; ++i) PetscCall(VecDestroy(&ctx->samples[i]));
-  PetscCall(PetscFree(ctx->samples));
-
   ctx->save_samples = PETSC_FALSE;
+
+  if (!samples) {
+    for (PetscInt i = 0; i < n; ++i) PetscCall(VecDestroy(&ctx->samples[i]));
+    PetscCall(PetscFree(ctx->samples));
+  } else *samples = ctx->samples;
+
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
@@ -278,10 +290,14 @@ PetscErrorCode MSGetDM(MS ms, DM *dm)
 
 static PetscErrorCode CreateMeshDefault(MPI_Comm comm, DM *dm)
 {
-  DM distdm;
+  DM       distdm;
+  PetscInt faces[2];
 
   PetscFunctionBeginUser;
-  PetscCall(DMPlexCreateBoxMesh(comm, 2, PETSC_TRUE, NULL, NULL, NULL, NULL, PETSC_TRUE, dm));
+  faces[0] = 2;
+  PetscCall(PetscOptionsGetInt(NULL, NULL, "-box_faces", &faces[0], NULL));
+  faces[1] = faces[0];
+  PetscCall(DMPlexCreateBoxMesh(comm, 2, PETSC_TRUE, faces, NULL, NULL, NULL, PETSC_TRUE, dm));
   PetscCall(DMSetFromOptions(*dm));
   PetscCall(DMPlexDistribute(*dm, 0, NULL, &distdm));
   if (distdm) {
@@ -303,34 +319,55 @@ PetscErrorCode MSSetUp(MS ms)
   if (!ctx->dm) PetscCall(CreateMeshDefault(ctx->comm, &ctx->dm));
   PetscCall(MS_AssembleMat(ms));
 
-  PetscCall(KSPCreate(ctx->comm, &ctx->ksp));
-  PetscCall(KSPSetOperators(ctx->ksp, ctx->A, ctx->A));
-  PetscCall(KSPSetType(ctx->ksp, KSPRICHARDSON));
-  PetscCall(KSPSetDM(ctx->ksp, ctx->dm));
-  PetscCall(KSPSetDMActive(ctx->ksp, PETSC_FALSE));
-  PetscCall(KSPGetPC(ctx->ksp, &pc));
-  PetscCall(PCSetType(pc, "gamgmc"));
-  PetscCall(PCGAMGGetInternalPC(pc, &mgmc));
-  PetscCall(KSPSetFromOptions(ctx->ksp));
-  PetscCall(KSPSetUp(ctx->ksp));
-  PetscCall(KSPSetTolerances(ctx->ksp, PETSC_DEFAULT, PETSC_DEFAULT, PETSC_DEFAULT, 1));
+  if (!ctx->assemble_only) {
+    PetscCall(KSPCreate(ctx->comm, &ctx->ksp));
+    PetscCall(KSPSetOperators(ctx->ksp, ctx->A, ctx->A));
+    PetscCall(KSPSetType(ctx->ksp, KSPRICHARDSON));
+    PetscCall(KSPSetDM(ctx->ksp, ctx->dm));
+    PetscCall(KSPSetDMActive(ctx->ksp, PETSC_FALSE));
+    PetscCall(KSPGetPC(ctx->ksp, &pc));
+    PetscCall(PCSetType(pc, "gamgmc"));
+    PetscCall(PCGAMGGetInternalPC(pc, &mgmc));
+    PetscCall(KSPSetOptionsPrefix(ctx->ksp, "ms_"));
+    PetscCall(KSPSetFromOptions(ctx->ksp));
+    PetscCall(KSPSetUp(ctx->ksp));
+    PetscCall(KSPSetTolerances(ctx->ksp, PETSC_DEFAULT, PETSC_DEFAULT, PETSC_DEFAULT, 1));
 
-  PetscCall(PCMGGetLevels(mgmc, &levels));
-  for (PetscInt i = 0; i < levels; ++i) {
-    KSP ksps;
-    PC  pcs;
-    PetscCall(PCMGGetSmoother(mgmc, i, &ksps));
-    PetscCall(KSPSetType(ksps, KSPRICHARDSON));
-    PetscCall(KSPGetPC(ksps, &pcs));
-    PetscCall(PCSetType(pcs, "gibbs"));
-    PetscCall(KSPSetTolerances(ksps, PETSC_DEFAULT, PETSC_DEFAULT, PETSC_DEFAULT, 2));
+    PetscCall(PCMGGetLevels(mgmc, &levels));
+    for (PetscInt i = 0; i < levels; ++i) {
+      KSP ksps;
+      PC  pcs;
+      PetscCall(PCMGGetSmoother(mgmc, i, &ksps));
+      PetscCall(KSPSetType(ksps, KSPRICHARDSON));
+      PetscCall(KSPGetPC(ksps, &pcs));
+      PetscCall(PCSetType(pcs, PCGIBBS));
+      PetscCall(KSPSetTolerances(ksps, PETSC_DEFAULT, PETSC_DEFAULT, PETSC_DEFAULT, 4));
+    }
+
+    PetscCall(DMGetDimension(ctx->dm, &dim));
+    ctx->nu  = ctx->alpha - dim / 2;
+    sigma2   = PetscTGamma(ctx->nu) / (PetscTGamma(ctx->alpha) * PetscPowScalarReal(4 * PETSC_PI, dim / 2.) * PetscPowScalarReal(ctx->kappa, ctx->nu));
+    ctx->tau = PetscSqrtReal(sigma2);
   }
 
-  PetscCall(DMGetDimension(ctx->dm, &dim));
-  ctx->nu  = ctx->alpha - dim / 2;
-  sigma2   = PetscTGamma(ctx->nu) / (PetscTGamma(ctx->alpha) * PetscPowScalarReal(4 * PETSC_PI, dim / 2.) * PetscPowScalarReal(ctx->kappa, ctx->nu));
-  ctx->tau = PetscSqrtReal(sigma2);
+  PetscFunctionReturn(PETSC_SUCCESS);
+}
 
+PetscErrorCode MSGetPrecisionMatrix(MS ms, Mat *A)
+{
+  MSCtx ctx = ms->ctx;
+
+  PetscFunctionBeginUser;
+  *A = ctx->A;
+  PetscFunctionReturn(PETSC_SUCCESS);
+}
+
+PetscErrorCode MSSetAssemblyOnly(MS ms, PetscBool flag)
+{
+  MSCtx ctx = ms->ctx;
+
+  PetscFunctionBeginUser;
+  ctx->assemble_only = flag;
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
@@ -342,6 +379,7 @@ PetscErrorCode MSSetFromOptions(MS ms)
   PetscOptionsBegin(ctx->comm, NULL, "Options for the Matern sampler", NULL);
   PetscCall(PetscOptionsInt("-matern_alpha", "Set power of Matern precision operator", NULL, ctx->alpha, &ctx->alpha, NULL));
   PetscCall(PetscOptionsReal("-matern_kappa", "Set the range parameter of the Matern covariance", NULL, ctx->kappa, &ctx->kappa, NULL));
+  PetscCall(PetscOptionsBool("-matern_assemble_only", "If true, does not setup the sampler, only assembles the precision matrix", NULL, ctx->assemble_only, &ctx->assemble_only, NULL));
   PetscOptionsEnd();
   PetscFunctionReturn(PETSC_SUCCESS);
 }
@@ -360,6 +398,7 @@ PetscErrorCode MSCreate(MPI_Comm comm, MS *ms)
   ctx->alpha               = 1;
   ctx->kappa               = 1;
   ctx->addksp_setup_called = PETSC_FALSE;
+  ctx->assemble_only       = PETSC_FALSE;
   ctx->samples             = NULL;
   PetscFunctionReturn(PETSC_SUCCESS);
 }

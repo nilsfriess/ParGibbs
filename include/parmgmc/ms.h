@@ -23,10 +23,12 @@ PETSC_EXTERN PetscErrorCode MSSetDM(MS, DM);
 PETSC_EXTERN PetscErrorCode MSSetUp(MS);
 
 PETSC_EXTERN PetscErrorCode MSGetDM(MS, DM *);
+PETSC_EXTERN PetscErrorCode MSGetPrecisionMatrix(MS, Mat *);
 PETSC_EXTERN PetscErrorCode MSSetAlpha(MS, PetscInt);
 PETSC_EXTERN PetscErrorCode MSSetKappa(MS, PetscScalar);
+PETSC_EXTERN PetscErrorCode MSSetAssemblyOnly(MS, PetscBool);
 
 PETSC_EXTERN PetscErrorCode MSSample(MS, Vec);
 PETSC_EXTERN PetscErrorCode MSBeginSaveSamples(MS, PetscInt);
-PETSC_EXTERN PetscErrorCode MSEndSaveSamples(MS, PetscInt);
+PETSC_EXTERN PetscErrorCode MSEndSaveSamples(MS, PetscInt, const Vec **);
 PETSC_EXTERN PetscErrorCode MSGetMeanAndVar(MS, Vec *, Vec *);

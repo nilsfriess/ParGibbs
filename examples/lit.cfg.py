@@ -17,3 +17,10 @@ try:
 except KeyError as e:
     NP = 1
 config.substitutions.append(('%NP', NP))
+
+try:
+    opts = lit_config.params['opts']
+except KeyError as e:
+    opts = ""
+
+config.substitutions.append(('%opts', opts))

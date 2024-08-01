@@ -32,6 +32,8 @@ target_sources(parmgmc
 	    src/parmgmc.c
 	    src/problems.c
 	    src/ms.c
+    	    src/cgs.c
+	    src/obs.c
 	 PUBLIC
 	    FILE_SET parmgmcheaders
 	    BASE_DIRS include

@@ -137,7 +137,7 @@ PetscErrorCode MakeObservationMats(DM dm, PetscInt nobs, PetscScalar sigma2, con
 {
   Vec      meas, g, y;
   PetscInt lsize, gsize, cdim;
-  ObsCtx   ctx;
+  ObsCtx   ctx = NULL;
 
   PetscFunctionBeginUser;
   PetscCall(DMGetCoordinateDim(dm, &cdim));
@@ -150,27 +150,31 @@ PetscErrorCode MakeObservationMats(DM dm, PetscInt nobs, PetscScalar sigma2, con
   PetscCall(VecSet(*S, 1. / sigma2));
   PetscCall(VecDuplicate(*S, &y));
 
-  PetscCall(DMCreateGlobalVector(dm, &meas));
-  PetscCall(PetscNew(&ctx));
-  PetscCall(DMCreateMassMatrix(dm, dm, &ctx->M));
-  for (PetscInt i = 0; i < nobs; ++i) {
-    PetscCall(VecZeroEntries(meas));
-    ctx->coords = &(coords[cdim * i]);
-    ctx->radius = radii[i];
-    PetscCall(AddObservationToVec_Plex(dm, meas, ctx));
-    PetscCall(MatDenseGetColumnVec(*B, i, &g));
-    PetscCall(VecCopy(meas, g));
-    PetscCall(MatDenseRestoreColumnVec(*B, i, &g));
-    PetscCall(VecSetValue(y, i, obsvals[i], INSERT_VALUES));
+  if (coords) {
+    PetscCall(DMCreateGlobalVector(dm, &meas));
+    PetscCall(PetscNew(&ctx));
+    PetscCall(DMCreateMassMatrix(dm, dm, &ctx->M));
+    for (PetscInt i = 0; i < nobs; ++i) {
+      PetscCall(VecZeroEntries(meas));
+      ctx->coords = &(coords[cdim * i]);
+      ctx->radius = radii[i];
+      PetscCall(AddObservationToVec_Plex(dm, meas, ctx));
+      PetscCall(MatDenseGetColumnVec(*B, i, &g));
+      PetscCall(VecCopy(meas, g));
+      PetscCall(MatDenseRestoreColumnVec(*B, i, &g));
+      PetscCall(VecSetValue(y, i, obsvals[i], INSERT_VALUES));
+    }
+    PetscCall(VecAssemblyBegin(y));
+    PetscCall(VecAssemblyEnd(y));
+    PetscCall(VecPointwiseMult(y, y, *S));
+    PetscCall(MatMult(*B, y, *f));
+    PetscCall(VecDestroy(&y));
+    PetscCall(VecDestroy(&meas));
   }
-  PetscCall(VecAssemblyBegin(y));
-  PetscCall(VecAssemblyEnd(y));
-  PetscCall(VecPointwiseMult(y, y, *S));
-  PetscCall(MatMult(*B, y, *f));
 
-  PetscCall(MatDestroy(&ctx->M));
-  PetscCall(PetscFree(ctx));
-  PetscCall(VecDestroy(&y));
-  PetscCall(VecDestroy(&meas));
+  if (ctx) {
+    PetscCall(MatDestroy(&ctx->M));
+    PetscCall(PetscFree(ctx));
+  }
   PetscFunctionReturn(PETSC_SUCCESS);
 }

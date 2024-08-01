@@ -20,6 +20,7 @@
 #define PCGAMGMC      "gamgmc"
 #define PCHOGWILD     "hogwild"
 #define PCCHOLSAMPLER "cholsampler"
+#define KSPCGSAMPLER  "cgsampler"
 
 typedef struct _SampleCallbackCtx {
   PetscErrorCode (*cb)(PetscInt, Vec, void *);
