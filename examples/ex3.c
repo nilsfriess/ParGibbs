@@ -185,10 +185,13 @@ int main(int argc, char *argv[])
   PetscCall(PetscFree(appctx));
   PetscCall(VecDestroy(&x));
   PetscCall(VecDestroy(&b));
-  PetscCall(DMDestroy(&dm));
-  PetscCall(MatDestroy(&A));
-  if (with_lr) PetscCall(MatDestroy(&Aop));
+  if (with_lr) {
+    PetscCall(VecDestroy(&S));
+    PetscCall(MatDestroy(&B));
+    PetscCall(MatDestroy(&Aop));
+  }
   PetscCall(KSPDestroy(&ksp));
+  PetscCall(MSDestroy(&ms));
   PetscCall(PetscFinalize());
   return 0;
 }
