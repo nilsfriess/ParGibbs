@@ -51,6 +51,24 @@ static PetscErrorCode PCSetUp_CholSampler(PC pc)
     PetscCall(MatLRCGetMats(pc->pmat, &A, &B, &D, NULL));
     PetscCall(MatConvert(B, MATAIJ, MAT_INITIAL_MATRIX, &Bs));
     PetscCall(MatDuplicate(Bs, MAT_COPY_VALUES, &Bs_S));
+
+    { // Scatter D into a distributed vector
+      PetscInt   sctsize;
+      IS         sctis;
+      Vec        Sd;
+      VecScatter sct;
+
+      PetscCall(VecGetSize(D, &sctsize));
+      PetscCall(ISCreateStride(MPI_COMM_WORLD, sctsize, 0, 1, &sctis));
+      PetscCall(MatCreateVecs(Bs_S, &Sd, NULL));
+      PetscCall(VecScatterCreate(D, sctis, Sd, NULL, &sct));
+      PetscCall(VecScatterBegin(sct, D, Sd, INSERT_VALUES, SCATTER_FORWARD));
+      PetscCall(VecScatterEnd(sct, D, Sd, INSERT_VALUES, SCATTER_FORWARD));
+      PetscCall(VecScatterDestroy(&sct));
+      PetscCall(ISDestroy(&sctis));
+      D = Sd;
+    }
+
     PetscCall(MatDiagonalScale(Bs_S, NULL, D));
     PetscCall(MatMatTransposeMult(Bs_S, Bs, MAT_INITIAL_MATRIX, PETSC_DECIDE, &BSBt));
     PetscCall(MatDuplicate(A, MAT_COPY_VALUES, &P));
@@ -58,6 +76,7 @@ static PetscErrorCode PCSetUp_CholSampler(PC pc)
     PetscCall(MatDestroy(&Bs));
     PetscCall(MatDestroy(&Bs_S));
     PetscCall(MatDestroy(&BSBt));
+    PetscCall(VecDestroy(&D));
   } else {
     P = pc->pmat;
   }
@@ -71,7 +90,8 @@ static PetscErrorCode PCSetUp_CholSampler(PC pc)
 
   PetscCall(MatCholeskyFactorSymbolic(chol->F, S, NULL, NULL));
   PetscCall(MatCholeskyFactorNumeric(chol->F, S, NULL));
-  if (size != 1 || flag) PetscCall(MatDestroy(&S));
+  if (size != 1) PetscCall(MatDestroy(&S));
+  if (flag) PetscCall(MatDestroy(&P));
 
   pc->setupcalled         = PETSC_TRUE;
   pc->reusepreconditioner = PETSC_TRUE;
