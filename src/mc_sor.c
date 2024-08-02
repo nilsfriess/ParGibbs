@@ -119,44 +119,6 @@ static PetscErrorCode MCSORPostSOR_LRC(MCSOR mc, Vec y)
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
-/* static PetscErrorCode MatLUFactorLowerTriangular(Mat A, Mat *LL) */
-/* { */
-/*   PetscInt           lstart, lend, ncols, diagcol; */
-/*   const PetscInt    *cols; */
-/*   const PetscScalar *vals; */
-/*   IS                 rowperm, colperm; */
-/*   Mat                L; */
-/*   PetscBool          forward = PETSC_TRUE; */
-
-/*   PetscFunctionBeginUser; */
-/*   PetscCall(MatDuplicate(A, MAT_DO_NOT_COPY_VALUES, &L)); */
-/*   PetscCall(MatGetOwnershipRange(A, &lstart, &lend)); */
-/*   for (PetscInt i = lstart; i < lend; ++i) { */
-/*     PetscCall(MatGetRow(A, i, &ncols, &cols, &vals)); */
-/*     diagcol = 0; */
-/*     for (PetscInt j = 0; j < ncols; ++j) { */
-/*       diagcol++; */
-/*       if (cols[j] == i) break; */
-/*     } */
-/*     if (forward) PetscCall(MatSetValues(L, 1, &i, diagcol, cols, vals, INSERT_VALUES)); */
-/*     else PetscCall(MatSetValues(L, 1, &i, ncols - diagcol + 1, &cols[diagcol - 1], &vals[diagcol - 1], INSERT_VALUES)); */
-/*     PetscCall(MatRestoreRow(A, i, &ncols, &cols, &vals)); */
-/*   } */
-
-/*   PetscCall(MatAssemblyBegin(L, MAT_FINAL_ASSEMBLY)); */
-/*   PetscCall(MatAssemblyEnd(L, MAT_FINAL_ASSEMBLY)); */
-/*   PetscCall(MatEliminateZeros(L, PETSC_TRUE)); */
-/*   PetscCall(MatGetOrdering(L, MATORDERINGEXTERNAL, &rowperm, &colperm)); */
-/*   PetscCall(MatGetFactor(L, MATSOLVERMUMPS, MAT_FACTOR_LU, LL)); */
-/*   PetscCall(MatLUFactorSymbolic(*LL, L, rowperm, colperm, NULL)); */
-/*   PetscCall(MatLUFactorNumeric(*LL, L, NULL)); */
-
-/*   PetscCall(MatDestroy(&L)); */
-/*   PetscCall(ISDestroy(&rowperm)); */
-/*   PetscCall(ISDestroy(&colperm)); */
-/*   PetscFunctionReturn(PETSC_SUCCESS); */
-/* } */
-
 static PetscErrorCode MCSORUpdateIDiag(MCSOR mc)
 {
   MCSOR_Ctx ctx = mc->ctx;
