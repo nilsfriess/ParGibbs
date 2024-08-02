@@ -77,8 +77,6 @@ typedef struct {
   Vec w;
   Vec sqrtS;
 
-  IS rowperm;
-
   PetscErrorCode (*prepare_rhs)(PC, Vec, Vec);
 } PC_Gibbs;
 
@@ -206,9 +204,7 @@ static PetscErrorCode PCSetUp_Gibbs(PC pc)
     PetscCall(VecDestroy(&pg->sqrtdiag));
     PetscCall(MCSORDestroy(&pg->mc));
   }
-
   PetscCall(MCSORCreate(P, pg->omega, &pg->mc));
-
   PetscCall(MatGetType(P, &type));
   if (strcmp(type, MATSEQAIJ) == 0) {
     pg->A    = P;
@@ -218,35 +214,9 @@ static PetscErrorCode PCSetUp_Gibbs(PC pc)
     pg->Asor = pg->A;
   } else if (strcmp(type, MATLRC) == 0) {
     Vec S;
-    /* Mat B; */
 
     pg->A = P;
     PetscCall(MatLRCGetMats(pg->A, &pg->Asor, &pg->B, &S, NULL));
-    { // Permute the rows of B to match the colouring
-      IS        *islist, colperm;
-      PetscInt   ncolors, cols;
-      ISColoring isc;
-
-      PetscCall(MatGetLocalSize(pg->B, NULL, &cols));
-      PetscCall(ISCreateStride(MPI_COMM_WORLD, cols, 0, 1, &colperm));
-      PetscCall(MCSORGetISColoring(pg->mc, &isc));
-      PetscCall(ISColoringGetIS(isc, PETSC_USE_POINTER, &ncolors, &islist));
-      PetscCall(ISConcatenate(MPI_COMM_WORLD, ncolors, islist, &pg->rowperm));
-      PetscCall(ISColoringRestoreIS(isc, PETSC_USE_POINTER, &islist));
-
-      // Sanity checks that trigger debug asserts if these ISs are not actually permutations
-      PetscCall(ISSetPermutation(colperm));
-      PetscCall(ISSetPermutation(pg->rowperm));
-
-      /* PetscCall(ISView(pg->rowperm, PETSC_VIEWER_STDOUT_WORLD)); */
-
-      /* PetscCall(ISInvertPermutation(pg->rowperm, PETSC_DECIDE, &pg->rowperm)); */
-      /* PetscCall(ISView(pg->rowperm2, PETSC_VIEWER_STDOUT_WORLD)); */
-
-      /* PetscCall(MatView(B, PETSC_VIEWER_STDOUT_WORLD)); */
-      /* PetscCall(MatPermute(B, pg->rowperm, colperm, &pg->B)); */
-      /* PetscCall(MatView(pg->B, PETSC_VIEWER_STDOUT_WORLD)); */
-    }
     PetscCall(VecDuplicate(S, &pg->sqrtS));
     PetscCall(VecCopy(S, pg->sqrtS));
     PetscCall(VecSqrtAbs(pg->sqrtS));
@@ -256,7 +226,6 @@ static PetscErrorCode PCSetUp_Gibbs(PC pc)
   } else {
     PetscCheck(false, MPI_COMM_WORLD, PETSC_ERR_SUP, "Matrix type not supported");
   }
-
   PetscCall(MatCreateVecs(pg->A, &pg->sqrtdiag, &pg->z));
   pg->omega_changed = PETSC_TRUE;
   PetscFunctionReturn(PETSC_SUCCESS);
