@@ -1,6 +1,7 @@
-#############
+.. _installation:
+
 Installation
-#############
+====================
 
 .. toctree::
    :maxdepth: 4
@@ -10,13 +11,11 @@ Installation
    tests
    pybind
 
-The library depends on PETSc configured with MUMPS and Intel C/Pardiso enabled. C/Pardiso requires the `Intel Math Kernel Library (MKL) <https://www.intel.com/content/www/us/en/developer/tools/oneapi/onemkl-download.html>`_. Further, an MPI installation is required. All dependencies except for the Intel MKL can be installed using PETSc's ``./configure`` script. After downloading PETSc, run
+The library depends on PETSc configured with Intel C/Pardiso enabled. C/Pardiso requires the `Intel Math Kernel Library (MKL) <https://www.intel.com/content/www/us/en/developer/tools/oneapi/onemkl-download.html>`_. Further, an MPI installation is required. All dependencies except for the Intel MKL can be installed using PETSc's ``./configure`` script. After downloading PETSc, run
 
 .. code-block:: console
 		
    > ./configure --download-mpich      \
-                 --download-mumps      \
-                 --download-scalapack  \
                  --with-mkl_cpardiso   \
                  --with-mkl_pardiso    \
                  --with-blas-lapack-dir=/opt/intel/oneapi/mkl/latest/lib
@@ -25,7 +24,7 @@ Note that the path to the Intel MKL might differ depending on the platform.
 
 Building the library and examples
 ---------------------------------
-CMake is used to configure and build the library and examples. If all dependencies are installed as described above, run
+CMake is used to configure and build the library. If all dependencies are installed as described above, run
 
 .. code-block:: console
 

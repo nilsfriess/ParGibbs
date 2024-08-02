@@ -5,6 +5,7 @@ API Overview
    :maxdepth: 1
    :caption: Samplers
 
+   ms
    pc_gibbs
    pc_gamgmc
    
