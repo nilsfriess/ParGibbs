@@ -52,8 +52,6 @@ typedef struct _MCSOR_Ctx {
   Mat L, B, Sb, Bb;
   Vec z, w, v, u;
 
-  IS rowperm;
-
   PetscErrorCode (*sor)(struct _MCSOR_Ctx *, Vec, Vec);
   PetscErrorCode (*postsor)(MCSOR, Vec);
 } *MCSOR_Ctx;
@@ -104,18 +102,11 @@ PetscErrorCode MCSORGetISColoring(MCSOR mc, ISColoring *isc)
 static PetscErrorCode MCSORPostSOR_LRC(MCSOR mc, Vec y)
 {
   MCSOR_Ctx ctx = mc->ctx;
-  Vec       yp;
 
   PetscFunctionBeginUser;
-  PetscCall(VecDuplicate(y, &yp));
-  PetscCall(VecCopy(y, yp));
-  /* PetscCall(ISView(ctx->rowperm, PETSC_VIEWER_STDOUT_WORLD)); */
-  /* PetscCall(VecPermute(yp, ctx->rowperm, PETSC_FALSE)); */
-  PetscCall(MatMultTranspose(ctx->B, yp, ctx->w));
+  PetscCall(MatMultTranspose(ctx->B, y, ctx->w));
   PetscCall(MatMult(ctx->Bb, ctx->w, ctx->z));
-  /* PetscCall(VecPermute(ctx->z, ctx->rowperm, PETSC_TRUE)); */
   PetscCall(VecAXPY(y, -1, ctx->z));
-  PetscCall(VecDestroy(&yp));
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
@@ -443,7 +434,7 @@ PetscErrorCode MCSORCreate(Mat A, PetscReal omega, MCSOR *m)
       PetscCall(MCSORDestroy(&mca));
     }
 
-    PetscCall(MatTransposeMatMult(ctx->B, C, MAT_INITIAL_MATRIX, 1, &tmp)); // tmp = B^T P^T M_P^-1 P B
+    PetscCall(MatTransposeMatMult(ctx->B, C, MAT_INITIAL_MATRIX, 1, &tmp)); // tmp = B^T P^T M_P^-1 B
 
     PetscCall(VecGetSize(S, &sctsize));
     PetscCall(ISCreateStride(MPI_COMM_WORLD, sctsize, 0, 1, &sctis));
@@ -455,13 +446,13 @@ PetscErrorCode MCSORCreate(Mat A, PetscReal omega, MCSOR *m)
     PetscCall(ISDestroy(&sctis));
     PetscCall(VecReciprocal(Si));
 
-    PetscCall(MatDiagonalSet(tmp, Si, ADD_VALUES)); // tmp = S^-1 +  B^T P^T M_P^-1 P B
+    PetscCall(MatDiagonalSet(tmp, Si, ADD_VALUES)); // tmp = S^-1 +  B^T M_P^-1 B
     PetscCall(KSPCreate(MPI_COMM_WORLD, &ksp));
     PetscCall(KSPSetOperators(ksp, tmp, tmp));
     PetscCall(MatDuplicate(tmp, MAT_DO_NOT_COPY_VALUES, &Id));
     PetscCall(MatShift(Id, 1));
     PetscCall(MatDuplicate(tmp, MAT_DO_NOT_COPY_VALUES, &ctx->Sb));
-    PetscCall(KSPMatSolve(ksp, Id, ctx->Sb)); // ctx->Sb = ( S^-1 +  B^T P^T M_P^-1 P B )^-1
+    PetscCall(KSPMatSolve(ksp, Id, ctx->Sb)); // ctx->Sb = ( S^-1 +  B^T M_P^-1 B )^-1
 
     PetscCall(MatMatMult(C, ctx->Sb, MAT_INITIAL_MATRIX, 1, &ctx->Bb));
 
