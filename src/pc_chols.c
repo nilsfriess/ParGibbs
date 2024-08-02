@@ -4,6 +4,7 @@
 #include <petscmacros.h>
 #include <petscmat.h>
 #include <petscpc.h>
+#include <petscstring.h>
 #include <petscsys.h>
 #include <petsc/private/pcimpl.h>
 #include <petscvec.h>
@@ -35,19 +36,42 @@ static PetscErrorCode PCDestroy_CholSampler(PC pc)
 static PetscErrorCode PCSetUp_CholSampler(PC pc)
 {
   PC_CholSampler chol = pc->data;
-  Mat            S;
+  Mat            S, P;
   PetscMPIInt    size;
+  MatType        type;
+  PetscBool      flag;
 
   PetscFunctionBeginUser;
+  PetscCall(MatGetType(pc->pmat, &type));
+  PetscCall(PetscStrcmp(type, MATLRC, &flag));
+  if (flag) {
+    Mat A, B, Bs, Bs_S, BSBt;
+    Vec D;
+
+    PetscCall(MatLRCGetMats(pc->pmat, &A, &B, &D, NULL));
+    PetscCall(MatConvert(B, MATAIJ, MAT_INITIAL_MATRIX, &Bs));
+    PetscCall(MatDuplicate(Bs, MAT_COPY_VALUES, &Bs_S));
+    PetscCall(MatDiagonalScale(Bs_S, NULL, D));
+    PetscCall(MatMatTransposeMult(Bs_S, Bs, MAT_INITIAL_MATRIX, PETSC_DECIDE, &BSBt));
+    PetscCall(MatDuplicate(A, MAT_COPY_VALUES, &P));
+    PetscCall(MatAXPY(P, 1., BSBt, DIFFERENT_NONZERO_PATTERN));
+    PetscCall(MatDestroy(&Bs));
+    PetscCall(MatDestroy(&Bs_S));
+    PetscCall(MatDestroy(&BSBt));
+  } else {
+    P = pc->pmat;
+  }
+
   PetscCallMPI(MPI_Comm_size(PetscObjectComm((PetscObject)pc), &size));
-  if (size != 1) PetscCall(MatConvert(pc->pmat, MATSBAIJ, MAT_INITIAL_MATRIX, &S));
-  else S = pc->pmat;
+  if (size != 1) PetscCall(MatConvert(P, MATSBAIJ, MAT_INITIAL_MATRIX, &S));
+  else S = P;
   PetscCall(MatSetOption(S, MAT_SPD, PETSC_TRUE));
   PetscCall(MatCreateVecs(S, &chol->r, &chol->v));
   PetscCall(MatGetFactor(S, chol->st, MAT_FACTOR_CHOLESKY, &chol->F));
 
   PetscCall(MatCholeskyFactorSymbolic(chol->F, S, NULL, NULL));
   PetscCall(MatCholeskyFactorNumeric(chol->F, S, NULL));
+  if (size != 1 || flag) PetscCall(MatDestroy(&S));
 
   pc->setupcalled         = PETSC_TRUE;
   pc->reusepreconditioner = PETSC_TRUE;
