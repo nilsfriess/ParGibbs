@@ -48,6 +48,7 @@ typedef struct _MCSOR_Ctx {
   Vec        *ghostvecs;
   Vec         idiag;
   ISColoring  isc;
+  MatSORType  type;
 
   Mat L, B, Sb, Bb;
   Vec z, w, v, u;
@@ -233,20 +234,39 @@ static PetscErrorCode MCSORApply_SEQAIJ(MCSOR_Ctx ctx, Vec b, Vec y)
   PetscCall(VecGetArrayRead(b, &barr));
 
   PetscCall(VecGetArray(y, &yarr));
-  for (PetscInt color = 0; color < ncolors; ++color) {
-    PetscCall(ISGetLocalSize(iss[color], &nind));
-    PetscCall(ISGetIndices(iss[color], &rowind));
-    for (PetscInt i = 0; i < nind; ++i) {
-      const PetscInt r   = rowind[i];
-      PetscReal      sum = barr[r];
+  if (ctx->type == SOR_FORWARD_SWEEP || ctx->type == SOR_SYMMETRIC_SWEEP) {
+    for (PetscInt color = 0; color < ncolors; ++color) {
+      PetscCall(ISGetLocalSize(iss[color], &nind));
+      PetscCall(ISGetIndices(iss[color], &rowind));
+      for (PetscInt i = 0; i < nind; ++i) {
+        const PetscInt r   = rowind[i];
+        PetscReal      sum = barr[r];
 
-      for (PetscInt k = rowptr[r]; k < ctx->diagptrs[r]; ++k) sum -= matvals[k] * yarr[colptr[k]];
-      for (PetscInt k = ctx->diagptrs[r] + 1; k < rowptr[r + 1]; ++k) sum -= matvals[k] * yarr[colptr[k]];
+        for (PetscInt k = rowptr[r]; k < ctx->diagptrs[r]; ++k) sum -= matvals[k] * yarr[colptr[k]];
+        for (PetscInt k = ctx->diagptrs[r] + 1; k < rowptr[r + 1]; ++k) sum -= matvals[k] * yarr[colptr[k]];
 
-      yarr[r] = (1. - ctx->omega) * yarr[r] + idiagarr[r] * sum;
+        yarr[r] = (1. - ctx->omega) * yarr[r] + idiagarr[r] * sum;
+      }
+
+      PetscCall(ISRestoreIndices(iss[color], &rowind));
     }
+  }
+  if (ctx->type == SOR_BACKWARD_SWEEP || ctx->type == SOR_SYMMETRIC_SWEEP) {
+    for (PetscInt color = ncolors - 1; color >= 0; --color) {
+      PetscCall(ISGetLocalSize(iss[color], &nind));
+      PetscCall(ISGetIndices(iss[color], &rowind));
+      for (PetscInt i = nind - 1; i >= 0; --i) {
+        const PetscInt r   = rowind[i];
+        PetscReal      sum = barr[r];
 
-    PetscCall(ISRestoreIndices(iss[color], &rowind));
+        for (PetscInt k = rowptr[r]; k < ctx->diagptrs[r]; ++k) sum -= matvals[k] * yarr[colptr[k]];
+        for (PetscInt k = ctx->diagptrs[r] + 1; k < rowptr[r + 1]; ++k) sum -= matvals[k] * yarr[colptr[k]];
+
+        yarr[r] = (1. - ctx->omega) * yarr[r] + idiagarr[r] * sum;
+      }
+
+      PetscCall(ISRestoreIndices(iss[color], &rowind));
+    }
   }
   PetscCall(VecRestoreArray(y, &yarr));
 
@@ -344,6 +364,16 @@ PetscErrorCode MCSORSetOmega(MCSOR mc, PetscReal omega)
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
+PetscErrorCode MCSORSetSweepType(MCSOR mc, MatSORType type)
+{
+  MCSOR_Ctx ctx = mc->ctx;
+
+  PetscFunctionBeginUser;
+  PetscCheck(type == SOR_FORWARD_SWEEP || type == SOR_BACKWARD_SWEEP || type == SOR_SYMMETRIC_SWEEP, PetscObjectComm((PetscObject)ctx->A), PETSC_ERR_SUP, "Only forward, backward and symmetric sweep supported");
+  ctx->type = type;
+  PetscFunctionReturn(PETSC_SUCCESS);
+}
+
 static PetscErrorCode MCSORSetupSOR(MCSOR mc)
 {
   MCSOR_Ctx   ctx = mc->ctx;
@@ -382,6 +412,7 @@ PetscErrorCode MCSORCreate(Mat A, PetscReal omega, MCSOR *m)
   ctx->w             = NULL;
   ctx->v             = NULL;
   ctx->postsor       = NULL;
+  ctx->type          = SOR_FORWARD_SWEEP;
 
   PetscCall(MatGetType(A, &type));
   if (strcmp(type, MATSEQAIJ) == 0) {

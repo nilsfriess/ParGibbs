@@ -13,3 +13,4 @@
 PETSC_EXTERN PetscErrorCode PCCreate_Gibbs(PC);
 PETSC_EXTERN PetscErrorCode PCGibbsGetPetscRandom(PC, PetscRandom *);
 PETSC_EXTERN PetscErrorCode PCGibbsSetOmega(PC, PetscReal);
+PETSC_EXTERN PetscErrorCode PCGibbsSetSweepType(PC, MatSORType);

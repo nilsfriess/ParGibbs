@@ -263,6 +263,15 @@ PetscErrorCode PCGibbsSetOmega(PC pc, PetscReal omega)
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
+PetscErrorCode PCGibbsSetSweepType(PC pc, MatSORType type)
+{
+  PC_Gibbs *pg = pc->data;
+
+  PetscFunctionBeginUser;
+  PetscCall(MCSORSetSweepType(pg->mc, type));
+  PetscFunctionReturn(PETSC_SUCCESS);
+}
+
 PetscErrorCode PCCreate_Gibbs(PC pc)
 {
   PC_Gibbs         *gibbs;
