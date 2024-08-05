@@ -91,8 +91,6 @@ static PetscErrorCode SampleCallback(KSP ksp, PetscInt it, PetscReal rnorm, KSPC
   PetscCall(VecAXPY((*sctx)->tmp, -1, (*sctx)->mean_exact));
   PetscCall(VecNorm((*sctx)->tmp, NORM_2, &n));
 
-  PetscCall(PetscPrintf(MPI_COMM_WORLD, "%.4f\n", n));
-
   *reason = KSP_CONVERGED_ITERATING;
   PetscFunctionReturn(PETSC_SUCCESS);
 }
