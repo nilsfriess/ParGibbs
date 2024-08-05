@@ -71,6 +71,7 @@ typedef struct {
   PetscReal   omega;
   PetscBool   omega_changed;
   MCSOR       mc;
+  MatSORType  type;
   Vec         z; // work vec
 
   Mat B;
@@ -188,6 +189,16 @@ static PetscErrorCode PCSetFromOptions_Gibbs(PC pc, PetscOptionItems *PetscOptio
   PetscOptionsHeadBegin(PetscOptionsObject, "Gibbs options");
   PetscCall(PetscOptionsRangeReal("-pc_gibbs_omega", "Gibbs SOR parameter", NULL, pg->omega, &pg->omega, &flag, 0.0, 2.0));
   if (flag) pg->omega_changed = PETSC_TRUE;
+
+  flag = PETSC_FALSE;
+  PetscCall(PetscOptionsBool("-pc_gibbs_forward", "Gibbs forward sweep", NULL, pg->type == SOR_FORWARD_SWEEP, &flag, NULL));
+  if (flag) pg->type = SOR_FORWARD_SWEEP;
+  flag = PETSC_FALSE;
+  PetscCall(PetscOptionsBool("-pc_gibbs_backward", "Gibbs backward sweep", NULL, pg->type == SOR_BACKWARD_SWEEP, &flag, NULL));
+  if (flag) pg->type = SOR_BACKWARD_SWEEP;
+  flag = PETSC_FALSE;
+  PetscCall(PetscOptionsBool("-pc_gibbs_symmetric", "Gibbs symmetric sweep", NULL, pg->type == SOR_SYMMETRIC_SWEEP, &flag, NULL));
+  if (flag) pg->type = SOR_SYMMETRIC_SWEEP;
   PetscOptionsHeadEnd();
   PetscFunctionReturn(PETSC_SUCCESS);
 }
@@ -204,7 +215,9 @@ static PetscErrorCode PCSetUp_Gibbs(PC pc)
     PetscCall(VecDestroy(&pg->sqrtdiag));
     PetscCall(MCSORDestroy(&pg->mc));
   }
-  PetscCall(MCSORCreate(P, pg->omega, &pg->mc));
+  PetscCall(MCSORCreate(P, &pg->mc));
+  PetscCall(MCSORSetSweepType(pg->mc, pg->type));
+  PetscCall(MCSORSetUp(pg->mc));
   PetscCall(MatGetType(P, &type));
   if (strcmp(type, MATSEQAIJ) == 0) {
     pg->A    = P;
@@ -281,6 +294,7 @@ PetscErrorCode PCCreate_Gibbs(PC pc)
   PetscCall(PetscNew(&gibbs));
   gibbs->omega       = 1;
   gibbs->prepare_rhs = PrepareRHS_Default;
+  gibbs->type        = SOR_FORWARD_SWEEP;
 
   // TODO: Allow user to pass own PetscRandom
   PetscCall(PetscRandomCreate(PetscObjectComm((PetscObject)pc), &gibbs->prand));

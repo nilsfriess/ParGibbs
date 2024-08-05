@@ -14,9 +14,11 @@ typedef struct _MCSOR {
   void *ctx;
 } *MCSOR;
 
-PETSC_EXTERN PetscErrorCode MCSORCreate(Mat, PetscReal, MCSOR *);
+PETSC_EXTERN PetscErrorCode MCSORCreate(Mat, MCSOR *);
+PETSC_EXTERN PetscErrorCode MCSORSetUp(MCSOR);
 PETSC_EXTERN PetscErrorCode MCSORDestroy(MCSOR *);
 PETSC_EXTERN PetscErrorCode MCSORApply(MCSOR, Vec, Vec);
 PETSC_EXTERN PetscErrorCode MCSORSetOmega(MCSOR, PetscReal);
 PETSC_EXTERN PetscErrorCode MCSORSetSweepType(MCSOR, MatSORType);
+PETSC_EXTERN PetscErrorCode MCSORGetSweepType(MCSOR, MatSORType*);
 PETSC_EXTERN PetscErrorCode MCSORGetISColoring(MCSOR, ISColoring *);

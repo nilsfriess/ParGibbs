@@ -294,29 +294,58 @@ static PetscErrorCode MCSORApply_MPIAIJ(MCSOR_Ctx ctx, Vec b, Vec y)
   PetscCall(VecGetArrayRead(ctx->idiag, &idiagarr));
   PetscCall(VecGetArrayRead(b, &barr));
 
-  for (PetscInt color = 0; color < ncolors; ++color) {
-    PetscCall(VecScatterBegin(ctx->scatters[color], y, ctx->ghostvecs[color], INSERT_VALUES, SCATTER_FORWARD));
-    PetscCall(VecScatterEnd(ctx->scatters[color], y, ctx->ghostvecs[color], INSERT_VALUES, SCATTER_FORWARD));
-    PetscCall(VecGetArrayRead(ctx->ghostvecs[color], &ghostarr));
+  if (ctx->type == SOR_FORWARD_SWEEP || ctx->type == SOR_SYMMETRIC_SWEEP) {
+    for (PetscInt color = 0; color < ncolors; ++color) {
+      PetscCall(VecScatterBegin(ctx->scatters[color], y, ctx->ghostvecs[color], INSERT_VALUES, SCATTER_FORWARD));
+      PetscCall(VecScatterEnd(ctx->scatters[color], y, ctx->ghostvecs[color], INSERT_VALUES, SCATTER_FORWARD));
+      PetscCall(VecGetArrayRead(ctx->ghostvecs[color], &ghostarr));
 
-    PetscCall(ISGetLocalSize(iss[color], &nind));
-    PetscCall(ISGetIndices(iss[color], &rowind));
-    PetscCall(VecGetArray(y, &yarr));
+      PetscCall(ISGetLocalSize(iss[color], &nind));
+      PetscCall(ISGetIndices(iss[color], &rowind));
+      PetscCall(VecGetArray(y, &yarr));
 
-    gcnt = 0;
-    for (PetscInt i = 0; i < nind; ++i) {
-      PetscReal sum = 0;
+      gcnt = 0;
+      for (PetscInt i = 0; i < nind; ++i) {
+        PetscReal sum = 0;
 
-      for (PetscInt k = rowptr[rowind[i]]; k < ctx->diagptrs[rowind[i]]; ++k) sum -= matvals[k] * yarr[colptr[k]];
-      for (PetscInt k = ctx->diagptrs[rowind[i]] + 1; k < rowptr[rowind[i] + 1]; ++k) sum -= matvals[k] * yarr[colptr[k]];
-      for (PetscInt k = bRowptr[rowind[i]]; k < bRowptr[rowind[i] + 1]; ++k) sum -= bMatvals[k] * ghostarr[gcnt++];
+        for (PetscInt k = rowptr[rowind[i]]; k < ctx->diagptrs[rowind[i]]; ++k) sum -= matvals[k] * yarr[colptr[k]];
+        for (PetscInt k = ctx->diagptrs[rowind[i]] + 1; k < rowptr[rowind[i] + 1]; ++k) sum -= matvals[k] * yarr[colptr[k]];
+        for (PetscInt k = bRowptr[rowind[i]]; k < bRowptr[rowind[i] + 1]; ++k) sum -= bMatvals[k] * ghostarr[gcnt++];
 
-      yarr[rowind[i]] = (1 - ctx->omega) * yarr[rowind[i]] + idiagarr[rowind[i]] * (sum + barr[rowind[i]]);
+        yarr[rowind[i]] = (1 - ctx->omega) * yarr[rowind[i]] + idiagarr[rowind[i]] * (sum + barr[rowind[i]]);
+      }
+
+      PetscCall(VecRestoreArray(y, &yarr));
+      PetscCall(VecRestoreArrayRead(ctx->ghostvecs[color], &ghostarr));
+      PetscCall(ISRestoreIndices(iss[color], &rowind));
     }
+  }
 
-    PetscCall(VecRestoreArray(y, &yarr));
-    PetscCall(VecRestoreArrayRead(ctx->ghostvecs[color], &ghostarr));
-    PetscCall(ISRestoreIndices(iss[color], &rowind));
+  if (ctx->type == SOR_BACKWARD_SWEEP || ctx->type == SOR_SYMMETRIC_SWEEP) {
+    for (PetscInt color = ncolors - 1; color >= 0; --color) {
+      PetscCall(VecScatterBegin(ctx->scatters[color], y, ctx->ghostvecs[color], INSERT_VALUES, SCATTER_FORWARD));
+      PetscCall(VecScatterEnd(ctx->scatters[color], y, ctx->ghostvecs[color], INSERT_VALUES, SCATTER_FORWARD));
+      PetscCall(VecGetArrayRead(ctx->ghostvecs[color], &ghostarr));
+
+      PetscCall(ISGetLocalSize(iss[color], &nind));
+      PetscCall(ISGetIndices(iss[color], &rowind));
+      PetscCall(VecGetArray(y, &yarr));
+
+      gcnt = 0;
+      for (PetscInt i = nind - 1; i >= 0; --i) {
+        PetscReal sum = 0;
+
+        for (PetscInt k = rowptr[rowind[i]]; k < ctx->diagptrs[rowind[i]]; ++k) sum -= matvals[k] * yarr[colptr[k]];
+        for (PetscInt k = ctx->diagptrs[rowind[i]] + 1; k < rowptr[rowind[i] + 1]; ++k) sum -= matvals[k] * yarr[colptr[k]];
+        for (PetscInt k = bRowptr[rowind[i]]; k < bRowptr[rowind[i] + 1]; ++k) sum -= bMatvals[k] * ghostarr[gcnt++];
+
+        yarr[rowind[i]] = (1 - ctx->omega) * yarr[rowind[i]] + idiagarr[rowind[i]] * (sum + barr[rowind[i]]);
+      }
+
+      PetscCall(VecRestoreArray(y, &yarr));
+      PetscCall(VecRestoreArrayRead(ctx->ghostvecs[color], &ghostarr));
+      PetscCall(ISRestoreIndices(iss[color], &rowind));
+    }
   }
 
   PetscCall(VecRestoreArrayRead(b, &barr));
@@ -374,6 +403,15 @@ PetscErrorCode MCSORSetSweepType(MCSOR mc, MatSORType type)
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
+PetscErrorCode MCSORGetSweepType(MCSOR mc, MatSORType *type)
+{
+  MCSOR_Ctx ctx = mc->ctx;
+
+  PetscFunctionBeginUser;
+  *type = ctx->type;
+  PetscFunctionReturn(PETSC_SUCCESS);
+}
+
 static PetscErrorCode MCSORSetupSOR(MCSOR mc)
 {
   MCSOR_Ctx   ctx = mc->ctx;
@@ -388,32 +426,13 @@ static PetscErrorCode MCSORSetupSOR(MCSOR mc)
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
-PetscErrorCode MCSORCreate(Mat A, PetscReal omega, MCSOR *m)
+PetscErrorCode MCSORSetUp(MCSOR mc)
 {
+  MCSOR_Ctx ctx = mc->ctx;
   MatType   type;
-  MCSOR     mc;
-  MCSOR_Ctx ctx;
+  Mat       A = ctx->A;
 
   PetscFunctionBeginUser;
-  PetscCall(PetscNew(&mc));
-  PetscCall(PetscNew(&ctx));
-  ctx->omega = omega;
-  PetscCall(PetscOptionsGetReal(NULL, NULL, "-mc_sor_omega", &ctx->omega, NULL));
-
-  ctx->scatters      = NULL;
-  ctx->ghostvecs     = NULL;
-  ctx->omega_changed = PETSC_TRUE;
-  ctx->A             = A;
-  mc->ctx            = ctx;
-  ctx->L             = NULL;
-  ctx->B             = NULL;
-  ctx->Sb            = NULL;
-  ctx->z             = NULL;
-  ctx->w             = NULL;
-  ctx->v             = NULL;
-  ctx->postsor       = NULL;
-  ctx->type          = SOR_FORWARD_SWEEP;
-
   PetscCall(MatGetType(A, &type));
   if (strcmp(type, MATSEQAIJ) == 0) {
     ctx->Asor = A;
@@ -447,7 +466,9 @@ PetscErrorCode MCSORCreate(Mat A, PetscReal omega, MCSOR *m)
       Vec      x;
 
       PetscCall(MatGetSize(ctx->B, NULL, &cols));
-      PetscCall(MCSORCreate(ctx->Asor, 1., &mca));
+      PetscCall(MCSORCreate(ctx->Asor, &mca));
+      PetscCall(MCSORSetSweepType(mca, ctx->type));
+      PetscCall(MCSORSetUp(mca));
       PetscCall(MatCreateVecs(A, &x, NULL));
       for (PetscInt i = 0; i < cols; ++i) {
         Vec b, c;
@@ -509,6 +530,33 @@ PetscErrorCode MCSORCreate(Mat A, PetscReal omega, MCSOR *m)
     PetscCall(MatCreateScatters(ctx->Asor, ctx->isc, &ctx->scatters, &ctx->ghostvecs));
     ctx->sor = MCSORApply_MPIAIJ;
   }
+  PetscFunctionReturn(PETSC_SUCCESS);
+}
+
+PetscErrorCode MCSORCreate(Mat A, MCSOR *m)
+{
+  MCSOR     mc;
+  MCSOR_Ctx ctx;
+
+  PetscFunctionBeginUser;
+  PetscCall(PetscNew(&mc));
+  PetscCall(PetscNew(&ctx));
+
+  ctx->scatters      = NULL;
+  ctx->ghostvecs     = NULL;
+  ctx->omega_changed = PETSC_TRUE;
+  ctx->A             = A;
+  mc->ctx            = ctx;
+  ctx->L             = NULL;
+  ctx->B             = NULL;
+  ctx->Sb            = NULL;
+  ctx->z             = NULL;
+  ctx->w             = NULL;
+  ctx->v             = NULL;
+  ctx->postsor       = NULL;
+  ctx->type          = SOR_FORWARD_SWEEP;
+  ctx->omega         = 1;
+  PetscCall(PetscOptionsGetReal(NULL, NULL, "-mc_sor_omega", &ctx->omega, NULL)); // TODO: Put this in a seperate MCSORSetFromOptions
 
   *m = mc;
   PetscFunctionReturn(PETSC_SUCCESS);

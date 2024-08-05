@@ -19,6 +19,12 @@
 // Gibbs with default omega
 // RUN: %cc %s -o %t %flags && %mpirun -np %NP %t -ksp_type richardson -pc_type gibbs
 
+// Gibbs with backward sweep
+// RUN: %cc %s -o %t %flags && %mpirun -np %NP %t -ksp_type richardson -pc_type gibbs -pc_gibbs_backward
+
+// Gibbs with symmetric sweep
+// RUN: %cc %s -o %t %flags && %mpirun -np %NP %t -ksp_type richardson -pc_type gibbs -pc_gibbs_symmetric
+
 // Cholesky
 // RUN: %cc %s -o %t %flags && %mpirun -np %NP %t -ksp_type richardson -pc_type cholsampler -samples 10
 
@@ -68,7 +74,7 @@ int main(int argc, char *argv[])
 {
   DM        da;
   Mat       A;
-  Vec       b, x, f, mean;
+  Vec       b, x, mean;
   KSP       ksp;
   PetscReal err;
   PetscInt  n_samples = 500000; // 5000000;
@@ -100,12 +106,10 @@ int main(int argc, char *argv[])
 
   PetscCall(DMCreateGlobalVector(da, &x));
   PetscCall(VecDuplicate(x, &b));
-  PetscCall(VecDuplicate(x, &f));
   PetscCall(VecSet(b, 1));
   PetscCall(VecSet(x, 1));
-  PetscCall(MatMult(A, b, f));
 
-  PetscCall(KSPSolve(ksp, f, x));
+  PetscCall(KSPSolve(ksp, b, x));
 
 #if 0
   {
@@ -137,7 +141,6 @@ int main(int argc, char *argv[])
   PetscCall(VecDestroy(&mean));
   PetscCall(VecDestroy(&x));
   PetscCall(VecDestroy(&b));
-  PetscCall(VecDestroy(&f));
   PetscCall(DMDestroy(&da));
   PetscCall(MatDestroy(&A));
   PetscCall(KSPDestroy(&ksp));
