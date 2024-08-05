@@ -8,6 +8,7 @@ This directory contains some examples (that also function as the test suite for 
 | ex2.c   | Sample from Gaussian random fields with Matern covariance using the MS (Matern Sampler) interface. Currently does not test anything, but only checks if everything compiles and runs without error. |
 | ex3.c   | Tests the multicolour SOR solver. |
 | ex4.c   | Tests the samplers with low-rank updated precision matrices (i.e., linear Bayesian inverse problems). |
+| ex5.c   | Verifies for the multicolour Gauss-Seidel solver that a symmetric sweep is the same as a forward followed by a backward sweep.  |
 
 # Test suite
 
