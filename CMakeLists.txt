@@ -45,10 +45,10 @@ target_compile_options(parmgmc PRIVATE -Wall -Wextra -Wpedantic -pedantic -Wshad
 target_compile_options(parmgmc PUBLIC ${PETSC_CFLAGS})
 target_link_libraries(parmgmc PUBLIC PkgConfig::PETSC)
 
-# add_executable(test test.c)
-# target_include_directories(test PRIVATE include)
-# target_compile_options(test PRIVATE -Wall -Wextra -Wpedantic)
-# target_link_libraries(test parmgmc)
+add_executable(benchmark examples/benchmark.c)
+target_include_directories(benchmark PRIVATE include)
+target_compile_options(benchmark PRIVATE -Wall -Wextra -Wpedantic -pedantic -Wshadow -Wpointer-arith -Wcast-qual -Wstrict-prototypes -Wmissing-prototypes)
+target_link_libraries(benchmark parmgmc fftw3)
 
 include(GNUInstallDirs)
 list(APPEND CMAKE_INSTALL_RPATH ${CMAKE_INSTALL_LIBDIR})
