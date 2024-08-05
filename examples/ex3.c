@@ -143,7 +143,8 @@ int main(int argc, char *argv[])
   } else Aop = A;
 
   PetscCall(PetscNew(&appctx));
-  PetscCall(MCSORCreate(Aop, 1., &appctx->mc));
+  PetscCall(MCSORCreate(Aop, &appctx->mc));
+  PetscCall(MCSORSetUp(appctx->mc));
 
   PetscCall(KSPCreate(MPI_COMM_WORLD, &ksp));
   PetscCall(KSPSetOperators(ksp, Aop, Aop));
