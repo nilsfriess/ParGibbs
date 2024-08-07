@@ -14,9 +14,11 @@
  */
 
 /**************************** Test specification ****************************/
-// RUN: %cc %s -o %t %flags && %mpirun -np %NP %t -dm_refine 4
+// RUN: %cc %s -o %t %flags && %mpirun -np %NP %t -dm_refine 2 %opts
 /****************************************************************************/
 
+#include "mpi.h"
+#include "parmgmc/iact.h"
 #include <petscdm.h>
 #include <petscdmplex.h>
 #include <petscpartitioner.h>
@@ -37,18 +39,31 @@ static PetscErrorCode CreateMeshFromFilename(MPI_Comm comm, const char *filename
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
-#define N_BURNIN  100
-#define N_SAMPLES 100
-#define N_SAVE    20
+#define N_BURNIN  1000
+#define N_SAMPLES 500000
+#define N_SAVE    10
+
+static PetscErrorCode qoi(PetscInt it, Vec sample, PetscScalar *value, void *qctx)
+{
+  (void)it;
+  Vec meas_vec = (Vec)qctx;
+
+  PetscFunctionBeginUser;
+  PetscCall(VecDot(sample, meas_vec, value));
+  PetscFunctionReturn(PETSC_SUCCESS);
+}
 
 int main(int argc, char *argv[])
 {
-  DM          dm;
-  MS          ms;
-  Vec         x, var, mean;
-  PetscViewer viewer;
-  PetscBool   flag;
-  char        filename[512];
+  DM                 dm;
+  MS                 ms;
+  Vec                x, var, mean, meas_vec;
+  PetscViewer        viewer;
+  PetscBool          flag;
+  char               filename[512];
+  const Vec         *samples;
+  const PetscScalar *qois;
+  PetscScalar        tau, qoimean = 0;
 
   PetscCall(PetscInitialize(&argc, &argv, NULL, NULL));
   PetscCall(ParMGMCInitialize());
@@ -63,29 +78,54 @@ int main(int argc, char *argv[])
   flag = PETSC_FALSE;
   PetscCall(PetscOptionsGetBool(NULL, NULL, "-save_samples", &flag, NULL));
 
+  PetscCall(PetscPrintf(MPI_COMM_WORLD, "Starting setup... "));
   PetscCall(MSSetFromOptions(ms));
   PetscCall(MSSetUp(ms));
   PetscCall(MSGetDM(ms, &dm));
 
+  PetscCall(DMCreateGlobalVector(dm, &meas_vec));
+  PetscCall(VecSetRandom(meas_vec, NULL));
+  PetscCall(VecNormalize(meas_vec, NULL));
+
+  PetscCall(MSSetQOI(ms, qoi, meas_vec));
+  PetscCall(PetscPrintf(MPI_COMM_WORLD, "Done\n"));
+
+  PetscCall(PetscPrintf(MPI_COMM_WORLD, "Starting burnin... "));
   PetscCall(DMCreateGlobalVector(dm, &x));
-  for (PetscInt i = 0; i < N_BURNIN; ++i) PetscCall(MSSample(ms, x));
+  PetscCall(MSSetNumSamples(ms, N_BURNIN));
+  PetscCall(MSSample(ms, x));
+  PetscCall(PetscPrintf(MPI_COMM_WORLD, "Done.\n"));
 
-  if (flag) PetscCall(PetscViewerVTKOpen(MPI_COMM_WORLD, "samples.vtu", FILE_MODE_WRITE, &viewer));
-  PetscCall(MSBeginSaveSamples(ms, N_SAMPLES));
-  for (PetscInt i = 0; i < N_SAMPLES; ++i) {
-    PetscCall(MSSample(ms, x));
+  PetscCall(PetscPrintf(MPI_COMM_WORLD, "Starting sampling... "));
+  PetscCall(MSSetNumSamples(ms, N_SAMPLES));
+  if (flag) PetscCall(MSBeginSaveSamples(ms));
+  PetscCall(MSSample(ms, x));
+  PetscCall(PetscPrintf(MPI_COMM_WORLD, "Done\n"));
 
-    if (flag && (N_SAMPLES - i - 1 < N_SAVE)) {
-      char name[256];
-      sprintf(name, "Sample %02d_", N_SAMPLES - i);
-      PetscCall(PetscObjectSetName((PetscObject)x, name));
-      PetscCall(VecView(x, viewer));
-    }
-  }
-  PetscCall(MSEndSaveSamples(ms, N_SAMPLES, NULL));
-  PetscCall(MSGetMeanAndVar(ms, &mean, &var));
+  PetscCall(MSGetQOIValues(ms, &qois));
+  PetscCall(IACT(N_SAMPLES, qois, &tau));
+  PetscCall(PetscPrintf(MPI_COMM_WORLD, "IACT = %.5f\n", tau));
+  for (PetscInt i = 0; i < N_SAMPLES; ++i) qoimean += qois[i] / N_SAMPLES;
+  PetscCall(PetscPrintf(MPI_COMM_WORLD, "Relative mean error = %.5f\n", PetscAbs(qoimean / qois[0])));
+
+  PetscCheck(PetscAbs(tau - 1) < 0.1, MPI_COMM_WORLD, PETSC_ERR_PLIB, "Mean of QOIs has not converged.");
+  PetscCheck(PetscAbs(qoimean / qois[0]) < 0.005, MPI_COMM_WORLD, PETSC_ERR_PLIB, "Mean of QOIs has not converged.");
 
   if (flag) {
+    PetscCall(PetscViewerVTKOpen(MPI_COMM_WORLD, "samples.vtu", FILE_MODE_WRITE, &viewer));
+    PetscCall(MSGetSamples(ms, &samples));
+    for (PetscInt i = 0; i < N_SAVE; ++i) {
+      char name[256];
+      Vec  sample = samples[N_SAMPLES - N_SAVE + i];
+
+      sprintf(name, "Sample %02d_", i);
+      PetscCall(PetscObjectSetName((PetscObject)(sample), name));
+      PetscCall(VecView(sample, viewer));
+    }
+
+    PetscCall(MSEndSaveSamples(ms));
+    PetscCall(MSGetMeanAndVar(ms, &mean, &var));
+
     PetscCall(VecView(mean, viewer));
     PetscCall(VecView(var, viewer));
 

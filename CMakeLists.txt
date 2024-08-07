@@ -18,6 +18,8 @@ if (${PETSC_FOUND})
   message(STATUS "Found PETSc version ${PETSC_VERSION}, include dirs: ${PETSC_INCLUDE_DIRS}")
 endif()
 
+find_package(FFTW REQUIRED)
+
 add_library(parmgmc SHARED)
 file(GLOB_RECURSE PARMGMC_INCLUDES "${CMAKE_CURRENT_SOURCE_DIR}/include/parmgmc/*.h")
 message(STATUS ${PARMGMC_INCLUDES})
@@ -34,6 +36,7 @@ target_sources(parmgmc
 	    src/ms.c
     	    src/cgs.c
 	    src/obs.c
+	    src/iact.c
 	 PUBLIC
 	    FILE_SET parmgmcheaders
 	    BASE_DIRS include
@@ -43,16 +46,12 @@ target_sources(parmgmc
 target_include_directories(parmgmc SYSTEM PUBLIC ${PETSC_INCLUDE_DIRS})
 target_compile_options(parmgmc PRIVATE -Wall -Wextra -Wpedantic -pedantic -Wshadow -Wpointer-arith -Wcast-qual -Wstrict-prototypes -Wmissing-prototypes)
 target_compile_options(parmgmc PUBLIC ${PETSC_CFLAGS})
-target_link_libraries(parmgmc PUBLIC PkgConfig::PETSC)
+target_link_libraries(parmgmc PUBLIC PkgConfig::PETSC ${FFTW_DOUBLE_LIB})
 
-find_package(FFTW)
-
-if(${FFTW_FOUND})
-    add_executable(benchmark examples/benchmark.c)
-    target_include_directories(benchmark PRIVATE include)
-    target_compile_options(benchmark PRIVATE -Wall -Wextra -Wpedantic -pedantic -Wshadow -Wpointer-arith -Wcast-qual -Wstrict-prototypes -Wmissing-prototypes)
-    target_link_libraries(benchmark parmgmc fftw3)
-endif()
+add_executable(benchmark examples/benchmark.c)
+target_include_directories(benchmark PRIVATE include)
+target_compile_options(benchmark PRIVATE -Wall -Wextra -Wpedantic -pedantic -Wshadow -Wpointer-arith -Wcast-qual -Wstrict-prototypes -Wmissing-prototypes)
+target_link_libraries(benchmark parmgmc m)
 
 include(GNUInstallDirs)
 list(APPEND CMAKE_INSTALL_RPATH ${CMAKE_INSTALL_LIBDIR})
