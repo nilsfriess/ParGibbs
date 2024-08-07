@@ -24,7 +24,7 @@ message(STATUS "LIT compile line: ${PARMGMC_CC} ${PARMGMC_CFLAGS}")
 configure_file(lit.site.cfg.py.in lit.site.cfg.py @ONLY)
 add_custom_target(check-seq
 		  COMMENT "Running sequential tests"
-		  COMMAND "/home/nils/.local/share/pipx/venvs/lit/bin/lit" "${CMAKE_CURRENT_BINARY_DIR}" -a --time-tests --filter-out=benchmark.c -DNP=1)
+		  COMMAND "lit" "${CMAKE_CURRENT_BINARY_DIR}" -a --time-tests --filter-out=benchmark.c -DNP=1)
 add_custom_target(check-par
 		  COMMENT "Running parallel tests"
 		  COMMAND lit "${CMAKE_CURRENT_BINARY_DIR}" -a --time-tests --filter-out=benchmark.c -DNP=4)
