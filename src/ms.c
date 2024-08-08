@@ -297,7 +297,7 @@ static PetscErrorCode CreateMeshDefault(MPI_Comm comm, DM *dm)
   PetscInt faces[2];
 
   PetscFunctionBeginUser;
-  faces[0] = 32;
+  faces[0] = 4;
   PetscCall(PetscOptionsGetInt(NULL, NULL, "-box_faces", &faces[0], NULL));
   faces[1] = faces[0];
   PetscCall(DMPlexCreateBoxMesh(comm, 2, PETSC_TRUE, faces, NULL, NULL, NULL, PETSC_TRUE, dm));
