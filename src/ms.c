@@ -139,7 +139,7 @@ static PetscErrorCode MS_AssembleMat(MS ms)
     PetscCall(DMPlexMarkBoundaryFaces(ctx->dm, PETSC_DETERMINE, label));
   }
   PetscCall(DMPlexLabelComplete(ctx->dm, label));
-  PetscCall(DMAddBoundary(ctx->dm, DM_BC_NATURAL, "wall", label, 1, &id, 0, 0, NULL, NULL, NULL, NULL, NULL));
+  PetscCall(DMAddBoundary(ctx->dm, DM_BC_ESSENTIAL, "wall", label, 1, &id, 0, 0, NULL, NULL, NULL, NULL, NULL));
 
   cdm = ctx->dm;
   while (cdm) {
