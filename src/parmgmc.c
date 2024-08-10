@@ -14,6 +14,7 @@
 #include "parmgmc/ksp/cgs.h"
 #include "parmgmc/random/ziggurat.h"
 
+#include <petsc/private/petscimpl.h>
 #include <petscerror.h>
 #include <petsclog.h>
 #include <petscpc.h>
@@ -63,6 +64,8 @@ PetscErrorCode ParMGMCInitialize(void)
    For PETSc's own PC's this does nothing. This works by abusing the `void* user` field
    in the `PC` class which also means that the `user` field cannot be used for anything
    else.
+
+   TODO: Use PetscTryMethod instead.
 */
 PetscErrorCode PCSetSampleCallback(PC pc, PetscErrorCode (*cb)(PetscInt, Vec, void *), void *ctx)
 {
@@ -75,5 +78,27 @@ PetscErrorCode PCSetSampleCallback(PC pc, PetscErrorCode (*cb)(PetscInt, Vec, vo
   cbctx->cb  = cb;
   cbctx->ctx = ctx;
 
+  PetscFunctionReturn(PETSC_SUCCESS);
+}
+
+PetscErrorCode PCSetPetscRandom(PC pc, PetscRandom pr)
+{
+  PetscFunctionBeginUser;
+  PetscUseMethod((PetscObject)pc, "PCSetPetscRandom_C", (PC, PetscRandom), (pc, pr));
+  PetscFunctionReturn(PETSC_SUCCESS);
+}
+
+PetscErrorCode PCGetPetscRandom(PC pc, PetscRandom *pr)
+{
+  PetscFunctionBeginUser;
+  PetscUseMethod((PetscObject)pc, "PCGetPetscRandom_C", (PC, PetscRandom *), (pc, pr));
+  PetscFunctionReturn(PETSC_SUCCESS);
+}
+
+PetscErrorCode RegisterPCSetGetPetscRandom(PC pc, PetscErrorCode (*set)(PC, PetscRandom), PetscErrorCode (*get)(PC, PetscRandom *))
+{
+  PetscFunctionBeginUser;
+  PetscCall(PetscObjectComposeFunction((PetscObject)pc, "PCSetPetscRandom_C", set));
+  PetscCall(PetscObjectComposeFunction((PetscObject)pc, "PCGetPetscRandom_C", get));
   PetscFunctionReturn(PETSC_SUCCESS);
 }

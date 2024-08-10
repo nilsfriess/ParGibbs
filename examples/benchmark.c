@@ -10,6 +10,7 @@
 #include <petscoptions.h>
 #include <petscpc.h>
 #include <petscsys.h>
+#include <petscsystypes.h>
 #include <petscvec.h>
 #include <petscviewer.h>
 #include <petscksp.h>
@@ -97,7 +98,7 @@ static PetscErrorCode InfoView(Mat A, Parameters params, PetscViewer viewer)
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
-static PetscErrorCode GibbsSamplerCreate(Mat A, Parameters params, KSP *ksp)
+static PetscErrorCode GibbsSamplerCreate(Mat A, PetscRandom pr, Parameters params, KSP *ksp)
 {
   (void)params;
 
@@ -113,10 +114,11 @@ static PetscErrorCode GibbsSamplerCreate(Mat A, Parameters params, KSP *ksp)
   PetscCall(KSPSetOperators(*ksp, A, A));
   PetscCall(KSPSetUp(*ksp));
   PetscCall(PCGibbsSetSweepType(pc, SOR_FORWARD_SWEEP));
+  PetscCall(PCSetPetscRandom(pc, pr));
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
-static PetscErrorCode CholeskySamplerCreate(Mat A, Parameters params, KSP *ksp)
+static PetscErrorCode CholeskySamplerCreate(Mat A, PetscRandom pr, Parameters params, KSP *ksp)
 {
   (void)params;
 
@@ -131,24 +133,29 @@ static PetscErrorCode CholeskySamplerCreate(Mat A, Parameters params, KSP *ksp)
   PetscCall(KSPSetNormType(*ksp, KSP_NORM_NONE));
   PetscCall(KSPSetOperators(*ksp, A, A));
   PetscCall(KSPSetUp(*ksp));
+  PetscCall(PCSetPetscRandom(pc, pr));
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
 // Note: This must be set from the options databse using the prefix mgmc
-static PetscErrorCode MGMCSamplerCreate(Mat A, DM dm, Parameters params, KSP *ksp)
+static PetscErrorCode MGMCSamplerCreate(Mat A, DM dm, PetscRandom pr, Parameters params, KSP *ksp)
 {
   (void)params;
 
+  PC pc;
+
   PetscFunctionBeginUser;
   PetscCall(KSPCreate(MPI_COMM_WORLD, ksp));
-  PetscCall(KSPSetOptionsPrefix(*ksp, "mgmc_"));
   PetscCall(KSPSetDM(*ksp, dm));
   PetscCall(KSPSetDMActive(*ksp, PETSC_FALSE));
   PetscCall(KSPSetFromOptions(*ksp));
   PetscCall(KSPSetType(*ksp, KSPRICHARDSON));
+  PetscCall(KSPGetPC(*ksp, &pc));
+  PetscCall(PCSetType(pc, PCGAMGMC));
   PetscCall(KSPSetNormType(*ksp, KSP_NORM_NONE));
   PetscCall(KSPSetOperators(*ksp, A, A));
   PetscCall(KSPSetUp(*ksp));
+  PetscCall(PCSetPetscRandom(pc, pr));
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
@@ -273,12 +280,13 @@ static PetscErrorCode SaveSample(KSP ksp, PetscInt it, PetscReal rnorm, KSPConve
 
 int main(int argc, char *argv[])
 {
-  Parameters params;
-  MS         ms;
-  Mat        A;
-  Vec        b;
-  DM         dm;
-  double     starttime, endtime;
+  Parameters  params;
+  MS          ms;
+  Mat         A;
+  Vec         b;
+  DM          dm;
+  PetscRandom pr;
+  double      starttime, endtime;
 
   PetscCall(PetscInitialize(&argc, &argv, NULL, NULL));
   PetscCall(ParMGMCInitialize());
@@ -295,6 +303,10 @@ int main(int argc, char *argv[])
     PetscCall(MSGetPrecisionMatrix(ms, &A));
     PetscCall(MSGetDM(ms, &dm));
     PetscCall(DMCreateGlobalVector(dm, &b));
+    PetscCall(PetscRandomCreate(MPI_COMM_WORLD, &pr));
+    PetscCall(PetscRandomSetType(pr, PARMGMC_ZIGGURAT));
+    PetscCall(PetscRandomSetSeed(pr, 2));
+    PetscCall(PetscRandomSeed(pr));
   }
   END_STAGE();
 
@@ -302,7 +314,7 @@ int main(int argc, char *argv[])
     if (params->run_gibbs) {
       KSP ksp;
 
-      PetscCall(GibbsSamplerCreate(A, params, &ksp));
+      PetscCall(GibbsSamplerCreate(A, pr, params, &ksp));
 
       START_STAGE("Gibbs burn-in");
       PetscCall(Burnin(ksp, b, params));
@@ -319,7 +331,7 @@ int main(int argc, char *argv[])
     if (params->run_mgmc) {
       KSP ksp;
 
-      PetscCall(MGMCSamplerCreate(A, dm, params, &ksp));
+      PetscCall(MGMCSamplerCreate(A, dm, pr, params, &ksp));
 
       START_STAGE("MGMC burn-in");
       PetscCall(Burnin(ksp, b, params));
@@ -336,7 +348,7 @@ int main(int argc, char *argv[])
     if (params->run_cholsampler) {
       KSP ksp;
 
-      PetscCall(CholeskySamplerCreate(A, params, &ksp));
+      PetscCall(CholeskySamplerCreate(A, pr, params, &ksp));
 
       START_STAGE("Cholesky burn-in");
       PetscCall(Burnin(ksp, b, params));
@@ -356,7 +368,7 @@ int main(int argc, char *argv[])
       KSP          ksp;
       PetscScalar *qois, tau = 0;
 
-      PetscCall(GibbsSamplerCreate(A, params, &ksp));
+      PetscCall(GibbsSamplerCreate(A, pr, params, &ksp));
       START_STAGE("Gibbs burn-in");
       PetscCall(Burnin(ksp, b, params));
       END_STAGE();
@@ -380,7 +392,7 @@ int main(int argc, char *argv[])
       KSP          ksp;
       PetscScalar *qois, tau = 0;
 
-      PetscCall(CholeskySamplerCreate(A, params, &ksp));
+      PetscCall(CholeskySamplerCreate(A, pr, params, &ksp));
       START_STAGE("Cholesky burn-in");
       PetscCall(Burnin(ksp, b, params));
       END_STAGE();
@@ -404,7 +416,7 @@ int main(int argc, char *argv[])
       KSP          ksp;
       PetscScalar *qois, tau = 0;
 
-      PetscCall(MGMCSamplerCreate(A, dm, params, &ksp));
+      PetscCall(MGMCSamplerCreate(A, dm, pr, params, &ksp));
       START_STAGE("MGMC burn-in");
       PetscCall(Burnin(ksp, b, params));
       END_STAGE();
@@ -429,5 +441,6 @@ int main(int argc, char *argv[])
   PetscCall(ParametersDestroy(&params));
   PetscCall(MSDestroy(&ms));
   PetscCall(VecDestroy(&b));
+  PetscCall(PetscRandomDestroy(&pr));
   PetscCall(PetscFinalize());
 }

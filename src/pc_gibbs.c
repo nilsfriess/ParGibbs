@@ -69,7 +69,7 @@ typedef struct {
   PetscRandom prand;
   Vec         sqrtdiag; // Both include omega
   PetscReal   omega;
-  PetscBool   omega_changed;
+  PetscBool   omega_changed, prand_is_initial_prand;
   MCSOR       mc;
   MatSORType  type;
   Vec         z; // work vec
@@ -88,7 +88,7 @@ static PetscErrorCode PCDestroy_Gibbs(PC pc)
 
   PetscFunctionBeginUser;
   PetscCall(PetscFree(cbctx));
-  PetscCall(PetscRandomDestroy(&pg->prand));
+  if (pg->prand_is_initial_prand) PetscCall(PetscRandomDestroy(&pg->prand));
   PetscCall(VecDestroy(&pg->sqrtdiag));
   PetscCall(MCSORDestroy(&pg->mc));
   PetscCall(VecDestroy(&pg->w));
@@ -254,7 +254,7 @@ static PetscErrorCode PCSetUp_Gibbs(PC pc)
        PetscRandomSetSeed(pr, seed);
        PetscRandomSeed(pr);
  */
-PetscErrorCode PCGibbsGetPetscRandom(PC pc, PetscRandom *pr)
+static PetscErrorCode PCGibbsGetPetscRandom(PC pc, PetscRandom *pr)
 {
   PC_Gibbs *pg = pc->data;
 
@@ -285,6 +285,19 @@ PetscErrorCode PCGibbsSetSweepType(PC pc, MatSORType type)
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
+static PetscErrorCode PCGibbsSetPetscRandom(PC pc, PetscRandom pr)
+{
+  PC_Gibbs *pg = pc->data;
+
+  PetscFunctionBeginUser;
+  if (pg->prand_is_initial_prand) {
+    PetscCall(PetscRandomDestroy(&pg->prand));
+    pg->prand_is_initial_prand = PETSC_FALSE;
+  }
+  pg->prand = pr;
+  PetscFunctionReturn(PETSC_SUCCESS);
+}
+
 PetscErrorCode PCCreate_Gibbs(PC pc)
 {
   PC_Gibbs         *gibbs;
@@ -296,9 +309,9 @@ PetscErrorCode PCCreate_Gibbs(PC pc)
   gibbs->prepare_rhs = PrepareRHS_Default;
   gibbs->type        = SOR_FORWARD_SWEEP;
 
-  // TODO: Allow user to pass own PetscRandom
   PetscCall(PetscRandomCreate(PetscObjectComm((PetscObject)pc), &gibbs->prand));
   PetscCall(PetscRandomSetType(gibbs->prand, PARMGMC_ZIGGURAT));
+  gibbs->prand_is_initial_prand = PETSC_TRUE;
 
   PetscCall(PetscNew(&cbctx));
   pc->user = cbctx;
@@ -310,5 +323,6 @@ PetscErrorCode PCCreate_Gibbs(PC pc)
   pc->ops->setfromoptions  = PCSetFromOptions_Gibbs;
   pc->ops->reset           = PCReset_Gibbs;
   pc->ops->apply           = PCApply_Gibbs;
+  PetscCall(RegisterPCSetGetPetscRandom(pc, PCGibbsSetPetscRandom, PCGibbsGetPetscRandom));
   PetscFunctionReturn(PETSC_SUCCESS);
 }

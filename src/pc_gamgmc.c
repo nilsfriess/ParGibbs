@@ -8,9 +8,8 @@
 
 #include "parmgmc/pc/pc_gamgmc.h"
 #include "parmgmc/parmgmc.h"
-#include "parmgmc/pc/pc_chols.h"
-#include "parmgmc/pc/pc_gibbs.h"
 
+#include <petscviewer.h>
 #include <string.h>
 #include <time.h>
 
@@ -154,22 +153,20 @@ static PetscErrorCode PCGAMGMC_SetUpHierarchy(PC pc)
     }
   }
 
-  for (PetscInt l = levels - 1; l >= 0; --l) {
+  {
     KSP         ksps;
     PC          pcs;
     PetscRandom pr;
-    PCType      pct;
 
-    PetscCall(PCMGGetSmoother(pg->mg, l, &ksps));
+    PetscCall(PCMGGetSmoother(pg->mg, 0, &ksps));
     PetscCall(KSPGetPC(ksps, &pcs));
-    PetscCall(PCGetType(pcs, &pct));
-    if (strcmp(pct, PCGIBBS) == 0) {
-      PetscCall(PCGibbsGetPetscRandom(pcs, &pr));
-      PetscCall(KSPSetInitialGuessNonzero(ksps, PETSC_TRUE));
-    } else if (strcmp(pct, PCCHOLSAMPLER) == 0) PetscCall(PCCholSamplerGetPetscRandom(pcs, &pr));
-    else PetscCheck(PETSC_FALSE, MPI_COMM_WORLD, PETSC_ERR_SUP, "Only Gibbs and Cholesky samplers supported, got: %s", pct);
-    PetscCall(PetscRandomSetSeed(pr, time(0) + l));
-    PetscCall(PetscRandomSeed(pr));
+    PetscCall(PCGetPetscRandom(pcs, &pr));
+
+    for (PetscInt l = 1; l < levels; ++l) {
+      PetscCall(PCMGGetSmoother(pg->mg, l, &ksps));
+      PetscCall(KSPGetPC(ksps, &pcs));
+      PetscCall(PCSetPetscRandom(pcs, pr));
+    }
   }
   PetscFunctionReturn(PETSC_SUCCESS);
 }
@@ -189,31 +186,31 @@ static PetscErrorCode PCApply_GAMGMC(PC pc, Vec x, Vec y)
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
-static PetscErrorCode PCApplyRichardson_GAMGMC(PC pc, Vec b, Vec y, Vec w, PetscReal rtol, PetscReal abstol, PetscReal dtol, PetscInt its, PetscBool guesszero, PetscInt *outits, PCRichardsonConvergedReason *reason)
-{
-  (void)rtol;
-  (void)abstol;
-  (void)dtol;
-  (void)guesszero;
-  (void)w;
+/* static PetscErrorCode PCApplyRichardson_GAMGMC(PC pc, Vec b, Vec y, Vec w, PetscReal rtol, PetscReal abstol, PetscReal dtol, PetscInt its, PetscBool guesszero, PetscInt *outits, PCRichardsonConvergedReason *reason) */
+/* { */
+/*   (void)rtol; */
+/*   (void)abstol; */
+/*   (void)dtol; */
+/*   (void)guesszero; */
+/*   (void)w; */
 
-  PC_GAMGMC         pg    = pc->data;
-  SampleCallbackCtx cbctx = pc->user;
+/*   PC_GAMGMC         pg    = pc->data; */
+/*   SampleCallbackCtx cbctx = pc->user; */
 
-  PetscFunctionBeginUser;
-  if (!pg->setup_called) {
-    PetscCall(PCGAMGMC_SetUpHierarchy(pc));
-    pg->setup_called = PETSC_TRUE;
-  }
+/*   PetscFunctionBeginUser; */
+/*   if (!pg->setup_called) { */
+/*     PetscCall(PCGAMGMC_SetUpHierarchy(pc)); */
+/*     pg->setup_called = PETSC_TRUE; */
+/*   } */
 
-  for (PetscInt i = 0; i < its; ++i) {
-    PetscCall(PCApply(pg->mg, b, y));
-    if (cbctx->cb) PetscCall(cbctx->cb(i, y, cbctx->ctx));
-  }
-  *outits = its;
-  *reason = PCRICHARDSON_CONVERGED_ITS;
-  PetscFunctionReturn(PETSC_SUCCESS);
-}
+/*   for (PetscInt i = 0; i < its; ++i) { */
+/*     PetscCall(PCApply(pg->mg, b, y)); */
+/*     if (cbctx->cb) PetscCall(cbctx->cb(i, y, cbctx->ctx)); */
+/*   } */
+/*   *outits = its; */
+/*   *reason = PCRICHARDSON_CONVERGED_ITS; */
+/*   PetscFunctionReturn(PETSC_SUCCESS); */
+/* } */
 
 static PetscErrorCode PCView_GAMGMC(PC pc, PetscViewer v)
 {
@@ -267,6 +264,36 @@ static PetscErrorCode PCSetFromOptions_GAMGMC(PC pc, PetscOptionItems *PetscOpti
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
+static PetscErrorCode PCGAMGMCSetPetscRandom(PC pc, PetscRandom pr)
+{
+  KSP       ksps;
+  PC        pcs;
+  PetscInt  levels;
+  PC_GAMGMC pg = pc->data;
+
+  PetscFunctionBeginUser;
+  PetscCall(PCMGGetLevels(pg->mg, &levels));
+  for (PetscInt l = levels - 1; l >= 0; --l) {
+    PetscCall(PCMGGetSmoother(pg->mg, l, &ksps));
+    PetscCall(KSPGetPC(ksps, &pcs));
+    PetscCall(PCSetPetscRandom(pcs, pr));
+  }
+  PetscFunctionReturn(PETSC_SUCCESS);
+}
+
+static PetscErrorCode PCGAMGMCGetPetscRandom(PC pc, PetscRandom *pr)
+{
+  PC_GAMGMC pg = pc->data;
+  KSP       ksps;
+  PC        pcs;
+
+  PetscFunctionBeginUser;
+  PetscCall(PCMGGetSmoother(pg->mg, 0, &ksps));
+  PetscCall(KSPGetPC(ksps, &pcs));
+  PetscCall(PCGetPetscRandom(pcs, pr));
+  PetscFunctionReturn(PETSC_SUCCESS);
+}
+
 PetscErrorCode PCCreate_GAMGMC(PC pc)
 {
   PC_GAMGMC         pg;
@@ -281,12 +308,13 @@ PetscErrorCode PCCreate_GAMGMC(PC pc)
   PetscCall(PetscNew(&cbctx));
   pc->user = cbctx;
 
-  pc->data                 = pg;
-  pc->ops->setup           = PCSetUp_GAMGMC;
-  pc->ops->applyrichardson = PCApplyRichardson_GAMGMC;
-  pc->ops->apply           = PCApply_GAMGMC;
-  pc->ops->view            = PCView_GAMGMC;
-  pc->ops->destroy         = PCDestroy_GAMGMC;
-  pc->ops->setfromoptions  = PCSetFromOptions_GAMGMC;
+  pc->data       = pg;
+  pc->ops->setup = PCSetUp_GAMGMC;
+  /* pc->ops->applyrichardson = PCApplyRichardson_GAMGMC; */
+  pc->ops->apply          = PCApply_GAMGMC;
+  pc->ops->view           = PCView_GAMGMC;
+  pc->ops->destroy        = PCDestroy_GAMGMC;
+  pc->ops->setfromoptions = PCSetFromOptions_GAMGMC;
+  PetscCall(RegisterPCSetGetPetscRandom(pc, PCGAMGMCSetPetscRandom, PCGAMGMCGetPetscRandom));
   PetscFunctionReturn(PETSC_SUCCESS);
 }

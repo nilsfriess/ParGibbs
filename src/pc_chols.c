@@ -1,6 +1,7 @@
 #include "parmgmc/pc/pc_chols.h"
 #include "parmgmc/parmgmc.h"
 
+#include <petscis.h>
 #include <petscmacros.h>
 #include <petscmat.h>
 #include <petscpc.h>
@@ -16,8 +17,9 @@
 typedef struct {
   Vec           r, v;
   Mat           F;
-  PetscRandom   pr;
+  PetscRandom   prand;
   MatSolverType st;
+  PetscBool     prand_is_initial_prand;
 } *PC_CholSampler;
 
 static PetscErrorCode PCDestroy_CholSampler(PC pc)
@@ -28,7 +30,7 @@ static PetscErrorCode PCDestroy_CholSampler(PC pc)
   PetscCall(MatDestroy(&chol->F));
   PetscCall(VecDestroy(&chol->r));
   PetscCall(VecDestroy(&chol->v));
-  PetscCall(PetscRandomDestroy(&chol->pr));
+  if (chol->prand_is_initial_prand) PetscCall(PetscRandomDestroy(&chol->prand));
   PetscCall(PetscFree(chol));
   PetscFunctionReturn(PETSC_SUCCESS);
 }
@@ -40,6 +42,8 @@ static PetscErrorCode PCSetUp_CholSampler(PC pc)
   PetscMPIInt    size;
   MatType        type;
   PetscBool      flag;
+  IS             rowperm, colperm;
+  MatFactorInfo  info;
 
   PetscFunctionBeginUser;
   PetscCall(MatGetType(pc->pmat, &type));
@@ -88,10 +92,13 @@ static PetscErrorCode PCSetUp_CholSampler(PC pc)
   PetscCall(MatCreateVecs(S, &chol->r, &chol->v));
   PetscCall(MatGetFactor(S, chol->st, MAT_FACTOR_CHOLESKY, &chol->F));
 
-  PetscCall(MatCholeskyFactorSymbolic(chol->F, S, NULL, NULL));
-  PetscCall(MatCholeskyFactorNumeric(chol->F, S, NULL));
+  PetscCall(MatGetOrdering(S, MATORDERINGNATURAL, &rowperm, &colperm));
+  PetscCall(MatCholeskyFactorSymbolic(chol->F, S, rowperm, &info));
+  PetscCall(MatCholeskyFactorNumeric(chol->F, S, &info));
   if (size != 1) PetscCall(MatDestroy(&S));
   if (flag) PetscCall(MatDestroy(&P));
+  PetscCall(ISDestroy(&rowperm));
+  PetscCall(ISDestroy(&colperm));
 
   pc->setupcalled         = PETSC_TRUE;
   pc->reusepreconditioner = PETSC_TRUE;
@@ -104,9 +111,24 @@ static PetscErrorCode PCApply_CholSampler(PC pc, Vec x, Vec y)
 
   PetscFunctionBeginUser;
   PetscCall(MatForwardSolve(chol->F, x, chol->v));
-  PetscCall(VecSetRandom(chol->r, chol->pr));
+  PetscCall(VecSetRandom(chol->r, chol->prand));
   PetscCall(VecAXPY(chol->v, 1., chol->r));
   PetscCall(MatBackwardSolve(chol->F, chol->v, y));
+  PetscFunctionReturn(PETSC_SUCCESS);
+}
+
+static PetscErrorCode PCApplyRichardson_CholSampler(PC pc, Vec b, Vec y, Vec w, PetscReal rtol, PetscReal abstol, PetscReal dtol, PetscInt its, PetscBool guesszero, PetscInt *outits, PCRichardsonConvergedReason *reason)
+{
+  (void)rtol;
+  (void)abstol;
+  (void)dtol;
+  (void)guesszero;
+  (void)w;
+
+  PetscFunctionBeginUser;
+  for (PetscInt it = 0; it < its; ++it) PetscCall(PCApply_CholSampler(pc, b, y));
+  *outits = its;
+  *reason = PCRICHARDSON_CONVERGED_ITS;
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
@@ -115,7 +137,20 @@ PetscErrorCode PCCholSamplerGetPetscRandom(PC pc, PetscRandom *pr)
   PC_CholSampler chol = pc->data;
 
   PetscFunctionBeginUser;
-  *pr = chol->pr;
+  *pr = chol->prand;
+  PetscFunctionReturn(PETSC_SUCCESS);
+}
+
+static PetscErrorCode PCCholSamplerSetPetscRandom(PC pc, PetscRandom pr)
+{
+  PC_CholSampler chol = pc->data;
+
+  PetscFunctionBeginUser;
+  if (chol->prand_is_initial_prand) {
+    PetscCall(PetscRandomDestroy(&chol->prand));
+    chol->prand_is_initial_prand = PETSC_FALSE;
+  }
+  chol->prand = pr;
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
@@ -126,18 +161,19 @@ PetscErrorCode PCCreate_CholSampler(PC pc)
 
   PetscFunctionBeginUser;
   PetscCall(PetscNew(&chol));
-  PetscCall(PetscRandomCreate(PetscObjectComm((PetscObject)pc), &chol->pr));
-  PetscCall(PetscRandomSetType(chol->pr, PARMGMC_ZIGGURAT));
-  PetscCall(PetscRandomSetSeed(chol->pr, time(0)));
-  PetscCall(PetscRandomSeed(chol->pr));
+  PetscCall(PetscRandomCreate(PetscObjectComm((PetscObject)pc), &chol->prand));
+  PetscCall(PetscRandomSetType(chol->prand, PARMGMC_ZIGGURAT));
 
   PetscCallMPI(MPI_Comm_size(PetscObjectComm((PetscObject)pc), &size));
   if (size == 1) chol->st = MATSOLVERMKL_PARDISO;
   else chol->st = MATSOLVERMKL_CPARDISO;
 
-  pc->data         = chol;
-  pc->ops->destroy = PCDestroy_CholSampler;
-  pc->ops->setup   = PCSetUp_CholSampler;
-  pc->ops->apply   = PCApply_CholSampler;
+  pc->data                     = chol;
+  pc->ops->destroy             = PCDestroy_CholSampler;
+  pc->ops->setup               = PCSetUp_CholSampler;
+  pc->ops->apply               = PCApply_CholSampler;
+  pc->ops->applyrichardson     = PCApplyRichardson_CholSampler;
+  chol->prand_is_initial_prand = PETSC_TRUE;
+  PetscCall(RegisterPCSetGetPetscRandom(pc, PCCholSamplerSetPetscRandom, PCCholSamplerGetPetscRandom));
   PetscFunctionReturn(PETSC_SUCCESS);
 }
