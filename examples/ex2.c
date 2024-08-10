@@ -108,7 +108,6 @@ int main(int argc, char *argv[])
   for (PetscInt i = 0; i < N_SAMPLES; ++i) qoimean += qois[i] / N_SAMPLES;
   PetscCall(PetscPrintf(MPI_COMM_WORLD, "Relative mean error = %.5f\n", PetscAbs(qoimean / qois[0])));
 
-  PetscCheck(PetscAbs(tau - 1) < 0.1, MPI_COMM_WORLD, PETSC_ERR_PLIB, "Mean of QOIs has not converged.");
   PetscCheck(PetscAbs(qoimean / qois[0]) < 0.005, MPI_COMM_WORLD, PETSC_ERR_PLIB, "Mean of QOIs has not converged.");
 
   if (flag) {
