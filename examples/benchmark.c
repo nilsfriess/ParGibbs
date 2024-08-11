@@ -1,27 +1,29 @@
-#include "parmgmc/iact.h"
-#include "parmgmc/ms.h"
-#include "parmgmc/obs.h"
-#include "parmgmc/parmgmc.h"
-#include "parmgmc/pc/pc_gibbs.h"
-#include "parmgmc/pc/pc_gamgmc.h"
+#include <math.h>
+#include <mpi.h>
 
-#include <complex.h>
-#include <petsc/private/pcmgimpl.h>
 #include <petscdm.h>
+#include <petscdmtypes.h>
+#include <petscerror.h>
+#include <petscksp.h>
 #include <petscmat.h>
 #include <petscmath.h>
 #include <petscoptions.h>
 #include <petscpc.h>
+#include <petscpctypes.h>
 #include <petscstring.h>
 #include <petscsys.h>
 #include <petscsystypes.h>
 #include <petscvec.h>
 #include <petscviewer.h>
-#include <petscksp.h>
-#include <mpi.h>
-
-#include <fftw3.h>
+#include <petscviewertypes.h>
 #include <time.h>
+
+#include "parmgmc/iact.h"
+#include "parmgmc/ms.h"
+#include "parmgmc/obs.h"
+#include "parmgmc/parmgmc.h"
+#include "parmgmc/pc/pc_gamgmc.h"
+#include "parmgmc/pc/pc_gibbs.h"
 
 typedef struct {
   PetscBool run_gibbs, run_mgmc_coarse_chol, run_mgmc_coarse_gibbs, run_cholsampler;
@@ -249,7 +251,7 @@ int main(int argc, char *argv[])
   PetscRandom pr;
   double      time;
 
-  PetscCall(PetscInitialize(&argc, &argv, NULL, NULL));
+  PetscCall(PetscInitialize(&argc, &argv, "../examples/benchmarkrc", NULL));
   PetscCall(ParMGMCInitialize());
 
   PetscCall(ParametersCreate(&params));

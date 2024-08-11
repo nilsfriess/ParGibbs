@@ -4,17 +4,18 @@
     This file is part of ParMGMC which is released under the GNU LESSER GENERAL
     PUBLIC LICENSE (LGPL). See file LICENSE in the project root folder for full
     license details.
-*/
+ */
+
+#include "parmgmc/parmgmc.h"
+#include "parmgmc/random/ziggurat.h"
 
 #include <math.h>
-#include <stdint.h>
-
-#include <petscmacros.h>
-#include <petscsystypes.h>
 #include <petsc/private/randomimpl.h>
-
-#include "parmgmc/random/ziggurat.h"
-#include "parmgmc/parmgmc.h"
+#include <petscerror.h>
+#include <petscmacros.h>
+#include <petscsys.h>
+#include <petscsystypes.h>
+#include <stdint.h>
 
 // Ziggurat implementation taken from: https://people.sc.fsu.edu/~jburkardt/c_src/ziggurat/ziggurat.html
 static float r4_uni(uint32_t *jsr)

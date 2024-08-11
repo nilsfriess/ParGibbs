@@ -8,10 +8,10 @@
 
 #pragma once
 
-#include <petscdm.h>
-#include <petscdmplex.h>
-#include <petscsystypes.h>
+#include <petscsys.h>
+#include <petscdmtypes.h>
+#include <petscmacros.h>
+#include <petscmat.h>
 #include <petscvec.h>
 
-PETSC_EXTERN PetscErrorCode AddObservationToVec(DM dm, const PetscScalar *p, PetscScalar r, Vec vec);
 PETSC_EXTERN PetscErrorCode MakeObservationMats(DM, PetscInt, PetscScalar, const PetscScalar *, PetscScalar *, const PetscScalar *, Mat *, Vec *, Vec *);

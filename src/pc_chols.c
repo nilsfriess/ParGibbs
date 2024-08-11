@@ -1,18 +1,17 @@
 #include "parmgmc/pc/pc_chols.h"
 #include "parmgmc/parmgmc.h"
 
+#include <petsc/private/pcimpl.h>
+#include <petscerror.h>
 #include <petscis.h>
-#include <petscmacros.h>
+#include <petscistypes.h>
 #include <petscmat.h>
-#include <petscpc.h>
+#include <petscsftypes.h>
 #include <petscstring.h>
 #include <petscsys.h>
-#include <petsc/private/pcimpl.h>
 #include <petscvec.h>
-
-#include <mpi.h>
-
 #include <time.h>
+#include <mpi.h>
 
 typedef struct {
   Vec           r, v;

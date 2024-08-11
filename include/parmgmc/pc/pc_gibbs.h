@@ -8,7 +8,10 @@
 
 #pragma once
 
-#include <petscpc.h>
+#include <petscmacros.h>
+#include <petscmat.h>
+#include <petscpctypes.h>
+#include <petscsystypes.h>
 
 PETSC_EXTERN PetscErrorCode PCCreate_Gibbs(PC);
 PETSC_EXTERN PetscErrorCode PCGibbsSetOmega(PC, PetscReal);

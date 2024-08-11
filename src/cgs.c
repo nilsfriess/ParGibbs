@@ -1,14 +1,15 @@
 #include "parmgmc/ksp/cgs.h"
 #include "parmgmc/parmgmc.h"
 
+#include <math.h>
 #include <petsc/private/kspimpl.h>
+#include <petscerror.h>
 #include <petscksp.h>
 #include <petscmat.h>
-#include <petscmath.h>
 #include <petscpc.h>
+#include <petscpctypes.h>
 #include <petscsys.h>
 #include <petscvec.h>
-#include <petscviewer.h>
 
 typedef struct {
   PetscRandom pr;

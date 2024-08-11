@@ -4,22 +4,23 @@
     This file is part of ParMGMC which is released under the GNU LESSER GENERAL
     PUBLIC LICENSE (LGPL). See file LICENSE in the project root folder for full
     license details.
-*/
+ */
 
 #include "parmgmc/parmgmc.h"
-#include "parmgmc/pc/pc_chols.h"
-#include "parmgmc/pc/pc_gibbs.h"
-#include "parmgmc/pc/pc_gamgmc.h"
-#include "parmgmc/pc/pc_hogwild.h"
 #include "parmgmc/ksp/cgs.h"
+#include "parmgmc/pc/pc_chols.h"
+#include "parmgmc/pc/pc_gamgmc.h"
+#include "parmgmc/pc/pc_gibbs.h"
+#include "parmgmc/pc/pc_hogwild.h"
 #include "parmgmc/random/ziggurat.h"
 
+#include <petsc/private/pcimpl.h>
 #include <petsc/private/petscimpl.h>
 #include <petscerror.h>
+#include <petscksp.h>
 #include <petsclog.h>
 #include <petscpc.h>
 #include <petscsys.h>
-#include <petsc/private/pcimpl.h>
 
 /** @file
     @brief This file contains general purpose functions for the ParMGMC library.

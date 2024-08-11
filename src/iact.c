@@ -1,8 +1,11 @@
 #include "parmgmc/iact.h"
 
-#include <petscsys.h>
-
+#include <complex.h>
 #include <fftw3.h>
+
+#include <petscsys.h>
+#include <petscerror.h>
+#include <petscmath.h>
 
 PetscErrorCode Autocorrelation(PetscInt n, const PetscScalar *x, PetscScalar **acf)
 {

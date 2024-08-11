@@ -44,25 +44,17 @@
 #include "parmgmc/mc_sor.h"
 #include "parmgmc/parmgmc.h"
 
-#include <petscdm.h>
-#include <petscis.h>
-#include <petscistypes.h>
-#include <petsclog.h>
+#include <petsc/private/pcimpl.h>
+#include <petscerror.h>
 #include <petscmat.h>
 #include <petscmath.h>
 #include <petscoptions.h>
-#include <petscsf.h>
 #include <petscsys.h>
-#include <petscpc.h>
-#include <petsc/private/pcimpl.h>
-#include <petsc/private/matimpl.h>
-
 #include <petscsystypes.h>
 #include <petscvec.h>
-
-#include <petscviewer.h>
 #include <stdbool.h>
 #include <string.h>
+#include <mpi.h>
 
 typedef struct {
   Mat         A, Asor;

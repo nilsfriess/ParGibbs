@@ -7,25 +7,28 @@
 */
 
 #include "parmgmc/ms.h"
-#include "parmgmc/pc/pc_gamgmc.h"
 #include "parmgmc/parmgmc.h"
+#include "parmgmc/pc/pc_gamgmc.h"
 
+#include <petscdm.h>
 #include <petscdmlabel.h>
 #include <petscdmplex.h>
-#include <petscdm.h>
 #include <petscdmtypes.h>
 #include <petscds.h>
+#include <petscdstypes.h>
 #include <petscerror.h>
+#include <petscfe.h>
+#include <petscfetypes.h>
 #include <petscksp.h>
 #include <petscmat.h>
-#include <petscmath.h>
 #include <petscoptions.h>
 #include <petscpc.h>
+#include <petscpctypes.h>
 #include <petscsnes.h>
 #include <petscsys.h>
 #include <petscsystypes.h>
 #include <petscvec.h>
-#include <time.h>
+#include <mpi.h>
 
 typedef struct _MSCtx {
   MPI_Comm     comm;

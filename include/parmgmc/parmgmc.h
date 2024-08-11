@@ -8,11 +8,11 @@
 
 #pragma once
 
-#include <petsclog.h>
+#include <petsclogtypes.h>
 #include <petscmacros.h>
-#include <petscsys.h>
+#include <petscpctypes.h>
+#include <petscsystypes.h>
 #include <petscvec.h>
-#include <petscpc.h>
 
 #define PARMGMC_ZIGGURAT "ziggurat"
 

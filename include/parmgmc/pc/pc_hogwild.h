@@ -8,6 +8,8 @@
 
 #pragma once
 
-#include <petscpc.h>
+#include <petscmacros.h>
+#include <petscpctypes.h>
+#include <petscsystypes.h>
 
 PETSC_EXTERN PetscErrorCode PCCreate_Hogwild(PC pc);

@@ -8,7 +8,9 @@
 
 #pragma once
 
-#include <petscpc.h>
+#include <petscmacros.h>
+#include <petscpctypes.h>
+#include <petscsystypes.h>
 
 PETSC_EXTERN PetscErrorCode PCGAMGMCSetLevels(PC, PetscInt);
 PETSC_EXTERN PetscErrorCode PCCreate_GAMGMC(PC);

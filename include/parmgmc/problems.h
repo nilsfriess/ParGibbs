@@ -8,6 +8,9 @@
 
 #pragma once
 
-#include <petscdm.h>
+#include <petscsys.h>
+#include <petscdmtypes.h>
+#include <petscmacros.h>
+#include <petscmat.h>
 
 PETSC_EXTERN PetscErrorCode MatAssembleShiftedLaplaceFD(DM, PetscReal, Mat);

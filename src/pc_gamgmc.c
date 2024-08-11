@@ -9,18 +9,19 @@
 #include "parmgmc/pc/pc_gamgmc.h"
 #include "parmgmc/parmgmc.h"
 
-#include <petscviewer.h>
-#include <string.h>
-#include <time.h>
-
 #include <petsc/private/pcimpl.h>
 #include <petscerror.h>
 #include <petscksp.h>
 #include <petscmat.h>
+#include <petscoptions.h>
 #include <petscpc.h>
 #include <petscstring.h>
 #include <petscsys.h>
 #include <petscsystypes.h>
+#include <petscvec.h>
+#include <petscviewertypes.h>
+#include <string.h>
+#include <mpi.h>
 
 /** @file pc_gamgmc.c
     @brief A geometric algebraic Multigrid Monte Carlo sampler wrapped as a PETSc PC.

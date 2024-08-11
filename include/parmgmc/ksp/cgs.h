@@ -9,7 +9,9 @@
 #pragma once
 
 #include <petscksp.h>
+#include <petscmacros.h>
 #include <petscsystypes.h>
+#include <petscvec.h>
 
 PETSC_EXTERN PetscErrorCode KSPCreate_CGSampler(KSP);
 PETSC_EXTERN PetscErrorCode CGSamplerGetSample(KSP, Vec);

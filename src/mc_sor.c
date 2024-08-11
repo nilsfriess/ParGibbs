@@ -7,23 +7,22 @@
 */
 
 #include "parmgmc/mc_sor.h"
-#include "mpi.h"
 #include "parmgmc/parmgmc.h"
 
-#include <assert.h>
-#include <stdio.h>
+#include <petscerror.h>
+#include <petscis.h>
 #include <petscksp.h>
+#include <petsclog.h>
+#include <petscmat.h>
 #include <petscoptions.h>
-#include <petscstring.h>
+#include <petscsftypes.h>
+#include <petscsys.h>
 #include <petscsystypes.h>
 #include <petscvec.h>
-#include <petscviewer.h>
 #include <stdbool.h>
-
-#include <petscsys.h>
-#include <petscis.h>
-#include <petscmat.h>
-#include <time.h>
+#include <stdio.h>
+#include <string.h>
+#include <mpi.h>
 
 /** @file mc_sor.c
     @brief Multicolour Gauss-Seidel/SOR

@@ -9,18 +9,18 @@
 #include "parmgmc/pc/pc_hogwild.h"
 #include "parmgmc/parmgmc.h"
 
-#include <petsc/private/pcmgimpl.h>
+#include <petsc/private/pcimpl.h>
+#include <petscerror.h>
 #include <petscmat.h>
 #include <petscsys.h>
 #include <petscsystypes.h>
 #include <petscvec.h>
-
-#include <stdio.h>
+#include <stddef.h>
 
 typedef struct {
   Vec         sqrtdiag;
   PetscRandom prand;
-} PC_Hogwild;
+} *PC_Hogwild;
 
 static PetscErrorCode PCApplyRichardson_Hogwild(PC pc, Vec b, Vec y, Vec w, PetscReal rtol, PetscReal abstol, PetscReal dtol, PetscInt its, PetscBool guesszero, PetscInt *outits, PCRichardsonConvergedReason *reason)
 {
@@ -29,7 +29,7 @@ static PetscErrorCode PCApplyRichardson_Hogwild(PC pc, Vec b, Vec y, Vec w, Pets
   (void)dtol;
   (void)guesszero;
 
-  PC_Hogwild *hw = pc->data;
+  PC_Hogwild hw = pc->data;
 
   PetscFunctionBeginUser;
   for (PetscInt it = 0; it < its; ++it) {
@@ -37,10 +37,6 @@ static PetscErrorCode PCApplyRichardson_Hogwild(PC pc, Vec b, Vec y, Vec w, Pets
     PetscCall(VecPointwiseMult(w, w, hw->sqrtdiag));
     PetscCall(VecAXPY(w, 1., b));
     PetscCall(MatSOR(pc->pmat, w, 1., SOR_LOCAL_FORWARD_SWEEP, 0., 1., 1., y));
-
-    PetscReal norm;
-    PetscCall(VecNorm(y, NORM_2, &norm));
-    PetscCall(PetscPrintf(MPI_COMM_WORLD, "%f\n", norm));
   }
 
   *outits = its;
@@ -50,7 +46,7 @@ static PetscErrorCode PCApplyRichardson_Hogwild(PC pc, Vec b, Vec y, Vec w, Pets
 
 static PetscErrorCode PCDestroy_Hogwild(PC pc)
 {
-  PC_Hogwild *hw = pc->data;
+  PC_Hogwild hw = pc->data;
   PetscFunctionBeginUser;
   PetscCall(VecDestroy(&hw->sqrtdiag));
   PetscCall(PetscRandomDestroy(&hw->prand));
@@ -58,14 +54,11 @@ static PetscErrorCode PCDestroy_Hogwild(PC pc)
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
-PetscErrorCode PCCreate_Hogwild(PC pc)
+static PetscErrorCode PCSetUp_Hogwild(PC pc)
 {
-  PC_Hogwild *hw;
+  PC_Hogwild hw = pc->data;
 
   PetscFunctionBeginUser;
-  PetscCall(PetscNew(&hw));
-  pc->data = hw;
-
   PetscCall(MatCreateVecs(pc->pmat, &hw->sqrtdiag, NULL));
   PetscCall(MatGetDiagonal(pc->pmat, hw->sqrtdiag));
   PetscCall(VecSqrtAbs(hw->sqrtdiag));
@@ -73,8 +66,19 @@ PetscErrorCode PCCreate_Hogwild(PC pc)
   // TODO: Allow user to pass own PetscRandom
   PetscCall(PetscRandomCreate(PetscObjectComm((PetscObject)pc), &hw->prand));
   PetscCall(PetscRandomSetType(hw->prand, PARMGMC_ZIGGURAT));
+  PetscFunctionReturn(PETSC_SUCCESS);
+}
+
+PetscErrorCode PCCreate_Hogwild(PC pc)
+{
+  PC_Hogwild hw;
+
+  PetscFunctionBeginUser;
+  PetscCall(PetscNew(&hw));
+  pc->data = hw;
 
   pc->ops->applyrichardson = PCApplyRichardson_Hogwild;
   pc->ops->destroy         = PCDestroy_Hogwild;
+  pc->ops->setup           = PCSetUp_Hogwild;
   PetscFunctionReturn(PETSC_SUCCESS);
 }

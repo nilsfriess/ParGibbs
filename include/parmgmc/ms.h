@@ -8,9 +8,12 @@
 
 #pragma once
 
-#include <petscdm.h>
-#include <petscsys.h>
 #include <mpi.h>
+#include <petscsys.h>
+#include <petscdmtypes.h>
+#include <petscmacros.h>
+#include <petscmat.h>
+#include <petscvec.h>
 
 typedef struct _p_MS {
   void *ctx;

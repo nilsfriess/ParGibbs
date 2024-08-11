@@ -9,14 +9,13 @@
 #include "parmgmc/obs.h"
 
 #include <petscdm.h>
-#include <petscis.h>
-#include <petsclog.h>
+#include <petscerror.h>
 #include <petscmat.h>
 #include <petscmath.h>
-#include <petscstring.h>
 #include <petscsys.h>
 #include <petscsystypes.h>
 #include <petscvec.h>
+#include <mpi.h>
 
 typedef struct {
   Mat              M;
