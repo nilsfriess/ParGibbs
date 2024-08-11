@@ -107,6 +107,8 @@ static PetscErrorCode PCReset_Gibbs(PC pc)
   PetscCall(MCSORDestroy(&pg->mc));
   PetscCall(VecDestroy(&pg->w));
   PetscCall(VecDestroy(&pg->sqrtS));
+  PetscCall(VecDestroy(&pg->z));
+  if (pg->prand_is_initial_prand) PetscCall(PetscRandomDestroy(&pg->prand));
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
@@ -233,7 +235,6 @@ static PetscErrorCode PCSetUp_Gibbs(PC pc)
     PetscCall(VecDuplicate(S, &pg->sqrtS));
     PetscCall(VecCopy(S, pg->sqrtS));
     PetscCall(VecSqrtAbs(pg->sqrtS));
-    PetscCall(VecView(pg->sqrtS, PETSC_VIEWER_STDOUT_WORLD));
     PetscCall(VecDuplicate(S, &pg->w));
     pg->prepare_rhs = PrepareRHS_LRC;
   } else {

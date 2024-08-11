@@ -146,7 +146,8 @@ PetscErrorCode MakeObservationMats(DM dm, PetscInt nobs, PetscScalar sigma2, con
   PetscCall(VecGetLocalSize(g, &lsize));
   PetscCall(VecDestroy(&g));
   PetscCall(MatCreateDense(PetscObjectComm((PetscObject)dm), lsize, PETSC_DECIDE, gsize, nobs, NULL, B));
-  PetscCall(MatCreateVecs(*B, S, f));
+  PetscCall(MatCreateVecs(*B, S, NULL));
+  if (f) PetscCall(MatCreateVecs(*B, NULL, f));
   PetscCall(VecSet(*S, 1. / sigma2));
   PetscCall(VecDuplicate(*S, &y));
 
@@ -167,7 +168,7 @@ PetscErrorCode MakeObservationMats(DM dm, PetscInt nobs, PetscScalar sigma2, con
     PetscCall(VecAssemblyBegin(y));
     PetscCall(VecAssemblyEnd(y));
     PetscCall(VecPointwiseMult(y, y, *S));
-    PetscCall(MatMult(*B, y, *f));
+    if (f) PetscCall(MatMult(*B, y, *f));
     PetscCall(VecDestroy(&y));
     PetscCall(VecDestroy(&meas));
   }

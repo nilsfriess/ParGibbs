@@ -1,5 +1,6 @@
 #include "parmgmc/iact.h"
 #include "parmgmc/ms.h"
+#include "parmgmc/obs.h"
 #include "parmgmc/parmgmc.h"
 #include "parmgmc/pc/pc_gibbs.h"
 #include "parmgmc/pc/pc_gamgmc.h"
@@ -20,10 +21,12 @@
 #include <mpi.h>
 
 #include <fftw3.h>
+#include <time.h>
 
 typedef struct {
   PetscBool run_gibbs, run_mgmc_coarse_chol, run_mgmc_coarse_gibbs, run_cholsampler;
   PetscBool measure_sampling_time, measure_iact;
+  PetscBool with_lr;
   PetscInt  n_burnin, n_samples;
 } *Parameters;
 
@@ -31,14 +34,6 @@ static PetscErrorCode ParametersCreate(Parameters *params)
 {
   PetscFunctionBeginUser;
   PetscCall(PetscNew(params));
-  (*params)->run_gibbs             = PETSC_FALSE;
-  (*params)->run_mgmc_coarse_gibbs = PETSC_FALSE;
-  (*params)->run_mgmc_coarse_chol  = PETSC_FALSE;
-  (*params)->run_cholsampler       = PETSC_FALSE;
-  (*params)->measure_sampling_time = PETSC_FALSE;
-  (*params)->measure_iact          = PETSC_FALSE;
-  (*params)->n_burnin              = 0;
-  (*params)->n_samples             = 0;
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
@@ -63,6 +58,8 @@ static PetscErrorCode ParametersRead(Parameters params)
 
   PetscCall(PetscOptionsGetBool(NULL, NULL, "-measure_sampling_time", &params->measure_sampling_time, NULL));
   PetscCall(PetscOptionsGetBool(NULL, NULL, "-measure_iact", &params->measure_iact, NULL));
+
+  PetscCall(PetscOptionsGetBool(NULL, NULL, "-with_lr", &params->with_lr, NULL));
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
@@ -162,11 +159,16 @@ static PetscErrorCode MGMCSamplerCreate(Mat A, DM dm, PetscRandom pr, Parameters
   PetscCall(KSPGetPC(*ksp, &pc));
   PetscCall(PCSetType(pc, PCGAMGMC));
   PetscCall(PetscStrcmp(coarse, PCGIBBS, &flag));
-  if (flag) PetscCall(PetscOptionsSetValue(NULL, "-gamgmc_mg_coarse_pc_type", "gibbs"));
-  else {
+  if (flag) {
+    PetscCall(PetscOptionsSetValue(NULL, "-gamgmc_mg_coarse_ksp_type", "richardson"));
+    PetscCall(PetscOptionsSetValue(NULL, "-gamgmc_mg_coarse_pc_type", "gibbs"));
+    PetscCall(PetscOptionsSetValue(NULL, "-gamgmc_mg_coarse_ksp_max_it", "2"));
+  } else {
     PetscCall(PetscStrcmp(coarse, PCCHOLSAMPLER, &flag));
-    if (flag) PetscCall(PetscOptionsSetValue(NULL, "-gamgmc_mg_coarse_pc_type", "cholsampler"));
-    else PetscCall(PetscPrintf(MPI_COMM_WORLD, "WARNING: Unknown coarse sampler. Using default"));
+    if (flag) {
+      PetscCall(PetscOptionsSetValue(NULL, "-gamgmc_mg_coarse_ksp_type", "preonly"));
+      PetscCall(PetscOptionsSetValue(NULL, "-gamgmc_mg_coarse_pc_type", "cholsampler"));
+    } else PetscCall(PetscPrintf(MPI_COMM_WORLD, "WARNING: Unknown coarse sampler. Using default"));
   }
   PetscCall(KSPSetFromOptions(*ksp));
   PetscCall(KSPSetNormType(*ksp, KSP_NORM_NONE));
@@ -264,11 +266,42 @@ int main(int argc, char *argv[])
     PetscCall(MSSetUp(ms));
     PetscCall(MSGetPrecisionMatrix(ms, &A));
     PetscCall(MSGetDM(ms, &dm));
+
     PetscCall(DMCreateGlobalVector(dm, &b));
     PetscCall(PetscRandomCreate(MPI_COMM_WORLD, &pr));
     PetscCall(PetscRandomSetType(pr, PARMGMC_ZIGGURAT));
     PetscCall(PetscRandomSetSeed(pr, 2));
     PetscCall(PetscRandomSeed(pr));
+
+    if (params->with_lr) {
+      const PetscInt nobs = 3;
+      PetscScalar    obs[3 * nobs], radii[nobs], obsvals[nobs], obsval = 1;
+      Mat            A2, B;
+      Vec            S;
+
+      obs[0] = 0.25;
+      obs[1] = 0.25;
+      obs[2] = 0.75;
+      obs[3] = 0.75;
+      obs[4] = 0.25;
+      obs[5] = 0.75;
+
+      PetscCall(PetscOptionsGetReal(NULL, NULL, "-obsval", &obsval, NULL));
+      obsvals[0] = obsval;
+      radii[0]   = 0.1;
+      obsvals[1] = obsval;
+      radii[1]   = 0.1;
+      obsvals[2] = obsval;
+      radii[2]   = 0.1;
+
+      PetscCall(MakeObservationMats(dm, nobs, 1e-6, obs, radii, obsvals, &B, &S, NULL));
+      PetscCall(MatCreateLRC(A, B, S, NULL, &A2));
+      PetscCall(MatDestroy(&B));
+      PetscCall(VecDestroy(&S));
+
+      A = A2;
+    }
+
     endtime = MPI_Wtime();
     PetscCall(PetscPrintf(MPI_COMM_WORLD, " done. Took %.4fs.\n\n", endtime - starttime));
   }
@@ -425,9 +458,10 @@ int main(int argc, char *argv[])
   }
 
   PetscCall(InfoView(A, params, PETSC_VIEWER_STDOUT_WORLD));
-  PetscCall(ParametersDestroy(&params));
-  PetscCall(MSDestroy(&ms));
   PetscCall(VecDestroy(&b));
   PetscCall(PetscRandomDestroy(&pr));
+  PetscCall(MSDestroy(&ms));
+  if (params->with_lr) PetscCall(MatDestroy(&A));
+  PetscCall(ParametersDestroy(&params));
   PetscCall(PetscFinalize());
 }

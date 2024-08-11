@@ -35,6 +35,18 @@ static PetscErrorCode PCDestroy_CholSampler(PC pc)
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
+static PetscErrorCode PCReset_CholSampler(PC pc)
+{
+  PC_CholSampler chol = pc->data;
+
+  PetscFunctionBeginUser;
+  PetscCall(MatDestroy(&chol->F));
+  PetscCall(VecDestroy(&chol->r));
+  PetscCall(VecDestroy(&chol->v));
+  if (chol->prand_is_initial_prand) PetscCall(PetscRandomDestroy(&chol->prand));
+  PetscFunctionReturn(PETSC_SUCCESS);
+}
+
 static PetscErrorCode PCSetUp_CholSampler(PC pc)
 {
   PC_CholSampler chol = pc->data;
@@ -170,6 +182,7 @@ PetscErrorCode PCCreate_CholSampler(PC pc)
 
   pc->data                     = chol;
   pc->ops->destroy             = PCDestroy_CholSampler;
+  pc->ops->reset               = PCReset_CholSampler;
   pc->ops->setup               = PCSetUp_CholSampler;
   pc->ops->apply               = PCApply_CholSampler;
   pc->ops->applyrichardson     = PCApplyRichardson_CholSampler;

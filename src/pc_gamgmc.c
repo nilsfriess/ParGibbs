@@ -79,12 +79,7 @@ static PetscErrorCode PCDestroy_GAMGMC(PC pc)
   PetscCall(PetscFree(cbctx));
   if (pg->As) {
     PetscCall(PCMGGetLevels(pg->mg, &levels));
-    for (PetscInt l = 0; l < levels - 1; ++l) {
-      Mat B;
-      PetscCall(MatLRCGetMats(pg->As[l], NULL, &B, NULL, NULL));
-      PetscCall(MatDestroy(&B));
-      PetscCall(MatDestroy(&(pg->As[l])));
-    }
+    for (PetscInt l = 0; l < levels - 1; ++l) PetscCall(MatDestroy(&(pg->As[l])));
     PetscCall(PetscFree(pg->As));
   }
   PetscCall(PCDestroy(&pg->mg));
@@ -141,6 +136,7 @@ static PetscErrorCode PCGAMGMC_SetUpHierarchy(PC pc)
 
       PetscCall(MatTransposeMatMult(Ip, Bf, MAT_INITIAL_MATRIX, 1, &Bc));
       PetscCall(MatCreateLRC(Ac, Bc, Sf, NULL, &(pg->As[l - 1])));
+      PetscCall(MatDestroy(&Bc));
     }
 
     for (PetscInt l = levels - 1; l >= 0; --l) {
@@ -149,7 +145,9 @@ static PetscErrorCode PCGAMGMC_SetUpHierarchy(PC pc)
 
       PetscCall(PCMGGetSmoother(pg->mg, l, &ksps));
       PetscCall(KSPGetPC(ksps, &pcs));
-      PetscCall(PCSetOperators(pcs, pg->As[l], pg->As[l]));
+      PetscCall(KSPReset(ksps));
+      PetscCall(KSPSetOperators(ksps, pg->As[l], pg->As[l]));
+      PetscCall(KSPSetUp(ksps));
     }
   }
 
