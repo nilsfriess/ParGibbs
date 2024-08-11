@@ -1,6 +1,8 @@
+#include "parmgmc/iact.h"
 #include "parmgmc/ms.h"
 #include "parmgmc/parmgmc.h"
 #include "parmgmc/pc/pc_gibbs.h"
+#include "parmgmc/pc/pc_gamgmc.h"
 
 #include <complex.h>
 #include <petsc/private/pcmgimpl.h>
@@ -9,6 +11,7 @@
 #include <petscmath.h>
 #include <petscoptions.h>
 #include <petscpc.h>
+#include <petscstring.h>
 #include <petscsys.h>
 #include <petscsystypes.h>
 #include <petscvec.h>
@@ -19,7 +22,7 @@
 #include <fftw3.h>
 
 typedef struct {
-  PetscBool run_gibbs, run_mgmc, run_cholsampler;
+  PetscBool run_gibbs, run_mgmc_coarse_chol, run_mgmc_coarse_gibbs, run_cholsampler;
   PetscBool measure_sampling_time, measure_iact;
   PetscInt  n_burnin, n_samples;
 } *Parameters;
@@ -29,7 +32,8 @@ static PetscErrorCode ParametersCreate(Parameters *params)
   PetscFunctionBeginUser;
   PetscCall(PetscNew(params));
   (*params)->run_gibbs             = PETSC_FALSE;
-  (*params)->run_mgmc              = PETSC_FALSE;
+  (*params)->run_mgmc_coarse_gibbs = PETSC_FALSE;
+  (*params)->run_mgmc_coarse_chol  = PETSC_FALSE;
   (*params)->run_cholsampler       = PETSC_FALSE;
   (*params)->measure_sampling_time = PETSC_FALSE;
   (*params)->measure_iact          = PETSC_FALSE;
@@ -50,7 +54,8 @@ static PetscErrorCode ParametersRead(Parameters params)
 {
   PetscFunctionBeginUser;
   PetscCall(PetscOptionsGetBool(NULL, NULL, "-run_gibbs", &params->run_gibbs, NULL));
-  PetscCall(PetscOptionsGetBool(NULL, NULL, "-run_mgmc", &params->run_mgmc, NULL));
+  PetscCall(PetscOptionsGetBool(NULL, NULL, "-run_mgmc_coarse_gibbs", &params->run_mgmc_coarse_gibbs, NULL));
+  PetscCall(PetscOptionsGetBool(NULL, NULL, "-run_mgmc_coarse_chol", &params->run_mgmc_coarse_chol, NULL));
   PetscCall(PetscOptionsGetBool(NULL, NULL, "-run_cholsampler", &params->run_cholsampler, NULL));
 
   PetscCall(PetscOptionsGetInt(NULL, NULL, "-n_burnin", &params->n_burnin, NULL));
@@ -69,9 +74,10 @@ static PetscErrorCode ParametersView(Parameters params, PetscViewer viewer)
   PetscCheck(viewer == PETSC_VIEWER_STDOUT_WORLD || viewer == PETSC_VIEWER_STDOUT_SELF, MPI_COMM_WORLD, PETSC_ERR_SUP, "Viewer not supported");
 
   PetscCall(PetscViewerASCIIPrintf(viewer, "Samplers to run\n"));
-  PetscCall(PetscViewerASCIIPrintf(viewer, "\t Gibbs:    %s\n", PRINTBOOL(params->run_gibbs)));
-  PetscCall(PetscViewerASCIIPrintf(viewer, "\t MGMC:     %s\n", PRINTBOOL(params->run_mgmc)));
-  PetscCall(PetscViewerASCIIPrintf(viewer, "\t Cholesky: %s\n", PRINTBOOL(params->run_cholsampler)));
+  PetscCall(PetscViewerASCIIPrintf(viewer, "\t Gibbs:                 %s\n", PRINTBOOL(params->run_gibbs)));
+  PetscCall(PetscViewerASCIIPrintf(viewer, "\t MGMC (coarse Gibbs)    %s\n", PRINTBOOL(params->run_mgmc_coarse_gibbs)));
+  PetscCall(PetscViewerASCIIPrintf(viewer, "\t MGMC (coarse Cholesky) %s\n", PRINTBOOL(params->run_mgmc_coarse_chol)));
+  PetscCall(PetscViewerASCIIPrintf(viewer, "\t Cholesky:              %s\n", PRINTBOOL(params->run_cholsampler)));
 
   PetscCall(PetscViewerASCIIPrintf(viewer, "Number of samples\n"));
   PetscCall(PetscViewerASCIIPrintf(viewer, "\t Burn-in: %d\n", params->n_burnin));
@@ -82,19 +88,22 @@ static PetscErrorCode ParametersView(Parameters params, PetscViewer viewer)
 
 static PetscErrorCode InfoView(Mat A, Parameters params, PetscViewer viewer)
 {
-  PetscInt n;
+  PetscInt    n;
+  PetscMPIInt size;
 
   PetscFunctionBeginUser;
   PetscCheck(viewer == PETSC_VIEWER_STDOUT_WORLD || viewer == PETSC_VIEWER_STDOUT_SELF, MPI_COMM_WORLD, PETSC_ERR_SUP, "Viewer not supported");
-  PetscCall(PetscViewerASCIIPrintf(viewer, "####################\n"));
-  PetscCall(PetscViewerASCIIPrintf(viewer, "Benchmark parameters\n"));
-  PetscCall(PetscViewerASCIIPrintf(viewer, "####################\n"));
+  PetscCall(PetscViewerASCIIPrintf(viewer, "################################################################################\n"));
+  PetscCall(PetscViewerASCIIPrintf(viewer, "                              Benchmark parameters\n"));
+  PetscCall(PetscViewerASCIIPrintf(viewer, "################################################################################\n"));
   PetscCall(ParametersView(params, viewer));
 
   PetscCall(PetscViewerASCIIPrintf(viewer, "\n"));
   PetscCall(MatGetSize(A, &n, NULL));
-  PetscCall(PetscViewerASCIIPrintf(viewer, "Degrees of freedom: %d\n", n));
+  PetscCall(PetscViewerASCIIPrintf(viewer, "Problem size (degrees of freedom): %d\n\n", n));
+  PetscCall(MPI_Comm_size(MPI_COMM_WORLD, &size));
 
+  PetscCall(PetscOptionsView(NULL, viewer));
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
@@ -138,24 +147,43 @@ static PetscErrorCode CholeskySamplerCreate(Mat A, PetscRandom pr, Parameters pa
 }
 
 // Note: This must be set from the options databse using the prefix mgmc
-static PetscErrorCode MGMCSamplerCreate(Mat A, DM dm, PetscRandom pr, Parameters params, KSP *ksp)
+static PetscErrorCode MGMCSamplerCreate(Mat A, DM dm, PetscRandom pr, Parameters params, PCType coarse, KSP *ksp)
 {
   (void)params;
 
-  PC pc;
+  PC        pc;
+  PetscBool flag;
 
   PetscFunctionBeginUser;
   PetscCall(KSPCreate(MPI_COMM_WORLD, ksp));
   PetscCall(KSPSetDM(*ksp, dm));
   PetscCall(KSPSetDMActive(*ksp, PETSC_FALSE));
-  PetscCall(KSPSetFromOptions(*ksp));
   PetscCall(KSPSetType(*ksp, KSPRICHARDSON));
   PetscCall(KSPGetPC(*ksp, &pc));
   PetscCall(PCSetType(pc, PCGAMGMC));
+  PetscCall(PetscStrcmp(coarse, PCGIBBS, &flag));
+  if (flag) PetscCall(PetscOptionsSetValue(NULL, "-gamgmc_mg_coarse_pc_type", "gibbs"));
+  else {
+    PetscCall(PetscStrcmp(coarse, PCCHOLSAMPLER, &flag));
+    if (flag) PetscCall(PetscOptionsSetValue(NULL, "-gamgmc_mg_coarse_pc_type", "cholsampler"));
+    else PetscCall(PetscPrintf(MPI_COMM_WORLD, "WARNING: Unknown coarse sampler. Using default"));
+  }
+  PetscCall(KSPSetFromOptions(*ksp));
   PetscCall(KSPSetNormType(*ksp, KSP_NORM_NONE));
   PetscCall(KSPSetOperators(*ksp, A, A));
   PetscCall(KSPSetUp(*ksp));
   PetscCall(PCSetPetscRandom(pc, pr));
+  PetscFunctionReturn(PETSC_SUCCESS);
+}
+
+static PetscErrorCode MGMCSamplerGetNumLevels(KSP ksp, PetscInt *levels)
+{
+  PC pc, mg;
+
+  PetscFunctionBeginUser;
+  PetscCall(KSPGetPC(ksp, &pc));
+  PetscCall(PCGAMGMCGetInternalPC(pc, &mg));
+  PetscCall(PCMGGetLevels(mg, levels));
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
@@ -183,76 +211,6 @@ static PetscErrorCode Sample(KSP ksp, Vec b, Parameters params)
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
-static PetscErrorCode Autocorrelation(PetscInt n, const PetscScalar *x, PetscScalar **acf)
-{
-  fftw_plan     p;
-  fftw_complex *in, *out;
-  PetscScalar   mean = 0;
-
-  PetscFunctionBeginUser;
-  in  = (fftw_complex *)fftw_malloc(sizeof(fftw_complex) * n);
-  out = (fftw_complex *)fftw_malloc(sizeof(fftw_complex) * n);
-
-  for (PetscInt i = 0; i < n; ++i) mean += 1. / n * x[i];
-  for (PetscInt i = 0; i < n; ++i) in[i] = x[i] - mean;
-
-  p = fftw_plan_dft_1d(n, in, out, FFTW_FORWARD, FFTW_ESTIMATE);
-  fftw_execute(p);
-  fftw_destroy_plan(p);
-
-  for (PetscInt i = 0; i < n; ++i) out[i] = out[i] * conj(out[i]);
-  p = fftw_plan_dft_1d(n, out, in, FFTW_BACKWARD, FFTW_ESTIMATE);
-  fftw_execute(p);
-  fftw_destroy_plan(p);
-
-  PetscCall(PetscMalloc1(n, acf));
-  for (PetscInt i = 0; i < n; ++i) (*acf)[i] = PetscRealPart(in[i]) / PetscRealPart(in[0]);
-
-  fftw_free(in);
-  fftw_free(out);
-  PetscFunctionReturn(PETSC_SUCCESS);
-}
-
-static PetscErrorCode AutoWindow(PetscInt n, const PetscScalar *taus, PetscInt c, PetscInt *w)
-{
-  PetscBool flag = PETSC_FALSE;
-
-  PetscFunctionBeginUser;
-  for (PetscInt i = 0; i < n; ++i) {
-    if (i < c * taus[i]) {
-      flag = PETSC_TRUE;
-      break;
-    }
-  }
-  if (flag) {
-    flag = PETSC_FALSE;
-    for (PetscInt i = 0; i < n; ++i) {
-      if (i >= c * taus[i]) {
-        *w   = i;
-        flag = PETSC_TRUE;
-        break;
-      }
-    }
-    if (flag == PETSC_FALSE) *w = 0;
-  } else *w = n - 1;
-  PetscFunctionReturn(PETSC_SUCCESS);
-}
-
-static PetscErrorCode IACT(PetscInt n, const PetscScalar *x, PetscScalar *tau)
-{
-  PetscScalar *out;
-  PetscInt     w;
-
-  PetscFunctionBeginUser;
-  PetscCall(Autocorrelation(n, x, &out));
-  for (PetscInt i = 1; i < n; ++i) out[i] = out[i] + out[i - 1];
-  for (PetscInt i = 1; i < n; ++i) out[i] = 2 * out[i] - 1;
-  PetscCall(AutoWindow(n, out, 5, &w));
-  *tau = out[w];
-  PetscCall(PetscFree(out));
-  PetscFunctionReturn(PETSC_SUCCESS);
-}
-
 static PetscErrorCode SaveSample(KSP ksp, PetscInt it, PetscReal rnorm, KSPConvergedReason *reason, void *ctx)
 {
   (void)rnorm;
@@ -268,15 +226,16 @@ static PetscErrorCode SaveSample(KSP ksp, PetscInt it, PetscReal rnorm, KSPConve
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
-#define START_STAGE(log) \
-  PetscCall(PetscPrintf(MPI_COMM_WORLD, "Starting " log "...")); \
-  starttime = MPI_Wtime()
-
-#define END_STAGE() \
-  endtime = MPI_Wtime(); \
-  PetscCall(PetscPrintf(MPI_COMM_WORLD, " done. Took %.4fs.\n", endtime - starttime))
-
-#define LOG_TIME_PER_SAMPLE() PetscCall(PetscPrintf(MPI_COMM_WORLD, "Time per sample [ms]: %.4f\n", ((endtime - starttime) / params->n_samples * 1000)));
+#define TIME(functioncall, name, time) \
+  do { \
+    double _starttime, _endtime; \
+    PetscCall(PetscPrintf(MPI_COMM_WORLD, "Starting %s... ", name)); \
+    _starttime = MPI_Wtime(); \
+    PetscCall(functioncall); \
+    _endtime = MPI_Wtime(); \
+    PetscCall(PetscPrintf(MPI_COMM_WORLD, " done. Took %.4fs.\n", _endtime - _starttime)); \
+    *time = _endtime - _starttime; \
+  } while (0);
 
 int main(int argc, char *argv[])
 {
@@ -286,7 +245,7 @@ int main(int argc, char *argv[])
   Vec         b;
   DM          dm;
   PetscRandom pr;
-  double      starttime, endtime;
+  double      time;
 
   PetscCall(PetscInitialize(&argc, &argv, NULL, NULL));
   PetscCall(ParMGMCInitialize());
@@ -294,8 +253,11 @@ int main(int argc, char *argv[])
   PetscCall(ParametersCreate(&params));
   PetscCall(ParametersRead(params));
 
-  START_STAGE("Setup");
   {
+    double starttime, endtime;
+
+    PetscCall(PetscPrintf(MPI_COMM_WORLD, "Starting setup..."));
+    starttime = MPI_Wtime();
     PetscCall(MSCreate(MPI_COMM_WORLD, &ms));
     PetscCall(MSSetAssemblyOnly(ms, PETSC_TRUE));
     PetscCall(MSSetFromOptions(ms));
@@ -307,40 +269,49 @@ int main(int argc, char *argv[])
     PetscCall(PetscRandomSetType(pr, PARMGMC_ZIGGURAT));
     PetscCall(PetscRandomSetSeed(pr, 2));
     PetscCall(PetscRandomSeed(pr));
+    endtime = MPI_Wtime();
+    PetscCall(PetscPrintf(MPI_COMM_WORLD, " done. Took %.4fs.\n\n", endtime - starttime));
   }
-  END_STAGE();
 
   if (params->measure_sampling_time) {
+    PetscCall(PetscPrintf(MPI_COMM_WORLD, "################################################################################\n"));
+    PetscCall(PetscPrintf(MPI_COMM_WORLD, "                              Measure sampling time\n"));
+    PetscCall(PetscPrintf(MPI_COMM_WORLD, "################################################################################\n"));
     if (params->run_gibbs) {
       KSP ksp;
 
-      PetscCall(GibbsSamplerCreate(A, pr, params, &ksp));
-
-      START_STAGE("Gibbs burn-in");
-      PetscCall(Burnin(ksp, b, params));
-      END_STAGE();
-
-      START_STAGE("Gibbs sampling");
-      PetscCall(Sample(ksp, b, params));
-      END_STAGE();
-      LOG_TIME_PER_SAMPLE();
+      TIME(GibbsSamplerCreate(A, pr, params, &ksp), "Gibbs setup", &time);
+      TIME(Burnin(ksp, b, params), "Gibbs burn-in", &time);
+      TIME(Sample(ksp, b, params), "Gibbs sampling", &time);
+      PetscCall(PetscPrintf(MPI_COMM_WORLD, "Time per sample [ms]: %.6f\n\n", time / params->n_samples * 1000));
 
       PetscCall(KSPDestroy(&ksp));
     }
 
-    if (params->run_mgmc) {
-      KSP ksp;
+    if (params->run_mgmc_coarse_gibbs) {
+      KSP      ksp;
+      PetscInt levels;
 
-      PetscCall(MGMCSamplerCreate(A, dm, pr, params, &ksp));
+      TIME(MGMCSamplerCreate(A, dm, pr, params, PCGIBBS, &ksp), "MGMC (Coarse Gibbs) setup", &time);
+      PetscCall(MGMCSamplerGetNumLevels(ksp, &levels));
+      PetscCall(PetscPrintf(MPI_COMM_WORLD, "\t Using %d levels\n", levels));
+      TIME(Burnin(ksp, b, params), "MGMC (Coarse Gibbs) burn-in", &time);
+      TIME(Sample(ksp, b, params), "MGMC (Coarse Gibbs) sampling", &time);
+      PetscCall(PetscPrintf(MPI_COMM_WORLD, "Time per sample [ms]: %.6f\n\n", time / params->n_samples * 1000));
 
-      START_STAGE("MGMC burn-in");
-      PetscCall(Burnin(ksp, b, params));
-      END_STAGE();
+      PetscCall(KSPDestroy(&ksp));
+    }
 
-      START_STAGE("MGMC sampling");
-      PetscCall(Sample(ksp, b, params));
-      END_STAGE();
-      LOG_TIME_PER_SAMPLE();
+    if (params->run_mgmc_coarse_chol) {
+      KSP      ksp;
+      PetscInt levels;
+
+      TIME(MGMCSamplerCreate(A, dm, pr, params, PCCHOLSAMPLER, &ksp), "MGMC (Coarse Cholesky) setup", &time);
+      PetscCall(MGMCSamplerGetNumLevels(ksp, &levels));
+      PetscCall(PetscPrintf(MPI_COMM_WORLD, "\t Using %d levels\n", levels));
+      TIME(Burnin(ksp, b, params), "MGMC (Coarse Cholesky) burn-in", &time);
+      TIME(Sample(ksp, b, params), "MGMC (Coarse Cholesky) sampling", &time);
+      PetscCall(PetscPrintf(MPI_COMM_WORLD, "Time per sample [ms]: %.6f\n\n", time / params->n_samples * 1000));
 
       PetscCall(KSPDestroy(&ksp));
     }
@@ -348,41 +319,36 @@ int main(int argc, char *argv[])
     if (params->run_cholsampler) {
       KSP ksp;
 
-      PetscCall(CholeskySamplerCreate(A, pr, params, &ksp));
-
-      START_STAGE("Cholesky burn-in");
-      PetscCall(Burnin(ksp, b, params));
-      END_STAGE();
-
-      START_STAGE("Cholesky sampling");
-      PetscCall(Sample(ksp, b, params));
-      END_STAGE();
-      LOG_TIME_PER_SAMPLE();
+      TIME(CholeskySamplerCreate(A, pr, params, &ksp), "Cholesky setup", &time);
+      TIME(Burnin(ksp, b, params), "Cholesky burn-in", &time);
+      TIME(Sample(ksp, b, params), "Cholesky sampling", &time);
+      PetscCall(PetscPrintf(MPI_COMM_WORLD, "Time per sample [ms]: %.6f\n\n", time / params->n_samples * 1000));
 
       PetscCall(KSPDestroy(&ksp));
     }
   }
 
   if (params->measure_iact) {
+    PetscCall(PetscPrintf(MPI_COMM_WORLD, "################################################################################\n"));
+    PetscCall(PetscPrintf(MPI_COMM_WORLD, "                                  Measure IACT\n"));
+    PetscCall(PetscPrintf(MPI_COMM_WORLD, "################################################################################\n"));
+
     if (params->run_gibbs) {
       KSP          ksp;
       PetscScalar *qois, tau = 0;
+      PetscBool    valid;
 
-      PetscCall(GibbsSamplerCreate(A, pr, params, &ksp));
-      START_STAGE("Gibbs burn-in");
-      PetscCall(Burnin(ksp, b, params));
-      END_STAGE();
-
+      TIME(GibbsSamplerCreate(A, pr, params, &ksp), "Gibbs setup", &time);
       PetscCall(PetscCalloc1(params->n_samples, &qois));
+
+      TIME(Burnin(ksp, b, params), "Gibbs burn-in", &time);
       PetscCall(KSPSetConvergenceTest(ksp, SaveSample, qois, NULL));
+      TIME(Sample(ksp, b, params), "Gibbs sampling", &time);
 
-      START_STAGE("Gibbs sampling");
-      PetscCall(Sample(ksp, b, params));
-      END_STAGE();
-      LOG_TIME_PER_SAMPLE();
-
-      PetscCall(IACT(params->n_samples, qois, &tau));
-      PetscCall(PetscPrintf(MPI_COMM_WORLD, "TAU = %.5f\n", tau));
+      PetscCall(IACT(params->n_samples, qois, &tau, &valid));
+      if (!valid) PetscCall(PetscPrintf(MPI_COMM_WORLD, "WARNING: Chain is too short to give reliable IACT estimate (need at least %d)\n", (int)ceil(50 * tau)));
+      PetscCall(PetscPrintf(MPI_COMM_WORLD, "Gibbs IACT: %.5f\n", tau));
+      PetscCall(PetscPrintf(MPI_COMM_WORLD, "Time per independent sample [ms]: %.6f\n\n", PetscMax(tau, 1) * time / params->n_samples * 1000));
 
       PetscCall(PetscFree(qois));
       PetscCall(KSPDestroy(&ksp));
@@ -391,46 +357,67 @@ int main(int argc, char *argv[])
     if (params->run_cholsampler) {
       KSP          ksp;
       PetscScalar *qois, tau = 0;
+      PetscBool    valid;
 
-      PetscCall(CholeskySamplerCreate(A, pr, params, &ksp));
-      START_STAGE("Cholesky burn-in");
-      PetscCall(Burnin(ksp, b, params));
-      END_STAGE();
-
+      TIME(CholeskySamplerCreate(A, pr, params, &ksp), "Cholesky setup", &time);
       PetscCall(PetscCalloc1(params->n_samples, &qois));
+
+      TIME(Burnin(ksp, b, params), "Cholesky burn-in", &time);
       PetscCall(KSPSetConvergenceTest(ksp, SaveSample, qois, NULL));
+      TIME(Sample(ksp, b, params), "Cholesky sampling", &time);
 
-      START_STAGE("Cholesky sampling");
-      PetscCall(Sample(ksp, b, params));
-      END_STAGE();
-      LOG_TIME_PER_SAMPLE();
-
-      PetscCall(IACT(params->n_samples, qois, &tau));
-      PetscCall(PetscPrintf(MPI_COMM_WORLD, "TAU = %.5f\n", tau));
+      PetscCall(IACT(params->n_samples, qois, &tau, &valid));
+      if (!valid) PetscCall(PetscPrintf(MPI_COMM_WORLD, "WARNING: Chain is too short to give reliable IACT estimate (need at least %d)\n", (int)ceil(50 * tau)));
+      PetscCall(PetscPrintf(MPI_COMM_WORLD, "Cholesky IACT: %.5f\n", tau));
+      PetscCall(PetscPrintf(MPI_COMM_WORLD, "Time per independent sample [ms]: %.6f\n\n", PetscMax(tau, 1) * time / params->n_samples * 1000));
 
       PetscCall(PetscFree(qois));
       PetscCall(KSPDestroy(&ksp));
     }
 
-    if (params->run_mgmc) {
+    if (params->run_mgmc_coarse_gibbs) {
       KSP          ksp;
       PetscScalar *qois, tau = 0;
+      PetscBool    valid;
+      PetscInt     levels;
 
-      PetscCall(MGMCSamplerCreate(A, dm, pr, params, &ksp));
-      START_STAGE("MGMC burn-in");
-      PetscCall(Burnin(ksp, b, params));
-      END_STAGE();
-
+      TIME(MGMCSamplerCreate(A, dm, pr, params, PCGIBBS, &ksp), "MGMC (Coarse Gibbs) setup", &time);
+      PetscCall(MGMCSamplerGetNumLevels(ksp, &levels));
+      PetscCall(PetscPrintf(MPI_COMM_WORLD, "\t Using %d levels\n", levels));
       PetscCall(PetscCalloc1(params->n_samples, &qois));
+
+      TIME(Burnin(ksp, b, params), "MGMC (Coarse Gibbs) burn-in", &time);
       PetscCall(KSPSetConvergenceTest(ksp, SaveSample, qois, NULL));
+      TIME(Sample(ksp, b, params), "MGMC (Coarse Gibbs) sampling", &time);
 
-      START_STAGE("MGMC sampling");
-      PetscCall(Sample(ksp, b, params));
-      END_STAGE();
-      LOG_TIME_PER_SAMPLE();
+      PetscCall(IACT(params->n_samples, qois, &tau, &valid));
+      if (!valid) PetscCall(PetscPrintf(MPI_COMM_WORLD, "WARNING: Chain is too short to give reliable IACT estimate (need at least %d)\n", (int)ceil(50 * tau)));
+      PetscCall(PetscPrintf(MPI_COMM_WORLD, "MGMC (Coarse Gibbs) IACT: %.5f\n", tau));
+      PetscCall(PetscPrintf(MPI_COMM_WORLD, "Time per independent sample [ms]: %.6f\n\n", PetscMax(tau, 1) * time / params->n_samples * 1000));
 
-      PetscCall(IACT(params->n_samples, qois, &tau));
-      PetscCall(PetscPrintf(MPI_COMM_WORLD, "TAU = %.5f\n", tau));
+      PetscCall(PetscFree(qois));
+      PetscCall(KSPDestroy(&ksp));
+    }
+
+    if (params->run_mgmc_coarse_chol) {
+      KSP          ksp;
+      PetscScalar *qois, tau = 0;
+      PetscBool    valid;
+      PetscInt     levels;
+
+      TIME(MGMCSamplerCreate(A, dm, pr, params, PCCHOLSAMPLER, &ksp), "MGMC (Coarse Cholesky) setup", &time);
+      PetscCall(MGMCSamplerGetNumLevels(ksp, &levels));
+      PetscCall(PetscPrintf(MPI_COMM_WORLD, "\t Using %d levels\n", levels));
+      PetscCall(PetscCalloc1(params->n_samples, &qois));
+
+      TIME(Burnin(ksp, b, params), "MGMC (Coarse Cholesky) burn-in", &time);
+      PetscCall(KSPSetConvergenceTest(ksp, SaveSample, qois, NULL));
+      TIME(Sample(ksp, b, params), "MGMC (Coarse Cholesky) sampling", &time);
+
+      PetscCall(IACT(params->n_samples, qois, &tau, &valid));
+      if (!valid) PetscCall(PetscPrintf(MPI_COMM_WORLD, "WARNING: Chain is too short to give reliable IACT estimate (need at least %d)\n", (int)ceil(50 * tau)));
+      PetscCall(PetscPrintf(MPI_COMM_WORLD, "MGMC (Coarse Cholesky) IACT: %.5f\n", tau));
+      PetscCall(PetscPrintf(MPI_COMM_WORLD, "Time per independent sample [ms]: %.6f\n\n", PetscMax(tau, 1) * time / params->n_samples * 1000));
 
       PetscCall(PetscFree(qois));
       PetscCall(KSPDestroy(&ksp));
