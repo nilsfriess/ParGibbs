@@ -329,7 +329,7 @@ PetscErrorCode MSSetUp(MS ms)
     PetscCall(KSPSetDMActive(ctx->ksp, PETSC_FALSE));
     PetscCall(KSPGetPC(ctx->ksp, &pc));
     PetscCall(PCSetType(pc, "gamgmc"));
-    PetscCall(PCGAMGGetInternalPC(pc, &mgmc));
+    PetscCall(PCGAMGMCGetInternalPC(pc, &mgmc));
     PetscCall(KSPSetOptionsPrefix(ctx->ksp, "ms_"));
     PetscCall(KSPSetFromOptions(ctx->ksp));
     PetscCall(KSPSetUp(ctx->ksp));

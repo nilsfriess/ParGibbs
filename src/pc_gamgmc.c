@@ -59,7 +59,7 @@
     of this sampler by attaching a `DM` to the outer `KSP` via `KSPSetDM(ksp, dm)`.
 
     The underlying PCGAMG preconditioner can also be extracted using the function
-    `PCGAMGGetInternalPC(PC, PC*)`.
+    `PCGAMGMCGetInternalPC(PC, PC*)`.
 */
 
 typedef struct _PC_GAMGMC {
@@ -92,7 +92,7 @@ static PetscErrorCode PCDestroy_GAMGMC(PC pc)
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
-PetscErrorCode PCGAMGGetInternalPC(PC pc, PC *mg)
+PetscErrorCode PCGAMGMCGetInternalPC(PC pc, PC *mg)
 {
   PC_GAMGMC pg = pc->data;
 
