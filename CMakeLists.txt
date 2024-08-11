@@ -19,6 +19,12 @@ if (${PETSC_FOUND})
 endif()
 
 find_package(FFTW REQUIRED)
+message(STATUS ${FFTW_INCLUDE_DIRS} ${FFTW_LIBRARIES})
+if (DEFINED FFTW_INCLUDE_DIRS AND NOT DEFINED FFTW_LIBRARIES)
+  message(STATUS "Found FFTW include dirs but no libs, assuming that Intel MKL FFTW is used")
+  find_package(MKL CONFIG REQUIRED)
+  set(FFTW_DOUBLE_LIB "") # TODO: If we set this to $<LINK_ONLY:MKL::MKL> or MKL::MKL, then the program segfaults. Just leaving it empty seems to work (maybe because PETSc is linked against MKL already?).
+endif()
 
 add_library(parmgmc SHARED)
 file(GLOB_RECURSE PARMGMC_INCLUDES "${CMAKE_CURRENT_SOURCE_DIR}/include/parmgmc/*.h")
@@ -43,7 +49,7 @@ target_sources(parmgmc
 	    TYPE HEADERS
 	       FILES ${PARMGMC_INCLUDES})
 # target_include_directories(parmgmc PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/include")
-target_include_directories(parmgmc SYSTEM PUBLIC ${PETSC_INCLUDE_DIRS})
+target_include_directories(parmgmc SYSTEM PUBLIC ${PETSC_INCLUDE_DIRS} ${FFTW_INCLUDE_DIRS})
 target_compile_options(parmgmc PRIVATE -Wall -Wextra -Wpedantic -pedantic -Wshadow -Wpointer-arith -Wcast-qual -Wstrict-prototypes -Wmissing-prototypes)
 target_compile_options(parmgmc PUBLIC ${PETSC_CFLAGS})
 target_link_libraries(parmgmc PUBLIC PkgConfig::PETSC ${FFTW_DOUBLE_LIB})
