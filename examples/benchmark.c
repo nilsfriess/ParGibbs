@@ -259,7 +259,8 @@ int main(int argc, char *argv[])
   PetscCall(ParametersRead(params));
 
   {
-    double starttime, endtime;
+    double      starttime, endtime;
+    PetscMPIInt rank;
 
     PetscCall(PetscPrintf(MPI_COMM_WORLD, "Starting setup..."));
     starttime = MPI_Wtime();
@@ -273,7 +274,8 @@ int main(int argc, char *argv[])
     PetscCall(DMCreateGlobalVector(dm, &b));
     PetscCall(PetscRandomCreate(MPI_COMM_WORLD, &pr));
     PetscCall(PetscRandomSetType(pr, PARMGMC_ZIGGURAT));
-    PetscCall(PetscRandomSetSeed(pr, 2));
+    PetscCallMPI(MPI_Comm_rank(MPI_COMM_WORLD, &rank));
+    PetscCall(PetscRandomSetSeed(pr, 1 + rank));
     PetscCall(PetscRandomSeed(pr));
 
     if (params->with_lr) {
