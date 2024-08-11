@@ -7,6 +7,13 @@
 #include <petscerror.h>
 #include <petscmath.h>
 
+/* PetscErrorCode Autocorrelation_Sum(PetscInt n, const PetscScalar *x, PetscScalar **acf) */
+/* { */
+/*   PetscFunctionBeginUser; */
+
+/*   PetscFunctionReturn(PETSC_SUCCESS); */
+/* } */
+
 PetscErrorCode Autocorrelation(PetscInt n, const PetscScalar *x, PetscScalar **acf)
 {
   fftw_plan     p;
@@ -14,18 +21,19 @@ PetscErrorCode Autocorrelation(PetscInt n, const PetscScalar *x, PetscScalar **a
   PetscScalar   mean = 0;
 
   PetscFunctionBeginUser;
-  in  = (fftw_complex *)fftw_malloc(sizeof(fftw_complex) * n);
-  out = (fftw_complex *)fftw_malloc(sizeof(fftw_complex) * n);
+  in  = (fftw_complex *)fftw_malloc(sizeof(fftw_complex) * 2 * n);
+  out = (fftw_complex *)fftw_malloc(sizeof(fftw_complex) * 2 * n);
 
   for (PetscInt i = 0; i < n; ++i) mean += 1. / n * x[i];
   for (PetscInt i = 0; i < n; ++i) in[i] = x[i] - mean;
+  for (PetscInt i = n + 1; i < 2 * n; ++i) in[i] = 0;
 
-  p = fftw_plan_dft_1d(n, in, out, FFTW_FORWARD, FFTW_ESTIMATE);
+  p = fftw_plan_dft_1d(2 * n, in, out, FFTW_FORWARD, FFTW_ESTIMATE);
   fftw_execute(p);
   fftw_destroy_plan(p);
 
-  for (PetscInt i = 0; i < n; ++i) out[i] = out[i] * conj(out[i]);
-  p = fftw_plan_dft_1d(n, out, in, FFTW_BACKWARD, FFTW_ESTIMATE);
+  for (PetscInt i = 0; i < 2 * n; ++i) out[i] = out[i] * conj(out[i]);
+  p = fftw_plan_dft_1d(2 * n, out, in, FFTW_BACKWARD, FFTW_ESTIMATE);
   fftw_execute(p);
   fftw_destroy_plan(p);
 
