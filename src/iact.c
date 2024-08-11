@@ -59,7 +59,7 @@ static PetscErrorCode AutoWindow(PetscInt n, const PetscScalar *taus, PetscInt c
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
-PetscErrorCode IACT(PetscInt n, const PetscScalar *x, PetscScalar *tau)
+PetscErrorCode IACT(PetscInt n, const PetscScalar *x, PetscScalar *tau, PetscBool *valid)
 {
   PetscScalar *out;
   PetscInt     w;
@@ -67,9 +67,10 @@ PetscErrorCode IACT(PetscInt n, const PetscScalar *x, PetscScalar *tau)
   PetscFunctionBeginUser;
   PetscCall(Autocorrelation(n, x, &out));
   for (PetscInt i = 1; i < n; ++i) out[i] = out[i] + out[i - 1];
-  for (PetscInt i = 1; i < n; ++i) out[i] = 2 * out[i] - 1;
+  for (PetscInt i = 0; i < n; ++i) out[i] = 2 * out[i] - 1;
   PetscCall(AutoWindow(n, out, 5, &w));
   *tau = out[w];
+  if (valid) *valid = 50 * (*tau) <= n;
   PetscCall(PetscFree(out));
   PetscFunctionReturn(PETSC_SUCCESS);
 }
