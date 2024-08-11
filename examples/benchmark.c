@@ -101,6 +101,7 @@ static PetscErrorCode InfoView(Mat A, Parameters params, PetscViewer viewer)
   PetscCall(MatGetSize(A, &n, NULL));
   PetscCall(PetscViewerASCIIPrintf(viewer, "Problem size (degrees of freedom): %d\n\n", n));
   PetscCall(MPI_Comm_size(MPI_COMM_WORLD, &size));
+  PetscCall(PetscViewerASCIIPrintf(viewer, "Running on %d MPI ranks\n\n", size));
 
   PetscCall(PetscOptionsView(NULL, viewer));
   PetscFunctionReturn(PETSC_SUCCESS);
@@ -307,6 +308,7 @@ int main(int argc, char *argv[])
     endtime = MPI_Wtime();
     PetscCall(PetscPrintf(MPI_COMM_WORLD, " done. Took %.4fs.\n\n", endtime - starttime));
   }
+  PetscCall(InfoView(A, params, PETSC_VIEWER_STDOUT_WORLD));
 
   if (params->measure_sampling_time) {
     PetscCall(PetscPrintf(MPI_COMM_WORLD, "################################################################################\n"));
@@ -459,7 +461,6 @@ int main(int argc, char *argv[])
     }
   }
 
-  PetscCall(InfoView(A, params, PETSC_VIEWER_STDOUT_WORLD));
   PetscCall(VecDestroy(&b));
   PetscCall(PetscRandomDestroy(&pr));
   PetscCall(MSDestroy(&ms));
