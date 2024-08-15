@@ -57,6 +57,9 @@ static PetscErrorCode PCSetUp_CholSampler(PC pc)
   MatFactorInfo  info;
 
   PetscFunctionBeginUser;
+  PetscCall(PetscRandomCreate(PetscObjectComm((PetscObject)pc), &chol->prand));
+  PetscCall(PetscRandomSetType(chol->prand, PARMGMC_ZIGGURAT));
+
   PetscCall(MatGetType(pc->pmat, &type));
   PetscCall(PetscStrcmp(type, MATLRC, &flag));
   if (flag) {
@@ -172,8 +175,6 @@ PetscErrorCode PCCreate_CholSampler(PC pc)
 
   PetscFunctionBeginUser;
   PetscCall(PetscNew(&chol));
-  PetscCall(PetscRandomCreate(PetscObjectComm((PetscObject)pc), &chol->prand));
-  PetscCall(PetscRandomSetType(chol->prand, PARMGMC_ZIGGURAT));
 
   PetscCallMPI(MPI_Comm_size(PetscObjectComm((PetscObject)pc), &size));
   if (size == 1) chol->st = MATSOLVERMKL_PARDISO;

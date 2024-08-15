@@ -204,6 +204,10 @@ static PetscErrorCode PCSetUp_Gibbs(PC pc)
   Mat       P = pc->pmat;
 
   PetscFunctionBeginUser;
+  PetscCall(PetscRandomCreate(PetscObjectComm((PetscObject)pc), &pg->prand));
+  PetscCall(PetscRandomSetType(pg->prand, PARMGMC_ZIGGURAT));
+  pg->prand_is_initial_prand = PETSC_TRUE;
+
   if (pc->setupcalled) {
     PetscCall(VecDestroy(&pg->sqrtS));
     PetscCall(VecDestroy(&pg->sqrtdiag));
@@ -301,10 +305,6 @@ PetscErrorCode PCCreate_Gibbs(PC pc)
   gibbs->omega       = 1;
   gibbs->prepare_rhs = PrepareRHS_Default;
   gibbs->type        = SOR_FORWARD_SWEEP;
-
-  PetscCall(PetscRandomCreate(PetscObjectComm((PetscObject)pc), &gibbs->prand));
-  PetscCall(PetscRandomSetType(gibbs->prand, PARMGMC_ZIGGURAT));
-  gibbs->prand_is_initial_prand = PETSC_TRUE;
 
   PetscCall(PetscNew(&cbctx));
   pc->user = cbctx;
