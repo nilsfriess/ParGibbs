@@ -1,0 +1,21 @@
+-dm_refine_hierarchy 4
+
+-measure_iact
+#-measure_sampling_time
+
+-n_burnin 100
+-n_samples 1000
+
+-ksp_type richardson
+-pc_type gamgmc
+-pc_gamgmc_mg_type gamg
+# -gamgmc_pc_mg_levels 6
+-gamgmc_pc_gamg_aggressive_coarsening 0
+-gamgmc_pc_gamg_threshold 0.02
+-gamgmc_pc_gamg_threshold_scale 0.5
+-gamgmc_mg_levels_pc_type gibbs
+-gamgmc_mg_levels_ksp_max_it 2
+-gamgmc_mg_coarse_ksp_type preonly
+-gamgmc_mg_coarse_pc_type cholsampler
+
+# -with_lr

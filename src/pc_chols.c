@@ -19,6 +19,10 @@ typedef struct {
   PetscRandom   prand;
   MatSolverType st;
   PetscBool     prand_is_initial_prand;
+
+  void *cbctx;
+  PetscErrorCode (*scb)(PetscInt, Vec, void *);
+  PetscErrorCode (*del_scb)(void *);
 } *PC_CholSampler;
 
 static PetscErrorCode PCDestroy_CholSampler(PC pc)
@@ -139,8 +143,15 @@ static PetscErrorCode PCApplyRichardson_CholSampler(PC pc, Vec b, Vec y, Vec w, 
   (void)guesszero;
   (void)w;
 
+  PC_CholSampler chol = pc->data;
+  PetscInt       it;
+
   PetscFunctionBeginUser;
-  for (PetscInt it = 0; it < its; ++it) PetscCall(PCApply_CholSampler(pc, b, y));
+  for (it = 0; it < its; ++it) {
+    if (chol->scb) PetscCall(chol->scb(it, y, chol->cbctx));
+    PetscCall(PCApply_CholSampler(pc, b, y));
+  }
+  if (chol->scb) PetscCall(chol->scb(it, y, chol->cbctx));
   *outits = its;
   *reason = PCRICHARDSON_CONVERGED_ITS;
   PetscFunctionReturn(PETSC_SUCCESS);
@@ -168,6 +179,18 @@ static PetscErrorCode PCCholSamplerSetPetscRandom(PC pc, PetscRandom pr)
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
+static PetscErrorCode PCSetSampleCallback_Cholsampler(PC pc, PetscErrorCode (*cb)(PetscInt, Vec, void *), void *ctx, PetscErrorCode (*deleter)(void *))
+{
+  PC_CholSampler chol = pc->data;
+
+  PetscFunctionBeginUser;
+  if (chol->del_scb) PetscCall(chol->del_scb(chol->cbctx));
+  chol->scb     = cb;
+  chol->cbctx   = ctx;
+  chol->del_scb = deleter;
+  PetscFunctionReturn(PETSC_SUCCESS);
+}
+
 PetscErrorCode PCCreate_CholSampler(PC pc)
 {
   PC_CholSampler chol;
@@ -188,5 +211,6 @@ PetscErrorCode PCCreate_CholSampler(PC pc)
   pc->ops->applyrichardson     = PCApplyRichardson_CholSampler;
   chol->prand_is_initial_prand = PETSC_TRUE;
   PetscCall(RegisterPCSetGetPetscRandom(pc, PCCholSamplerSetPetscRandom, PCCholSamplerGetPetscRandom));
+  PetscCall(PCRegisterSetSampleCallback(pc, PCSetSampleCallback_Cholsampler));
   PetscFunctionReturn(PETSC_SUCCESS);
 }

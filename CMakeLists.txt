@@ -8,9 +8,6 @@ project(ParMGMC
 set(CMAKE_COLOR_DIAGNOSTICS ON)
 set(CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake" ${CMAKE_MODULE_PATH})
 
-# find_package(MPI REQUIRED)
-# set(MPI_TARGET MPI::MPI_C)
-
 find_package(PkgConfig REQUIRED)
 pkg_search_module(PETSC PETSc>=3.17 IMPORTED_TARGET REQUIRED)
 
@@ -55,10 +52,37 @@ target_compile_options(parmgmc PRIVATE -Wall -Wextra -Wpedantic -pedantic -Wshad
 target_compile_options(parmgmc PUBLIC ${PETSC_CFLAGS})
 target_link_libraries(parmgmc PUBLIC PkgConfig::PETSC ${FFTW_DOUBLE_LIB})
 
-add_executable(benchmark examples/benchmark.c)
+add_executable(benchmark examples/benchmark/main.cc)
 target_include_directories(benchmark PRIVATE include)
-target_compile_options(benchmark PRIVATE -Wall -Wextra -Wpedantic -pedantic -Wshadow -Wpointer-arith -Wcast-qual -Wstrict-prototypes -Wmissing-prototypes)
-target_link_libraries(benchmark parmgmc m)
+target_compile_options(benchmark PRIVATE -Wall -Wextra -Wpedantic -pedantic)
+target_link_libraries(benchmark PRIVATE parmgmc m)
+
+add_executable(test test.c)
+target_include_directories(test PRIVATE include)
+target_compile_options(test PRIVATE -Wall -Wextra -Wpedantic -pedantic -Wshadow -Wpointer-arith -Wcast-qual -Wstrict-prototypes -Wmissing-prototypes)
+target_link_libraries(test parmgmc m)
+
+set(MFEM_DIR "" CACHE PATH "Path to the MFEM build or install prefix.")
+find_package(mfem
+             NAMES MFEM
+             HINTS "${MFEM_DIR}" "${MFEM_DIR}/lib/cmake/mfem"
+             NO_DEFAULT_PATH)
+if(${mfem_FOUND})
+  message(STATUS "Found MFEM at ${mfem_DIR} (version ${MFEM_VERSION})")
+
+  find_package(MPI REQUIRED)
+  message(STATUS "mpiexec executable located at ${MPIEXEC_EXECUTABLE}")
+
+  add_executable(mfem_ex examples/mfem/main.cc)
+  target_include_directories(mfem_ex PRIVATE include ${MFEM_INCLUDE_DIRS})
+  target_compile_options(mfem_ex PRIVATE -Wall -Wextra -Wpedantic -pedantic -Wshadow -Wpointer-arith -Wcast-qual)
+  target_link_libraries(mfem_ex PUBLIC parmgmc PRIVATE m ${MFEM_LIBRARIES} MPI::MPI_CXX MPI::MPI_C)
+
+target_include_directories(benchmark SYSTEM PRIVATE ${MFEM_INCLUDE_DIRS})
+  target_link_libraries(benchmark PRIVATE ${MFEM_LIBRARIES})
+else()
+  message(STATUS "Could not find MFEM")
+endif()
 
 include(GNUInstallDirs)
 list(APPEND CMAKE_INSTALL_RPATH ${CMAKE_INSTALL_LIBDIR})

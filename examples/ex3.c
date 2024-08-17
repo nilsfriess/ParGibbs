@@ -23,9 +23,6 @@
 
 // FGMRES + SOR with low-rank update
 // RUN: %cc %s -o %t %flags -g && %mpirun -np %NP %t -ksp_type fgmres -dm_refine 4 -with_lr
-
-// GAMG+Gibbs with low rank update
-// RUN1: %cc %s -o %t %flags -g && %mpirun -np %NP %t -ksp_type richardson -pc_type gamgmc -pc_gamgmc_mg_type gamg  -gamgmc_mg_levels_pc_type gibbs -gamgmc_mg_coarse_pc_type gibbs -gamgmc_mg_levels_ksp_type richardson -gamgmc_mg_coarse_ksp_type richardson -gamgmc_mg_levels_ksp_max_it 2 -gamgmc_mg_coarse_ksp_max_it 4 %opts
 /****************************************************************************/
 
 #include <parmgmc/mc_sor.h>
@@ -55,37 +52,6 @@
 typedef struct {
   MCSOR mc;
 } *AppCtx;
-
-/* typedef struct _SampleCtx { */
-/*   Vec         mean, y, mean_exact, tmp, samples[10]; */
-/*   PetscScalar mean_exact_norm; */
-/*   void       *dctx; */
-/* } *SampleCtx; */
-
-/* static PetscErrorCode SampleCallback(KSP ksp, PetscInt it, PetscReal rnorm, KSPConvergedReason *reason, void *ctx) */
-/* { */
-/*   SampleCtx  *sctx = ctx; */
-/*   Vec         mean = (*sctx)->mean, y = (*sctx)->y; */
-/*   PetscScalar n; */
-/*   PetscInt    maxit; */
-/*   (void)rnorm; */
-
-/*   PetscFunctionBeginUser; */
-/*   PetscCall(KSPGetSolution(ksp, &y)); */
-/*   PetscCall(VecScale(mean, it)); */
-/*   PetscCall(VecAXPY(mean, 1., y)); */
-/*   PetscCall(VecScale(mean, 1. / (it + 1))); */
-
-/*   PetscCall(VecCopy(mean, (*sctx)->tmp)); */
-/*   PetscCall(VecAXPY((*sctx)->tmp, -1, (*sctx)->mean_exact)); */
-/*   PetscCall(VecNorm((*sctx)->tmp, NORM_2, &n)); */
-
-/*   PetscCall(KSPGetTolerances(ksp, NULL, NULL, NULL, &maxit)); */
-/*   if (maxit - it < 10) { PetscCall(VecCopy(y, (*sctx)->samples[9 - (maxit - it)])); } */
-
-/*   *reason = KSP_CONVERGED_ITERATING; */
-/*   PetscFunctionReturn(PETSC_SUCCESS); */
-/* } */
 
 static PetscErrorCode apply(PC pc, Vec x, Vec y)
 {

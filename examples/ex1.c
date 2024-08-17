@@ -28,12 +28,6 @@
 // Cholesky
 // RUN: %cc %s -o %t %flags && %mpirun -np %NP %t -ksp_type richardson -pc_type cholsampler -samples 10
 
-// MGMC using PCMG with coarse Gibbs
-// RUN: %cc %s -o %t %flags && %mpirun -np %NP %t -ksp_type richardson -pc_type mg -pc_mg_levels 3 -da_grid_x 3 -da_grid_y 3 -mg_levels_ksp_type richardson -mg_levels_pc_type gibbs -mg_coarse_ksp_type richardson -mg_coarse_pc_type gibbs -mg_coarse_ksp_max_it 2 -mg_levels_ksp_max_it 2 -pc_mg_galerkin both -da_refine 2
-
-// MGMC using PCGAMG with coarse Gibbs
-// RUN: %cc %s -o %t %flags && %mpirun -np %NP %t -ksp_type richardson -pc_type gamg -da_grid_x 3 -da_grid_y 3 -mg_levels_ksp_type richardson -mg_levels_pc_type gibbs -mg_coarse_ksp_type richardson -mg_coarse_pc_type gibbs -mg_coarse_ksp_max_it 2 -mg_levels_ksp_max_it 2 -pc_mg_galerkin both -da_refine 2
-
 // Algebraic MGMC using PCGAMGMC with coarse Gibbs
 // RUN: %cc %s -o %t %flags && %mpirun -np %NP %t -ksp_type richardson -pc_type gamgmc -da_grid_x 3 -da_grid_y 3 -gamgmc_mg_levels_ksp_type richardson -gamgmc_mg_levels_pc_type gibbs -gamgmc_mg_coarse_ksp_type richardson -gamgmc_mg_coarse_pc_type gibbs -gamgmc_mg_coarse_ksp_max_it 2 -gamgmc_mg_levels_ksp_max_it 2 -da_refine 2 -gamgmc_pc_mg_galerkin both
 
@@ -57,16 +51,12 @@
 #include <petscksp.h>
 #include <petscvec.h>
 
-static PetscErrorCode SampleCallback(KSP ksp, PetscInt it, PetscReal rnorm, KSPConvergedReason *reason, void *ctx)
+static PetscErrorCode SampleCallback(PetscInt it, Vec x, void *ctx)
 {
-  (void)rnorm;
-
-  Vec x, mean = ctx;
+  Vec mean = ctx;
 
   PetscFunctionBeginUser;
-  PetscCall(KSPGetSolution(ksp, &x));
   PetscCall(VecAXPBY(mean, 1. / (it + 1), it / (it + 1.), x));
-  *reason = KSP_CONVERGED_ITERATING;
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
@@ -76,6 +66,7 @@ int main(int argc, char *argv[])
   Mat       A;
   Vec       b, x, mean;
   KSP       ksp;
+  PC        pc;
   PetscReal err;
   PetscInt  n_samples = 500000; // 5000000;
 
@@ -102,7 +93,8 @@ int main(int argc, char *argv[])
   PetscCall(KSPSetUp(ksp));
 
   PetscCall(DMCreateGlobalVector(da, &mean));
-  PetscCall(KSPSetConvergenceTest(ksp, SampleCallback, mean, NULL));
+  PetscCall(KSPGetPC(ksp, &pc));
+  PetscCall(PCSetSampleCallback(pc, SampleCallback, mean, NULL));
 
   PetscCall(DMCreateGlobalVector(da, &x));
   PetscCall(VecDuplicate(x, &b));

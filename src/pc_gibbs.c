@@ -64,28 +64,31 @@ typedef struct {
   PetscBool   omega_changed, prand_is_initial_prand;
   MCSOR       mc;
   MatSORType  type;
-  Vec         z; // work vec
+  Vec         z;
 
   Mat B;
   Vec w;
   Vec sqrtS;
 
   PetscErrorCode (*prepare_rhs)(PC, Vec, Vec);
+
+  void *cbctx;
+  PetscErrorCode (*scb)(PetscInt, Vec, void *);
+  PetscErrorCode (*del_scb)(void *);
 } PC_Gibbs;
 
 static PetscErrorCode PCDestroy_Gibbs(PC pc)
 {
-  SampleCallbackCtx cbctx = pc->user;
-  PC_Gibbs         *pg    = pc->data;
+  PC_Gibbs *pg = pc->data;
 
   PetscFunctionBeginUser;
-  PetscCall(PetscFree(cbctx));
   if (pg->prand_is_initial_prand) PetscCall(PetscRandomDestroy(&pg->prand));
   PetscCall(VecDestroy(&pg->sqrtdiag));
   PetscCall(MCSORDestroy(&pg->mc));
   PetscCall(VecDestroy(&pg->w));
   PetscCall(VecDestroy(&pg->sqrtS));
   PetscCall(VecDestroy(&pg->z));
+  if (pg->del_scb) PetscCall(pg->del_scb(pg->cbctx));
   PetscCall(PetscFree(pg));
   PetscFunctionReturn(PETSC_SUCCESS);
 }
@@ -100,6 +103,7 @@ static PetscErrorCode PCReset_Gibbs(PC pc)
   PetscCall(VecDestroy(&pg->w));
   PetscCall(VecDestroy(&pg->sqrtS));
   PetscCall(VecDestroy(&pg->z));
+  if (pg->del_scb) PetscCall(pg->del_scb(pg->cbctx));
   if (pg->prand_is_initial_prand) PetscCall(PetscRandomDestroy(&pg->prand));
   PetscFunctionReturn(PETSC_SUCCESS);
 }
@@ -140,16 +144,20 @@ static PetscErrorCode PCGibbsUpdateSqrtDiag(PC pc)
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
-static PetscErrorCode PCApply_Gibbs(PC pc, Vec x, Vec y)
-{
-  PC_Gibbs *pg = pc->data;
+/* static PetscErrorCode PCApply_Gibbs(PC pc, Vec x, Vec y) */
+/* { */
+/*   PC_Gibbs *pg = pc->data; */
 
-  PetscFunctionBeginUser;
-  if (pg->omega_changed) PetscCall(PCGibbsUpdateSqrtDiag(pc));
-  PetscCall(pg->prepare_rhs(pc, x, pg->z));
-  PetscCall(MCSORApply(pg->mc, pg->z, y));
-  PetscFunctionReturn(PETSC_SUCCESS);
-}
+/*   PetscFunctionBeginUser; */
+/*   if (pg->omega_changed) PetscCall(PCGibbsUpdateSqrtDiag(pc)); */
+
+/*   PetscCall(pg->prepare_rhs(pc, pg->rhs, pg->z)); */
+/*   PetscCall(VecAXPY(pg->z, -1., pg->rhs)); */
+/*   PetscCall(VecAXPY(pg->z, 1., x)); */
+/*   /\* PetscCall(MCSORApply(pg->mc, pg->z, y)); *\/ */
+/*   PetscCall(MatSOR(pc->pmat, pg->z, 1., SOR_LOCAL_SYMMETRIC_SWEEP, 0., 1., 1., y)); */
+/*   PetscFunctionReturn(PETSC_SUCCESS); */
+/* } */
 
 static PetscErrorCode PCApplyRichardson_Gibbs(PC pc, Vec b, Vec y, Vec w, PetscReal rtol, PetscReal abstol, PetscReal dtol, PetscInt its, PetscBool guesszero, PetscInt *outits, PCRichardsonConvergedReason *reason)
 {
@@ -158,17 +166,18 @@ static PetscErrorCode PCApplyRichardson_Gibbs(PC pc, Vec b, Vec y, Vec w, PetscR
   (void)dtol;
   (void)guesszero;
 
-  PC_Gibbs         *pg    = pc->data;
-  SampleCallbackCtx cbctx = pc->user;
+  PC_Gibbs *pg = pc->data;
+  PetscInt  it;
 
   PetscFunctionBeginUser;
   if (pg->omega_changed) PetscCall(PCGibbsUpdateSqrtDiag(pc));
 
-  for (PetscInt it = 0; it < its; ++it) {
+  for (it = 0; it < its; ++it) {
+    if (pg->scb) PetscCall(pg->scb(it, y, pg->cbctx));
     PetscCall(pg->prepare_rhs(pc, b, w));
     PetscCall(MCSORApply(pg->mc, w, y));
-    if (cbctx->cb) PetscCall(cbctx->cb(it, y, cbctx->ctx));
   }
+  if (pg->scb) PetscCall(pg->scb(it, y, pg->cbctx));
   *outits = its;
   *reason = PCRICHARDSON_CONVERGED_ITS;
   PetscFunctionReturn(PETSC_SUCCESS);
@@ -295,19 +304,30 @@ static PetscErrorCode PCGibbsSetPetscRandom(PC pc, PetscRandom pr)
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
+static PetscErrorCode PCSetSampleCallback_Gibbs(PC pc, PetscErrorCode (*cb)(PetscInt, Vec, void *), void *ctx, PetscErrorCode (*deleter)(void *))
+{
+  PC_Gibbs *pg = pc->data;
+
+  PetscFunctionBeginUser;
+  if (pg->del_scb) PetscCall(pg->del_scb(pg->cbctx));
+  pg->scb     = cb;
+  pg->cbctx   = ctx;
+  pg->del_scb = deleter;
+  PetscFunctionReturn(PETSC_SUCCESS);
+}
+
 PetscErrorCode PCCreate_Gibbs(PC pc)
 {
-  PC_Gibbs         *gibbs;
-  SampleCallbackCtx cbctx;
+  PC_Gibbs *gibbs;
 
   PetscFunctionBeginUser;
   PetscCall(PetscNew(&gibbs));
   gibbs->omega       = 1;
   gibbs->prepare_rhs = PrepareRHS_Default;
   gibbs->type        = SOR_FORWARD_SWEEP;
-
-  PetscCall(PetscNew(&cbctx));
-  pc->user = cbctx;
+  gibbs->cbctx       = NULL;
+  gibbs->scb         = NULL;
+  gibbs->del_scb     = NULL;
 
   pc->data                 = gibbs;
   pc->ops->setup           = PCSetUp_Gibbs;
@@ -315,7 +335,7 @@ PetscErrorCode PCCreate_Gibbs(PC pc)
   pc->ops->applyrichardson = PCApplyRichardson_Gibbs;
   pc->ops->setfromoptions  = PCSetFromOptions_Gibbs;
   pc->ops->reset           = PCReset_Gibbs;
-  pc->ops->apply           = PCApply_Gibbs;
   PetscCall(RegisterPCSetGetPetscRandom(pc, PCGibbsSetPetscRandom, PCGibbsGetPetscRandom));
+  PetscCall(PCRegisterSetSampleCallback(pc, PCSetSampleCallback_Gibbs));
   PetscFunctionReturn(PETSC_SUCCESS);
 }

@@ -20,6 +20,7 @@
 #include <petscksp.h>
 #include <petsclog.h>
 #include <petscpc.h>
+#include <petscpctypes.h>
 #include <petscsys.h>
 
 /** @file
@@ -59,40 +60,84 @@ PetscErrorCode ParMGMCInitialize(void)
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
-/**
-   @brief Set a callback function that is called everytime a sampler generated a new sample.
+/* /\** */
+/*    @brief Set a callback function that is called everytime a sampler generated a new sample. */
 
-   For PETSc's own PC's this does nothing. This works by abusing the `void* user` field
-   in the `PC` class which also means that the `user` field cannot be used for anything
-   else.
+/*    For PETSc's own PC's this does nothing. This works by abusing the `void* user` field */
+/*    in the `PC` class which also means that the `user` field cannot be used for anything */
+/*    else. */
 
-   TODO: Use PetscTryMethod instead.
-*/
-PetscErrorCode PCSetSampleCallback(PC pc, PetscErrorCode (*cb)(PetscInt, Vec, void *), void *ctx)
+/*    TODO: Use PetscTryMethod instead. */
+/* *\/ */
+/* PetscErrorCode PCSetSampleCallback(PC pc, PetscErrorCode (*cb)(PetscInt, Vec, void *), void *ctx) */
+/* { */
+/*   SampleCallbackCtx cbctx; */
+
+/*   PetscFunctionBeginUser; */
+/*   if (!pc->user) PetscFunctionReturn(PETSC_SUCCESS); */
+
+/*   cbctx      = pc->user; */
+/*   cbctx->cb  = cb; */
+/*   cbctx->ctx = ctx; */
+
+/*   PetscFunctionReturn(PETSC_SUCCESS); */
+/* } */
+
+PetscErrorCode PCRegisterSetSampleCallback(PC pc, PetscErrorCode (*set)(PC pc, PetscErrorCode (*cb)(PetscInt, Vec, void *), void *ctx, PetscErrorCode (*deleter)(void *)))
 {
-  SampleCallbackCtx cbctx;
-
   PetscFunctionBeginUser;
-  if (!pc->user) PetscFunctionReturn(PETSC_SUCCESS);
+  PetscCall(PetscObjectComposeFunction((PetscObject)pc, "PCSetSampleCallback_C", set));
+  PetscFunctionReturn(PETSC_SUCCESS);
+}
 
-  cbctx      = pc->user;
-  cbctx->cb  = cb;
-  cbctx->ctx = ctx;
-
+PetscErrorCode PCSetSampleCallback(PC pc, PetscErrorCode (*cb)(PetscInt, Vec, void *), void *ctx, PetscErrorCode (*deleter)(void *))
+{
+  PetscFunctionBeginUser;
+  PetscUseMethod((PetscObject)pc, "PCSetSampleCallback_C", (PC, PetscErrorCode(*)(PetscInt, Vec, void *), void *, PetscErrorCode (*)(void *)), (pc, cb, ctx, deleter));
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
 PetscErrorCode PCSetPetscRandom(PC pc, PetscRandom pr)
 {
+  PCType    type;
+  PetscBool flag;
+
   PetscFunctionBeginUser;
-  PetscUseMethod((PetscObject)pc, "PCSetPetscRandom_C", (PC, PetscRandom), (pc, pr));
+  PetscCall(PCGetType(pc, &type));
+  PetscCall(PetscStrcmp(type, PCREDUNDANT, &flag));
+  if (flag) {
+    // If the PC is a PCREDUNDANT, get the inner pc and try to call the method there.
+    KSP kspi;
+    PC  pci;
+
+    PetscCall(PCRedundantGetKSP(pc, &kspi));
+    PetscCall(KSPGetPC(kspi, &pci));
+    PetscUseMethod((PetscObject)pci, "PCSetPetscRandom_C", (PC, PetscRandom), (pci, pr));
+  } else {
+    PetscUseMethod((PetscObject)pc, "PCSetPetscRandom_C", (PC, PetscRandom), (pc, pr));
+  }
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
 PetscErrorCode PCGetPetscRandom(PC pc, PetscRandom *pr)
 {
+  PCType    type;
+  PetscBool flag;
+
   PetscFunctionBeginUser;
-  PetscUseMethod((PetscObject)pc, "PCGetPetscRandom_C", (PC, PetscRandom *), (pc, pr));
+  PetscCall(PCGetType(pc, &type));
+  PetscCall(PetscStrcmp(type, PCREDUNDANT, &flag));
+  if (flag) {
+    // If the PC is a PCREDUNDANT, get the inner pc and try to call the method there.
+    KSP kspi;
+    PC  pci;
+
+    PetscCall(PCRedundantGetKSP(pc, &kspi));
+    PetscCall(KSPGetPC(kspi, &pci));
+    PetscUseMethod((PetscObject)pci, "PCGetPetscRandom_C", (PC, PetscRandom *), (pci, pr));
+  } else {
+    PetscUseMethod((PetscObject)pc, "PCGetPetscRandom_C", (PC, PetscRandom *), (pc, pr));
+  }
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 

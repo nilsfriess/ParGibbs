@@ -161,17 +161,13 @@ static PetscErrorCode MS_AssembleMat(MS ms)
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
-static PetscErrorCode MS_SampleCallback(KSP ksp, PetscInt it, PetscReal rnorm, KSPConvergedReason *reason, void *msctx)
+static PetscErrorCode MS_SampleCallback(PetscInt it, Vec y, void *msctx)
 {
-  (void)rnorm;
   MSCtx ctx = msctx;
-  Vec   x;
 
   PetscFunctionBeginUser;
-  PetscCall(KSPGetSolution(ksp, &x));
-  if (ctx->save_samples) PetscCall(VecCopy(x, ctx->samples[it]));
-  if (ctx->qoi) PetscCall(ctx->qoi(it, x, &ctx->qois[it], ctx->qoictx));
-  *reason = KSP_CONVERGED_ITERATING;
+  if (ctx->save_samples) PetscCall(VecCopy(y, ctx->samples[it]));
+  if (ctx->qoi) PetscCall(ctx->qoi(it, y, &ctx->qois[it], ctx->qoictx));
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
@@ -338,7 +334,7 @@ PetscErrorCode MSSetUp(MS ms)
     PetscCall(KSPSetUp(ctx->ksp));
     PetscCall(KSPSetNormType(ctx->ksp, KSP_NORM_NONE));
     PetscCall(KSPSetTolerances(ctx->ksp, PETSC_DEFAULT, PETSC_DEFAULT, PETSC_DEFAULT, 1));
-    PetscCall(KSPSetConvergenceTest(ctx->ksp, MS_SampleCallback, ctx, NULL));
+    PetscCall(PCSetSampleCallback(pc, MS_SampleCallback, ctx, NULL));
     PetscCall(KSPSetInitialGuessNonzero(ctx->ksp, PETSC_TRUE));
 
     PetscCall(PCMGGetLevels(mgmc, &levels));

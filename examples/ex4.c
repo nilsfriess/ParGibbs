@@ -13,7 +13,7 @@
 
 /**************************** Test specification ****************************/
 // Cholesky sampler with low-rank update
-// RUN: %cc %s -o %t %flags && %mpirun -np %NP %t -ksp_type richardson -pc_type cholsampler -dm_refine 4 %opts
+// RUN: %cc %s -o %t %flags && %mpirun -np %NP %t -ksp_type richardson -pc_type cholsampler -dm_refine 4 %opts -with_lr
 /****************************************************************************/
 
 #include "mpi.h"
@@ -74,15 +74,13 @@ static PetscErrorCode SampleCtxDestroy(void *sctx)
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
-static PetscErrorCode SampleCallback(KSP ksp, PetscInt it, PetscReal rnorm, KSPConvergedReason *reason, void *ctx)
+static PetscErrorCode SampleCallback(PetscInt it, Vec y, void *ctx)
 {
   SampleCtx  *sctx = ctx;
-  Vec         mean = (*sctx)->mean, y = (*sctx)->y;
+  Vec         mean = (*sctx)->mean;
   PetscScalar n;
-  (void)rnorm;
 
   PetscFunctionBeginUser;
-  PetscCall(KSPGetSolution(ksp, &y));
   PetscCall(VecScale(mean, it));
   PetscCall(VecAXPY(mean, 1., y));
   PetscCall(VecScale(mean, 1. / (it + 1)));
@@ -90,8 +88,6 @@ static PetscErrorCode SampleCallback(KSP ksp, PetscInt it, PetscReal rnorm, KSPC
   PetscCall(VecCopy(mean, (*sctx)->tmp));
   PetscCall(VecAXPY((*sctx)->tmp, -1, (*sctx)->mean_exact));
   PetscCall(VecNorm((*sctx)->tmp, NORM_2, &n));
-
-  *reason = KSP_CONVERGED_ITERATING;
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
@@ -102,6 +98,7 @@ int main(int argc, char *argv[])
   Mat            A, B, Aop;
   Vec            S, b, x, f;
   KSP            ksp;
+  PC             pc;
   MS             ms;
   PetscBool      with_lr = PETSC_FALSE;
   const PetscInt nobs    = 3;
@@ -129,9 +126,9 @@ int main(int argc, char *argv[])
 
     PetscCall(PetscOptionsGetReal(NULL, NULL, "-obsval", &obsval, NULL));
     obsvals[0] = obsval;
-    radii[0]   = 0.1;
+    radii[0]   = 0.05;
     obsvals[1] = obsval;
-    radii[1]   = 0.1;
+    radii[1]   = 0.05;
     obsvals[2] = obsval;
     radii[2]   = 0.1;
 
@@ -166,7 +163,8 @@ int main(int argc, char *argv[])
     PetscCall(KSPDestroy(&ksp2));
   }
 
-  PetscCall(KSPSetConvergenceTest(ksp, SampleCallback, &samplectx, SampleCtxDestroy));
+  PetscCall(KSPGetPC(ksp, &pc));
+  PetscCall(PCSetSampleCallback(pc, SampleCallback, &samplectx, SampleCtxDestroy));
   PetscCall(KSPSolve(ksp, b, x));
 
   {
@@ -187,7 +185,7 @@ int main(int argc, char *argv[])
 
     PetscCall(VecAXPY(samplectx->mean, -1, samplectx->mean_exact));
     PetscCall(PetscObjectSetName((PetscObject)(samplectx->mean), "error"));
-    PetscCall(VecView(samplectx->mean, viewer));
+    PetscCall(VecView(samplectx->mean, viewer));    
     PetscCall(PetscViewerDestroy(&viewer));
   }
 

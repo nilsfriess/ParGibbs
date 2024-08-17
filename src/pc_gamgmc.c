@@ -68,16 +68,18 @@ typedef struct _PC_GAMGMC {
   PC        mg;
   Mat      *As; // The actual matrices used (in case of A+LR this differs from the matrices used to setup the multigrid hierarchy).
   PetscBool setup_called;
+
+  void *cbctx;
+  PetscErrorCode (*scb)(PetscInt, Vec, void *);
+  PetscErrorCode (*del_scb)(void *);
 } *PC_GAMGMC;
 
 static PetscErrorCode PCDestroy_GAMGMC(PC pc)
 {
-  SampleCallbackCtx cbctx = pc->user;
-  PC_GAMGMC         pg    = pc->data;
-  PetscInt          levels;
+  PC_GAMGMC pg = pc->data;
+  PetscInt  levels;
 
   PetscFunctionBeginUser;
-  PetscCall(PetscFree(cbctx));
   if (pg->As) {
     PetscCall(PCMGGetLevels(pg->mg, &levels));
     for (PetscInt l = 0; l < levels - 1; ++l) PetscCall(MatDestroy(&(pg->As[l])));
@@ -170,31 +172,9 @@ static PetscErrorCode PCGAMGMC_SetUpHierarchy(PC pc)
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
-static PetscErrorCode PCApply_GAMGMC(PC pc, Vec x, Vec y)
-{
-  PC_GAMGMC pg = pc->data;
-
-  PetscFunctionBeginUser;
-  if (!pg->setup_called) {
-    PetscCall(PCGAMGMC_SetUpHierarchy(pc));
-    pg->setup_called = PETSC_TRUE;
-  }
-
-  PetscCall(PCApply(pg->mg, x, y));
-
-  PetscFunctionReturn(PETSC_SUCCESS);
-}
-
-/* static PetscErrorCode PCApplyRichardson_GAMGMC(PC pc, Vec b, Vec y, Vec w, PetscReal rtol, PetscReal abstol, PetscReal dtol, PetscInt its, PetscBool guesszero, PetscInt *outits, PCRichardsonConvergedReason *reason) */
+/* static PetscErrorCode PCApply_GAMGMC(PC pc, Vec x, Vec y) */
 /* { */
-/*   (void)rtol; */
-/*   (void)abstol; */
-/*   (void)dtol; */
-/*   (void)guesszero; */
-/*   (void)w; */
-
-/*   PC_GAMGMC         pg    = pc->data; */
-/*   SampleCallbackCtx cbctx = pc->user; */
+/*   PC_GAMGMC pg = pc->data; */
 
 /*   PetscFunctionBeginUser; */
 /*   if (!pg->setup_called) { */
@@ -202,14 +182,37 @@ static PetscErrorCode PCApply_GAMGMC(PC pc, Vec x, Vec y)
 /*     pg->setup_called = PETSC_TRUE; */
 /*   } */
 
-/*   for (PetscInt i = 0; i < its; ++i) { */
-/*     PetscCall(PCApply(pg->mg, b, y)); */
-/*     if (cbctx->cb) PetscCall(cbctx->cb(i, y, cbctx->ctx)); */
-/*   } */
-/*   *outits = its; */
-/*   *reason = PCRICHARDSON_CONVERGED_ITS; */
+/*   PetscCall(PCApply(pg->mg, x, y)); */
+
 /*   PetscFunctionReturn(PETSC_SUCCESS); */
 /* } */
+
+static PetscErrorCode PCApplyRichardson_GAMGMC(PC pc, Vec b, Vec y, Vec w, PetscReal rtol, PetscReal abstol, PetscReal dtol, PetscInt its, PetscBool guesszero, PetscInt *outits, PCRichardsonConvergedReason *reason)
+{
+  (void)rtol;
+  (void)abstol;
+  (void)dtol;
+  (void)guesszero;
+  (void)w;
+
+  PC_GAMGMC pg = pc->data;
+  PetscInt  it;
+
+  PetscFunctionBeginUser;
+  if (!pg->setup_called) {
+    PetscCall(PCGAMGMC_SetUpHierarchy(pc));
+    pg->setup_called = PETSC_TRUE;
+  }
+
+  for (it = 0; it < its; ++it) {
+    if (pg->scb) PetscCall(pg->scb(it, y, pg->cbctx));
+    PetscCall(PCApply(pg->mg, b, y));
+  }
+  if (pg->scb) PetscCall(pg->scb(it, y, pg->cbctx));
+  *outits = its;
+  *reason = PCRICHARDSON_CONVERGED_ITS;
+  PetscFunctionReturn(PETSC_SUCCESS);
+}
 
 static PetscErrorCode PCView_GAMGMC(PC pc, PetscViewer v)
 {
@@ -280,6 +283,19 @@ static PetscErrorCode PCGAMGMCSetPetscRandom(PC pc, PetscRandom pr)
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
+static PetscErrorCode PCSetSampleCallback_GAMGMC(PC pc, PetscErrorCode (*cb)(PetscInt, Vec, void *), void *ctx, PetscErrorCode (*deleter)(void *))
+{
+  PC_GAMGMC pg = pc->data;
+
+  PetscFunctionBeginUser;
+  if (pg->scb && pg->del_scb) PetscCall(pg->del_scb(pg->cbctx));
+  PetscCheck(cb, MPI_COMM_WORLD, PETSC_ERR_SUP, "Must pass callback function");
+  pg->scb = cb;
+  if (ctx) pg->cbctx = ctx;
+  if (deleter) pg->del_scb = deleter;
+  PetscFunctionReturn(PETSC_SUCCESS);
+}
+
 static PetscErrorCode PCGAMGMCGetPetscRandom(PC pc, PetscRandom *pr)
 {
   PC_GAMGMC pg = pc->data;
@@ -295,25 +311,25 @@ static PetscErrorCode PCGAMGMCGetPetscRandom(PC pc, PetscRandom *pr)
 
 PetscErrorCode PCCreate_GAMGMC(PC pc)
 {
-  PC_GAMGMC         pg;
-  SampleCallbackCtx cbctx;
+  PC_GAMGMC pg;
 
   PetscFunctionBeginUser;
   PetscCall(PetscNew(&pg));
   PetscCall(PCCreate(MPI_COMM_WORLD, &pg->mg));
   strcpy(pg->mgtype, PCGAMG);
-  pg->As = NULL;
+  pg->As      = NULL;
+  pg->cbctx   = NULL;
+  pg->scb     = NULL;
+  pg->del_scb = NULL;
 
-  PetscCall(PetscNew(&cbctx));
-  pc->user = cbctx;
-
-  pc->data       = pg;
-  pc->ops->setup = PCSetUp_GAMGMC;
-  /* pc->ops->applyrichardson = PCApplyRichardson_GAMGMC; */
-  pc->ops->apply          = PCApply_GAMGMC;
+  pc->data                 = pg;
+  pc->ops->setup           = PCSetUp_GAMGMC;
+  pc->ops->applyrichardson = PCApplyRichardson_GAMGMC;
+  /* pc->ops->apply          = PCApply_GAMGMC; */
   pc->ops->view           = PCView_GAMGMC;
   pc->ops->destroy        = PCDestroy_GAMGMC;
   pc->ops->setfromoptions = PCSetFromOptions_GAMGMC;
   PetscCall(RegisterPCSetGetPetscRandom(pc, PCGAMGMCSetPetscRandom, PCGAMGMCGetPetscRandom));
+  PetscCall(PCRegisterSetSampleCallback(pc, PCSetSampleCallback_GAMGMC));
   PetscFunctionReturn(PETSC_SUCCESS);
 }
