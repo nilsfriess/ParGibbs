@@ -43,6 +43,7 @@ target_sources(parmgmc
     	    src/cgs.c
 	    src/obs.c
 	    src/iact.c
+	    src/stats.c
 	 PUBLIC
 	    FILE_SET parmgmcheaders
 	    BASE_DIRS include
