@@ -57,10 +57,10 @@ target_include_directories(benchmark PRIVATE include)
 target_compile_options(benchmark PRIVATE -Wall -Wextra -Wpedantic -pedantic)
 target_link_libraries(benchmark PRIVATE parmgmc m)
 
-add_executable(test test.c)
-target_include_directories(test PRIVATE include)
-target_compile_options(test PRIVATE -Wall -Wextra -Wpedantic -pedantic -Wshadow -Wpointer-arith -Wcast-qual -Wstrict-prototypes -Wmissing-prototypes)
-target_link_libraries(test parmgmc m)
+# add_executable(test test.c)
+# target_include_directories(test PRIVATE include)
+# target_compile_options(test PRIVATE -Wall -Wextra -Wpedantic -pedantic -Wshadow -Wpointer-arith -Wcast-qual -Wstrict-prototypes -Wmissing-prototypes)
+# target_link_libraries(test parmgmc m)
 
 set(MFEM_DIR "" CACHE PATH "Path to the MFEM build or install prefix.")
 find_package(mfem
