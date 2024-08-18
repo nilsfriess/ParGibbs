@@ -1,6 +1,8 @@
 #include "parmgmc/stats.h"
+
 #include <petscmat.h>
 #include <petscsys.h>
+#include <petscsystypes.h>
 #include <petscvec.h>
 
 static PetscErrorCode DenseInverse(Mat A, Mat *Q)
@@ -91,11 +93,14 @@ static PetscErrorCode SampleCovariance(PetscInt n, Vec *samples, Mat C)
 */
 PetscErrorCode EstimateCovarianceMatErrors(Mat A, PetscInt chains, PetscInt samples_per_chain, Vec *samples, PetscScalar *errs)
 {
-  Mat       C;
-  Mat       Q;
-  PetscReal Qnorm;
+  Mat         C;
+  Mat         Q;
+  PetscReal   Qnorm;
+  PetscMPIInt size;
 
   PetscFunctionBeginUser;
+  PetscCallMPI(MPI_Comm_size(PetscObjectComm((PetscObject)A), &size));
+  PetscCheck(size == 1, PetscObjectComm((PetscObject)A), PETSC_ERR_SUP_SYS, "Estimating covariance matrix only supported in sequential execution");
   PetscCall(DenseInverse(A, &Q));
   PetscCall(MatNorm(Q, NORM_FROBENIUS, &Qnorm));
 

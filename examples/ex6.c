@@ -1,6 +1,7 @@
 #include "parmgmc/parmgmc.h"
 #include "parmgmc/stats.h"
 
+#include <petscsystypes.h>
 #include <time.h>
 #include <petscdm.h>
 #include <petscdmda.h>
@@ -11,6 +12,7 @@
 #include <petscoptions.h>
 #include <petscsys.h>
 #include <petscvec.h>
+#include <mpi.h>
 
 // RUN: %cc %s -o %t %flags && %mpirun -np %NP %t  %opts -ksp_type richardson -pc_type cholsampler -chains 1000 -ksp_max_it 10 -skip_petscrc
 
@@ -109,10 +111,16 @@ int main(int argc, char *argv[])
   SampleCtx   ctx;
   PC          pc;
   PetscRandom pr;
+  PetscMPIInt size;
 
   PetscCall(PetscInitialize(&argc, &argv, NULL, NULL));
   PetscCall(ParMGMCInitialize());
 
+  PetscCallMPI(MPI_Comm_size(MPI_COMM_WORLD, &size));
+  if (size != 1) {
+    PetscCall(PetscPrintf(MPI_COMM_WORLD, "WARNING: This example requires sequential exectuion, skipping"));
+    return 0;
+  }
   PetscCall(AssembleMatrix(&A));
   PetscCall(MatCreateVecs(A, &b, NULL));
   PetscCall(MatGetSize(A, &n, NULL));
