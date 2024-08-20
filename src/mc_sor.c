@@ -40,7 +40,7 @@
 
 typedef struct _MCSOR_Ctx {
   Mat         A, Asor;
-  PetscInt   *diagptrs, ncolors;
+  PetscInt   *diagptrs;
   PetscReal   omega;
   PetscBool   omega_changed;
   VecScatter *scatters;
@@ -529,6 +529,17 @@ PetscErrorCode MCSORSetUp(MCSOR mc)
     PetscCall(MatCreateScatters(ctx->Asor, ctx->isc, &ctx->scatters, &ctx->ghostvecs));
     ctx->sor = MCSORApply_MPIAIJ;
   }
+  PetscFunctionReturn(PETSC_SUCCESS);
+}
+
+PetscErrorCode MCSORGetNumColors(MCSOR mc, PetscInt *colors)
+{
+  MCSOR_Ctx ctx = mc->ctx;
+  PetscInt  ncolors;
+
+  PetscFunctionBeginUser;
+  PetscCall(ISColoringGetIS(ctx->isc, PETSC_USE_POINTER, &ncolors, NULL));
+  *colors = ncolors;
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
