@@ -93,12 +93,20 @@ static PetscErrorCode Sample(KSP ksp, Vec b, Parameters params)
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
+struct SampleCtx {
+  PetscScalar *qois;
+  Vec          meas_vec;
+};
+
 static PetscErrorCode SaveSample(PetscInt it, Vec y, void *ctx)
 {
-  PetscScalar norm, *qois = (PetscScalar *)ctx;
+  SampleCtx  *sctx = (SampleCtx *)ctx;
+  PetscScalar qoi, *qois = sctx->qois;
+  Vec         meas_vec = sctx->meas_vec;
+
   PetscFunctionBeginUser;
-  PetscCall(VecNorm(y, NORM_2, &norm));
-  qois[it] = norm;
+  PetscCall(VecDot(y, meas_vec, &qoi));
+  qois[it] = qoi;
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
@@ -120,7 +128,7 @@ int main(int argc, char *argv[])
   DM          dm = nullptr; // Only set when building Mat with PETSc
   KSP         ksp;
   PC          pc;
-  Vec         b;
+  Vec         b, meas_vec;
   PetscRandom pr;
   double      time;
   PetscMPIInt rank;
@@ -148,10 +156,11 @@ int main(int argc, char *argv[])
 
 #ifdef PARMGMC_HAVE_MFEM
   PetscCall(PetscOptionsGetBool(nullptr, nullptr, "-mfem", &mfem, nullptr));
-  if (mfem) TIME(CreateMatrixMFEM(params, &A), "Assembling matrix", &time);
-  else
+  if (mfem) {
+    TIME(CreateMatrixMFEM(params, &A), "Assembling matrix", &time);
+  } else
 #endif
-    TIME(CreateMatrixPetsc(params, &A, &dm), "Assembling matrix", &time);
+    TIME(CreateMatrixPetsc(params, &A, &meas_vec, &dm), "Assembling matrix", &time);
   PetscCall(MatCreateVecs(A, nullptr, &b));
 
   TIME(SamplerCreate(A, dm, pr, params, &ksp), "Setup sampler", &time);
@@ -173,23 +182,37 @@ int main(int argc, char *argv[])
     PetscCall(PetscPrintf(MPI_COMM_WORLD, "                                  Measure IACT\n"));
     PetscCall(PetscPrintf(MPI_COMM_WORLD, "################################################################################\n"));
 
-    PetscScalar *qois, tau = 0;
-    PetscBool    valid;
+    PetscScalar tau = 0;
+    PetscBool   valid;
 
-    PetscCall(PetscCalloc1(params->n_samples + 1, &qois));
+    SampleCtx *ctx = new SampleCtx;
+    PetscCall(PetscCalloc1(params->n_samples + 1, &ctx->qois));
+    ctx->meas_vec = meas_vec;
 
     TIME(Burnin(ksp, b, params), "Burn-in", &time);
 
-    PetscCall(PCSetSampleCallback(pc, SaveSample, qois, nullptr));
+    PetscCall(PCSetSampleCallback(pc, SaveSample, ctx, nullptr));
     // PetscCall(KSPSetConvergenceTest(ksp, SaveSample, qois, NULL));
     TIME(Sample(ksp, b, params), "Sampling", &time);
 
-    PetscCall(IACT(params->n_samples, qois, &tau, &valid));
+    PetscBool    print_acf;
+    PetscScalar *acf;
+
+    PetscCall(PetscOptionsGetBool(nullptr, nullptr, "-print_acf", &print_acf, nullptr));
+    PetscCall(IACT(params->n_samples, ctx->qois, &tau, print_acf ? &acf : nullptr, &valid));
     if (!valid) PetscCall(PetscPrintf(MPI_COMM_WORLD, "WARNING: Chain is too short to give reliable IACT estimate (need at least %d)\n", (int)ceil(50 * tau)));
     PetscCall(PetscPrintf(MPI_COMM_WORLD, "IACT: %.5f\n", tau));
     PetscCall(PetscPrintf(MPI_COMM_WORLD, "Time per independent sample [ms]: %.6f\n\n", PetscMax(tau, 1) * time / params->n_samples * 1000));
+    if (print_acf) {
+      FILE *fptr;
+      fptr = fopen("acf.txt", "w");
+      for (PetscInt i = 0; i < params->n_samples; i++) PetscCall(PetscFPrintf(MPI_COMM_WORLD, fptr, "%.6f\n", acf[i]));
+      fclose(fptr);
+    }
 
-    PetscCall(PetscFree(qois));
+    PetscCall(PetscFree(ctx->qois));
+    PetscCall(VecDestroy(&meas_vec));
+    delete ctx;
   }
 
   PetscCall(InfoView(A, params, PETSC_VIEWER_STDOUT_WORLD));

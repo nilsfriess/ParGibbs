@@ -70,13 +70,17 @@ static PetscErrorCode AutoWindow(PetscInt n, const PetscScalar *taus, PetscInt c
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
-PetscErrorCode IACT(PetscInt n, const PetscScalar *x, PetscScalar *tau, PetscBool *valid)
+PetscErrorCode IACT(PetscInt n, const PetscScalar *x, PetscScalar *tau, PetscScalar **acf, PetscBool *valid)
 {
   PetscScalar *out;
   PetscInt     w;
 
   PetscFunctionBeginUser;
   PetscCall(Autocorrelation(n, x, &out));
+  if (acf) {
+    PetscCall(PetscMalloc1(n, acf));
+    PetscCall(PetscArraycpy(*acf, out, n));
+  }
   for (PetscInt i = 1; i < n; ++i) out[i] = out[i] + out[i - 1];
   for (PetscInt i = 0; i < n; ++i) out[i] = 2 * out[i] - 1;
   PetscCall(AutoWindow(n, out, 5, &w));

@@ -1,3 +1,22 @@
+/*  ParMGMC - Implementation of the Multigrid Monte Carlo method in PETSc.
+    Copyright (C) 2024  Nils Friess
+
+    This file is part of ParMGMC which is released under the GNU LESSER GENERAL
+    PUBLIC LICENSE (LGPL). See file LICENSE in the project root folder for full
+    license details.
+*/
+
+/*  Description
+ *
+ *  Computes the sample covariance between several chains and computes the relative
+ *  error w.r.t. the exact covariance matrix.
+ *
+ *  NOTE: Dependening on the values of `-chains` and `-ksp_max_it`, this program might
+ *        require a substantial amount of memory (e.g., for 50000 chains and 200 samples
+          per chain, it requires about ~12 GB).
+ */
+
+
 #include "parmgmc/parmgmc.h"
 #include "parmgmc/stats.h"
 
@@ -15,12 +34,13 @@
 #include <petscvec.h>
 #include <mpi.h>
 
-// RUN: %cc %s -o %t %flags && %mpirun -np %NP %t  %opts -ksp_type richardson -pc_type gibbs -chains 1000 -ksp_max_it 100 -skip_petscrc
+// RUN: %cc %s -o %t %flags && %mpirun -np %NP %t  %opts -ksp_type richardson -pc_type cholsampler -chains 50000 -ksp_max_it 200 -kappa 1e-4 -skip_petscrc
 
 typedef struct {
-  Vec     *samples;
-  PetscInt idx;
-  PetscInt chains;
+  Vec            *samples;
+  PetscInt        idx;
+  PetscInt        chains;
+  PetscLogDouble *times;
 } *SampleCtx;
 
 static PetscErrorCode SampleCtxDestroy(void *ctx)
@@ -28,6 +48,7 @@ static PetscErrorCode SampleCtxDestroy(void *ctx)
   SampleCtx sctx = ctx;
 
   PetscFunctionBeginUser;
+  PetscCall(PetscFree(sctx->times));
   PetscCall(PetscFree(sctx));
   PetscFunctionReturn(PETSC_SUCCESS);
 }
@@ -38,12 +59,17 @@ static PetscErrorCode SampleCallback(PetscInt it, Vec y, void *ctx)
 
   PetscFunctionBeginUser;
   PetscCall(VecCopy(y, sctx->samples[it * sctx->chains + sctx->idx]));
+  if (it == 0) {
+    sctx->times[0] = MPI_Wtime();
+  } else {
+    sctx->times[it] += 1. / sctx->chains * (MPI_Wtime() - sctx->times[0]) * 1000;
+  }
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
 static PetscErrorCode AssembleMatrix(Mat *A)
 {
-  PetscInt      n     = 5;
+  PetscInt      n     = 10;
   PetscScalar   kappa = 1, values[5];
   MatStencil    rowstencil, colstencil[5];
   DM            da;
@@ -138,9 +164,11 @@ int main(int argc, char *argv[])
   PetscCall(KSPSetOperators(ksp, A, A));
   PetscCall(KSPSetUp(ksp));
   PetscCall(KSPGetTolerances(ksp, NULL, NULL, NULL, &samples_per_chain));
+  samples_per_chain++;
 
   PetscCall(PetscMalloc1(samples_per_chain * chains, &samples));
   PetscCall(PetscNew(&ctx));
+  PetscCall(PetscCalloc1(samples_per_chain, &ctx->times));
   ctx->samples = samples;
   ctx->chains  = chains;
   for (PetscInt i = 0; i < samples_per_chain * chains; ++i) PetscCall(VecDuplicate(b, &samples[i]));
@@ -149,8 +177,10 @@ int main(int argc, char *argv[])
   PetscCall(PCSetPetscRandom(pc, pr));
   PetscCall(PetscRandomSetSeed(pr, seed));
   PetscCall(PetscRandomSeed(pr));
-  PetscCall(PCSetSampleCallback(pc, SampleCallback, ctx, SampleCtxDestroy));
   PetscCall(VecDuplicate(b, &x));
+  PetscCall(KSPSolve(ksp, b, x)); // Burn-in
+
+  PetscCall(PCSetSampleCallback(pc, SampleCallback, ctx, SampleCtxDestroy));
   for (PetscInt i = 0; i < chains; ++i) {
     ctx->idx = i;
     PetscCall(VecZeroEntries(x));
@@ -159,10 +189,23 @@ int main(int argc, char *argv[])
 
   {
     PetscReal *errs;
-
     PetscCall(PetscMalloc1(samples_per_chain, &errs));
     PetscCall(EstimateCovarianceMatErrors(A, chains, samples_per_chain, samples, errs));
-    for (PetscInt i = 0; i < samples_per_chain; ++i) { PetscCall(PetscPrintf(MPI_COMM_WORLD, "%.8f\n", errs[i])); }
+
+    if (PETSC_TRUE) {
+      FILE  *fptr;
+      char   filename[256];
+      PCType pctype;
+
+      PetscCall(PCGetType(pc, &pctype));
+      PetscCall(PetscSNPrintf(filename, 256, "cov_est_error_%s.txt", pctype));
+      fptr          = fopen(filename, "w");
+      ctx->times[0] = 0;
+      for (PetscInt i = 0; i < samples_per_chain; i++) PetscCall(PetscFPrintf(MPI_COMM_WORLD, fptr, "%.6f %.6f\n", errs[i], ctx->times[i]));
+      fclose(fptr);
+    }
+
+    /* for (PetscInt i = 0; i < samples_per_chain; ++i) { PetscCall(PetscPrintf(MPI_COMM_WORLD, "%.8f\n", errs[i])); } */
     PetscCall(PetscFree(errs));
   }
 

@@ -12,4 +12,4 @@
 #include <petscsystypes.h>
 
 PETSC_EXTERN PetscErrorCode Autocorrelation(PetscInt, const PetscScalar *, PetscScalar **);
-PETSC_EXTERN PetscErrorCode IACT(PetscInt, const PetscScalar *, PetscScalar *, PetscBool *);
+PETSC_EXTERN PetscErrorCode IACT(PetscInt, const PetscScalar *, PetscScalar *, PetscScalar **, PetscBool *);

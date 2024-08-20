@@ -160,17 +160,16 @@ static PetscErrorCode PCApplyRichardson_Gibbs(PC pc, Vec b, Vec y, Vec w, PetscR
   (void)guesszero;
 
   PC_Gibbs *pg = pc->data;
-  PetscInt  it = 0;
 
   PetscFunctionBeginUser;
   if (pg->omega_changed) PetscCall(PCGibbsUpdateSqrtDiag(pc));
 
-  if (pg->scb) PetscCall(pg->scb(it, y, pg->cbctx));
-  for (it = 1; it < its; ++it) {
+  for (PetscInt it = 0; it < its; ++it) {
+    if (pg->scb) PetscCall(pg->scb(it, y, pg->cbctx));
     PetscCall(pg->prepare_rhs(pc, b, w));
     PetscCall(MCSORApply(pg->mc, w, y));
-    if (pg->scb) PetscCall(pg->scb(it, y, pg->cbctx));
   }
+  if (pg->scb) PetscCall(pg->scb(its, y, pg->cbctx));
   *outits = its;
   *reason = PCRICHARDSON_CONVERGED_ITS;
   PetscFunctionReturn(PETSC_SUCCESS);

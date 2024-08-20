@@ -147,15 +147,14 @@ static PetscErrorCode PCApplyRichardson_CholSampler(PC pc, Vec b, Vec y, Vec w, 
   (void)w;
 
   PC_CholSampler chol = pc->data;
-  PetscInt       it   = 0;
 
   PetscFunctionBeginUser;
   chol->richardson = PETSC_TRUE;
-  if (chol->scb) PetscCall(chol->scb(it, y, chol->cbctx));
-  for (it = 1; it < its; ++it) {
-    PetscCall(PCApply_CholSampler(pc, b, y));
+  for (PetscInt it = 0; it < its; ++it) {
     if (chol->scb) PetscCall(chol->scb(it, y, chol->cbctx));
+    PetscCall(PCApply_CholSampler(pc, b, y));
   }
+  if (chol->scb) PetscCall(chol->scb(its, y, chol->cbctx));
   *outits          = its;
   *reason          = PCRICHARDSON_CONVERGED_ITS;
   chol->richardson = PETSC_FALSE;

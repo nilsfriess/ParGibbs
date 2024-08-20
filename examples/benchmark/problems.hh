@@ -14,7 +14,37 @@
   #include <mfem.hpp>
 #endif
 
-inline PetscErrorCode CreateMatrixPetsc(Parameters params, Mat *A, DM *dm)
+struct MeasCtx {
+  PetscScalar *centre, radius, vol;
+};
+
+inline PetscErrorCode f(PetscInt dim, PetscReal time, const PetscReal x[], PetscInt Nc, PetscScalar *u, void *ctx)
+{
+  (void)time;
+  (void)Nc;
+  MeasCtx    *octx = (MeasCtx *)ctx;
+  PetscScalar diff = 0;
+
+  PetscFunctionBeginUser;
+  for (PetscInt i = 0; i < dim; ++i) diff += PetscSqr(x[i] - octx->centre[i]);
+  if (diff < PetscSqr(octx->radius)) *u = 1 / octx->vol;
+  else *u = 0;
+  PetscFunctionReturn(PETSC_SUCCESS);
+}
+
+inline PetscErrorCode VolumeOfSphere(DM dm, PetscScalar r, PetscScalar *v)
+{
+  PetscInt cdim;
+
+  PetscFunctionBeginUser;
+  PetscCall(DMGetCoordinateDim(dm, &cdim));
+  PetscCheck(cdim == 2 || cdim == 3, MPI_COMM_WORLD, PETSC_ERR_SUP, "Only dim=2 and dim=3 supported");
+  if (cdim == 2) *v = PETSC_PI * r * r;
+  else *v = 4 * PETSC_PI / 3. * r * r * r;
+  PetscFunctionReturn(PETSC_SUCCESS);
+}
+
+inline PetscErrorCode CreateMatrixPetsc(Parameters params, Mat *A, Vec *meas_vec, DM *dm)
 {
   MS ms;
 
@@ -57,6 +87,29 @@ inline PetscErrorCode CreateMatrixPetsc(Parameters params, Mat *A, DM *dm)
   if (!params->with_lr) PetscCall(PetscObjectReference((PetscObject)(*A)));
   PetscCall(PetscObjectReference((PetscObject)(*dm))); // Make sure MSDestroy doesn't destroy the DM because we're returning it
   PetscCall(MSDestroy(&ms));
+
+  // Create measurement vector
+  Mat      M;
+  Vec      u;
+  MeasCtx  ctx;
+  PetscInt dim;
+  void    *mctx = &ctx;
+
+  PetscErrorCode (*funcs[1])(PetscInt, PetscReal, const PetscReal[], PetscInt, PetscScalar *, void *) = {f};
+
+  PetscCall(DMGetCoordinateDim(*dm, &dim));
+  PetscCall(PetscMalloc1(dim, &ctx.centre));
+  for (PetscInt i = 0; i < dim; ++i) ctx.centre[i] = 0.5;
+  PetscCall(VolumeOfSphere(*dm, 0.5, &ctx.vol));
+  ctx.radius = 0.5;
+  PetscCall(DMCreateGlobalVector(*dm, meas_vec));
+  PetscCall(DMCreateMassMatrix(*dm, *dm, &M));
+  PetscCall(DMGetGlobalVector(*dm, &u));
+  PetscCall(DMProjectFunction(*dm, 0, funcs, &mctx, INSERT_VALUES, u));
+  PetscCall(MatMult(M, u, *meas_vec));
+  PetscCall(DMRestoreGlobalVector(*dm, &u));
+  PetscCall(MatDestroy(&M));
+  PetscCall(PetscFree(ctx.centre));
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
