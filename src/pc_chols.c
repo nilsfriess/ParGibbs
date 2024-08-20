@@ -10,6 +10,7 @@
 #include <petscstring.h>
 #include <petscsys.h>
 #include <petscvec.h>
+#include <petscviewer.h>
 #include <time.h>
 #include <mpi.h>
 
@@ -110,7 +111,8 @@ static PetscErrorCode PCSetUp_CholSampler(PC pc)
   PetscCall(MatCreateVecs(S, &chol->r, &chol->v));
   PetscCall(MatGetFactor(S, chol->st, MAT_FACTOR_CHOLESKY, &chol->F));
 
-  PetscCall(MatGetOrdering(S, MATORDERINGNATURAL, &rowperm, &colperm));
+  if (size == 1) PetscCall(MatGetOrdering(S, MATORDERINGMETISND, &rowperm, &colperm));
+  else PetscCall(MatGetOrdering(S, MATORDERINGEXTERNAL, &rowperm, &colperm));
   PetscCall(MatCholeskyFactorSymbolic(chol->F, S, rowperm, &info));
   PetscCall(MatCholeskyFactorNumeric(chol->F, S, &info));
   if (size != 1) PetscCall(MatDestroy(&S));
@@ -194,6 +196,17 @@ static PetscErrorCode PCSetSampleCallback_Cholsampler(PC pc, PetscErrorCode (*cb
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
+static PetscErrorCode PCView_CholSampler(PC pc, PetscViewer viewer)
+{
+  PC_CholSampler chol = pc->data;
+  MatInfo        info;
+
+  PetscFunctionBeginUser;
+  PetscCall(MatGetInfo(chol->F, MAT_GLOBAL_SUM, &info));
+  PetscCall(PetscViewerASCIIPrintf(viewer, "Nonzeros in factored matrix: allocated %f\n", info.nz_allocated));
+  PetscFunctionReturn(PETSC_SUCCESS);
+}
+
 PetscErrorCode PCCreate_CholSampler(PC pc)
 {
   PC_CholSampler chol;
@@ -212,6 +225,7 @@ PetscErrorCode PCCreate_CholSampler(PC pc)
   pc->ops->setup               = PCSetUp_CholSampler;
   pc->ops->apply               = PCApply_CholSampler;
   pc->ops->applyrichardson     = PCApplyRichardson_CholSampler;
+  pc->ops->view                = PCView_CholSampler;
   chol->prand_is_initial_prand = PETSC_TRUE;
   PetscCall(RegisterPCSetGetPetscRandom(pc, PCCholSamplerSetPetscRandom, PCCholSamplerGetPetscRandom));
   PetscCall(PCRegisterSetSampleCallback(pc, PCSetSampleCallback_Cholsampler));
