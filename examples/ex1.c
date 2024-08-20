@@ -17,28 +17,28 @@
 
 /**************************** Test specification ****************************/
 // Gibbs with default omega
-// RUN: %cc %s -o %t %flags && %mpirun -np %NP %t -ksp_type richardson -pc_type gibbs
+// RUN: %cc %s -o %t %flags && %mpirun -np %NP %t -ksp_type richardson -pc_type gibbs -skip_petscrc
 
 // Gibbs with backward sweep
-// RUN: %cc %s -o %t %flags && %mpirun -np %NP %t -ksp_type richardson -pc_type gibbs -pc_gibbs_backward
+// RUN: %cc %s -o %t %flags && %mpirun -np %NP %t -ksp_type richardson -pc_type gibbs -pc_gibbs_backward -skip_petscrc
 
 // Gibbs with symmetric sweep
-// RUN: %cc %s -o %t %flags && %mpirun -np %NP %t -ksp_type richardson -pc_type gibbs -pc_gibbs_symmetric
+// RUN: %cc %s -o %t %flags && %mpirun -np %NP %t -ksp_type richardson -pc_type gibbs -pc_gibbs_symmetric -skip_petscrc
 
 // Cholesky
-// RUN: %cc %s -o %t %flags && %mpirun -np %NP %t -ksp_type richardson -pc_type cholsampler -samples 10
+// RUN: %cc %s -o %t %flags && %mpirun -np %NP %t -ksp_type richardson -pc_type cholsampler -skip_petscrc
 
 // Algebraic MGMC using PCGAMGMC with coarse Gibbs
-// RUN: %cc %s -o %t %flags && %mpirun -np %NP %t -ksp_type richardson -pc_type gamgmc -da_grid_x 3 -da_grid_y 3 -gamgmc_mg_levels_ksp_type richardson -gamgmc_mg_levels_pc_type gibbs -gamgmc_mg_coarse_ksp_type richardson -gamgmc_mg_coarse_pc_type gibbs -gamgmc_mg_coarse_ksp_max_it 2 -gamgmc_mg_levels_ksp_max_it 2 -da_refine 2 -gamgmc_pc_mg_galerkin both
+// RUN: %cc %s -o %t %flags && %mpirun -np %NP %t -ksp_type richardson -pc_type gamgmc -da_grid_x 3 -da_grid_y 3 -gamgmc_mg_levels_ksp_type richardson -gamgmc_mg_levels_pc_type gibbs -gamgmc_mg_coarse_ksp_type richardson -gamgmc_mg_coarse_pc_type gibbs -gamgmc_mg_coarse_ksp_max_it 2 -gamgmc_mg_levels_ksp_max_it 2 -da_refine 2 -gamgmc_pc_mg_galerkin both -skip_petscrc
 
 // Algebraic MGMC using PCGAMGMC with coarse Cholesky
-// RUN: %cc %s -o %t %flags && %mpirun -np %NP %t -ksp_type richardson -pc_type gamgmc -da_grid_x 3 -da_grid_y 3 -gamgmc_mg_levels_ksp_type richardson -gamgmc_mg_levels_pc_type gibbs -gamgmc_mg_coarse_ksp_type preonly -gamgmc_mg_coarse_pc_type cholsampler -gamgmc_mg_levels_ksp_max_it 2 -da_refine 2
+// RUN: %cc %s -o %t %flags && %mpirun -np %NP %t -ksp_type richardson -pc_type gamgmc -da_grid_x 3 -da_grid_y 3 -gamgmc_mg_levels_ksp_type richardson -gamgmc_mg_levels_pc_type gibbs -gamgmc_mg_coarse_ksp_type preonly -gamgmc_mg_coarse_pc_type cholsampler -gamgmc_mg_levels_ksp_max_it 2 -da_refine 2 -skip_petscrc -log_view
 
 // Geometric MGMC using PCGAMGMC with coarse Gibbs
-// RUN: %cc %s -o %t %flags && %mpirun -np %NP %t -ksp_type richardson -pc_type gamgmc -pc_gamgmc_mg_type mg -gamgmc_pc_mg_levels 3 -da_grid_x 3 -da_grid_y 3 -gamgmc_mg_levels_ksp_type richardson -gamgmc_mg_levels_pc_type gibbs -gamgmc_mg_coarse_ksp_type richardson -gamgmc_mg_coarse_pc_type gibbs -gamgmc_mg_coarse_ksp_max_it 2 -gamgmc_mg_levels_ksp_max_it 2 -da_refine 2
+// RUN: %cc %s -o %t %flags && %mpirun -np %NP %t -ksp_type richardson -pc_type gamgmc -pc_gamgmc_mg_type mg -gamgmc_pc_mg_levels 3 -da_grid_x 3 -da_grid_y 3 -gamgmc_mg_levels_ksp_type richardson -gamgmc_mg_levels_pc_type gibbs -gamgmc_mg_coarse_ksp_type richardson -gamgmc_mg_coarse_pc_type gibbs -gamgmc_mg_coarse_ksp_max_it 2 -gamgmc_mg_levels_ksp_max_it 2 -da_refine 2 -skip_petscrc
 
 // Geometric MGMC using PCGAMGMC with coarse Cholesky
-// RUN: %cc %s -o %t %flags && %mpirun -np %NP %t -ksp_type richardson -pc_type gamgmc -pc_gamgmc_mg_type mg -gamgmc_pc_mg_levels 3 -da_grid_x 3 -da_grid_y 3 -gamgmc_mg_levels_ksp_type richardson -gamgmc_mg_levels_pc_type gibbs -gamgmc_mg_coarse_ksp_type preonly -gamgmc_mg_coarse_pc_type cholsampler -gamgmc_mg_levels_ksp_max_it 2 -da_refine 2
+// RUN: %cc %s -o %t %flags && %mpirun -np %NP %t -ksp_type richardson -pc_type gamgmc -pc_gamgmc_mg_type mg -gamgmc_pc_mg_levels 3 -da_grid_x 3 -da_grid_y 3 -gamgmc_mg_levels_ksp_type richardson -gamgmc_mg_levels_pc_type gibbs -gamgmc_mg_coarse_ksp_type preonly -gamgmc_mg_coarse_pc_type cholsampler -gamgmc_mg_levels_ksp_max_it 2 -da_refine 2 -skip_petscrc
 /****************************************************************************/
 
 #include <parmgmc/parmgmc.h>
@@ -51,12 +51,12 @@
 #include <petscksp.h>
 #include <petscvec.h>
 
-static PetscErrorCode SampleCallback(PetscInt it, Vec x, void *ctx)
+static PetscErrorCode SampleCallback(PetscInt it, Vec y, void *ctx)
 {
   Vec mean = ctx;
 
   PetscFunctionBeginUser;
-  PetscCall(VecAXPBY(mean, 1. / (it + 1), it / (it + 1.), x));
+  PetscCall(VecAXPBY(mean, 1. / (it + 1), it / (it + 1.), y));
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
@@ -64,10 +64,10 @@ int main(int argc, char *argv[])
 {
   DM        da;
   Mat       A;
-  Vec       b, x, mean;
+  Vec       b, x, mean, ex_mean;
   KSP       ksp;
   PC        pc;
-  PetscReal err;
+  PetscReal err, ex_mean_norm;
   PetscInt  n_samples = 500000; // 5000000;
 
   PetscCall(PetscInitialize(&argc, &argv, NULL, NULL));
@@ -75,7 +75,7 @@ int main(int argc, char *argv[])
 
   PetscCall(PetscOptionsGetInt(NULL, NULL, "-samples", &n_samples, NULL));
 
-  PetscCall(DMDACreate2d(MPI_COMM_WORLD, DM_BOUNDARY_NONE, DM_BOUNDARY_NONE, DMDA_STENCIL_STAR, 5, 5, PETSC_DECIDE, PETSC_DECIDE, 1, 1, NULL, NULL, &da));
+  PetscCall(DMDACreate2d(MPI_COMM_WORLD, DM_BOUNDARY_NONE, DM_BOUNDARY_NONE, DMDA_STENCIL_STAR, 9, 9, PETSC_DECIDE, PETSC_DECIDE, 1, 1, NULL, NULL, &da));
   PetscCall(DMSetFromOptions(da));
   PetscCall(DMSetUp(da));
   PetscCall(DMDASetUniformCoordinates(da, 0, 1, 0, 1, 0, 1));
@@ -98,14 +98,26 @@ int main(int argc, char *argv[])
 
   PetscCall(DMCreateGlobalVector(da, &x));
   PetscCall(VecDuplicate(x, &b));
+  PetscCall(VecDuplicate(x, &ex_mean));
   PetscCall(VecSet(b, 1));
   PetscCall(VecSet(x, 1));
+  {
+    KSP ksp2;
+
+    PetscCall(KSPCreate(MPI_COMM_WORLD, &ksp2));
+    PetscCall(KSPSetOperators(ksp2, A, A));
+    PetscCall(KSPSetTolerances(ksp2, 1e-12, 1e-12, PETSC_DEFAULT, PETSC_DEFAULT));
+    PetscCall(KSPSolve(ksp2, b, ex_mean));
+    PetscCall(KSPDestroy(&ksp2));
+  }
 
   PetscCall(KSPSolve(ksp, b, x));
 
-#if 0
+#if 1
   {
     PetscViewer viewer;
+    Vec         error;
+
     PetscCall(PetscViewerCreate(PETSC_COMM_WORLD, &viewer));
     PetscCall(PetscViewerSetType(viewer, PETSCVIEWERVTK));
     PetscCall(PetscViewerFileSetMode(viewer, FILE_MODE_WRITE));
@@ -113,25 +125,32 @@ int main(int argc, char *argv[])
 
     PetscCall(PetscObjectSetName((PetscObject)x, "sample"));
     PetscCall(PetscObjectSetName((PetscObject)mean, "mean"));
+    PetscCall(PetscObjectSetName((PetscObject)ex_mean, "exact mean"));
     PetscCall(VecView(x, viewer));
     PetscCall(VecView(mean, viewer));
+    PetscCall(VecView(ex_mean, viewer));
 
-    PetscCall(VecAXPY(mean, -1, b));
-    PetscCall(PetscObjectSetName((PetscObject)mean, "error"));
-    PetscCall(VecView(mean, viewer));
+    PetscCall(VecDuplicate(mean, &error));
+    PetscCall(VecCopy(mean, error));
+    PetscCall(VecAXPY(error, -1, ex_mean));
+    PetscCall(PetscObjectSetName((PetscObject)error, "error"));
+    PetscCall(VecView(error, viewer));
 
     PetscCall(PetscViewerDestroy(&viewer));
+    PetscCall(VecDestroy(&error));
   }
 #endif
 
-  PetscCall(VecAXPY(mean, -1, b));
+  PetscCall(VecAXPY(mean, -1, ex_mean));
   PetscCall(VecNorm(mean, NORM_2, &err));
+  PetscCall(VecNorm(ex_mean, NORM_2, &ex_mean_norm));
 
-  /* PetscCheck(PetscIsCloseAtTol(err, 0, 0.02, 0.02), MPI_COMM_WORLD, PETSC_ERR_NOT_CONVERGED, "Sample mean has not converged: got %.4f, expected %.4f", err, 0.f); */
-  PetscCall(PetscPrintf(MPI_COMM_WORLD, "Mean error: %.5f\n", err));
+  PetscCheck(PetscIsCloseAtTol(err, 0, 0.01, 0.01), MPI_COMM_WORLD, PETSC_ERR_NOT_CONVERGED, "Sample mean has not converged: got %.4f, expected %.4f", err, 0.f);
+  PetscCall(PetscPrintf(MPI_COMM_WORLD, "Rel. mean error: %.5f\n", err / ex_mean_norm));
 
   PetscCall(VecDestroy(&mean));
   PetscCall(VecDestroy(&x));
+  PetscCall(VecDestroy(&ex_mean));
   PetscCall(VecDestroy(&b));
   PetscCall(DMDestroy(&da));
   PetscCall(MatDestroy(&A));

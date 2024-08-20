@@ -1,6 +1,7 @@
 #include "parmgmc/parmgmc.h"
 #include "parmgmc/stats.h"
 
+#include <petscpc.h>
 #include <petscsystypes.h>
 #include <time.h>
 #include <petscdm.h>
@@ -14,7 +15,7 @@
 #include <petscvec.h>
 #include <mpi.h>
 
-// RUN: %cc %s -o %t %flags && %mpirun -np %NP %t  %opts -ksp_type richardson -pc_type cholsampler -chains 1000 -ksp_max_it 10 -skip_petscrc
+// RUN: %cc %s -o %t %flags && %mpirun -np %NP %t  %opts -ksp_type richardson -pc_type gibbs -chains 1000 -ksp_max_it 100 -skip_petscrc
 
 typedef struct {
   Vec     *samples;
@@ -33,18 +34,16 @@ static PetscErrorCode SampleCtxDestroy(void *ctx)
 
 static PetscErrorCode SampleCallback(PetscInt it, Vec y, void *ctx)
 {
-  SampleCtx   sctx = ctx;
-  PetscScalar n;
+  SampleCtx sctx = ctx;
 
   PetscFunctionBeginUser;
   PetscCall(VecCopy(y, sctx->samples[it * sctx->chains + sctx->idx]));
-  PetscCall(VecNorm(y, NORM_2, &n));
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
 static PetscErrorCode AssembleMatrix(Mat *A)
 {
-  PetscInt      n     = 10;
+  PetscInt      n     = 5;
   PetscScalar   kappa = 1, values[5];
   MatStencil    rowstencil, colstencil[5];
   DM            da;
@@ -104,10 +103,10 @@ static PetscErrorCode AssembleMatrix(Mat *A)
 
 int main(int argc, char *argv[])
 {
-  PetscInt    chains = 1, seed = time(0), samples_per_chain = 1, n;
+  PetscInt    chains = 1, seed = 0xCAFE, samples_per_chain = 1, n;
   Mat         A;
   KSP         ksp;
-  Vec        *samples, b;
+  Vec        *samples, b, x;
   SampleCtx   ctx;
   PC          pc;
   PetscRandom pr;
@@ -129,40 +128,33 @@ int main(int argc, char *argv[])
   PetscCall(PetscOptionsGetInt(NULL, NULL, "-seed", &seed, NULL));
   PetscCall(PetscOptionsGetInt(NULL, NULL, "-chains", &chains, NULL));
 
+  PetscCall(PetscRandomCreate(MPI_COMM_WORLD, &pr));
+  PetscCall(PetscRandomSetType(pr, PARMGMC_ZIGGURAT));
+  PetscCall(PetscRandomSetSeed(pr, seed));
+  PetscCall(PetscRandomSeed(pr));
+
   PetscCall(KSPCreate(MPI_COMM_WORLD, &ksp));
   PetscCall(KSPSetFromOptions(ksp));
   PetscCall(KSPSetOperators(ksp, A, A));
   PetscCall(KSPSetUp(ksp));
-
   PetscCall(KSPGetTolerances(ksp, NULL, NULL, NULL, &samples_per_chain));
-  samples_per_chain++;
-  PetscCall(PetscMalloc1(samples_per_chain * chains, &samples));
-  for (PetscInt i = 0; i < samples_per_chain * chains; ++i) PetscCall(VecDuplicate(b, &samples[i]));
 
+  PetscCall(PetscMalloc1(samples_per_chain * chains, &samples));
   PetscCall(PetscNew(&ctx));
   ctx->samples = samples;
   ctx->chains  = chains;
-  /* PetscCall(KSPSetConvergenceTest(ksp, SampleCallback, ctx, SampleCtxDestroy)); */
+  for (PetscInt i = 0; i < samples_per_chain * chains; ++i) PetscCall(VecDuplicate(b, &samples[i]));
 
+  PetscCall(KSPGetPC(ksp, &pc));
+  PetscCall(PCSetPetscRandom(pc, pr));
+  PetscCall(PetscRandomSetSeed(pr, seed));
+  PetscCall(PetscRandomSeed(pr));
+  PetscCall(PCSetSampleCallback(pc, SampleCallback, ctx, SampleCtxDestroy));
+  PetscCall(VecDuplicate(b, &x));
   for (PetscInt i = 0; i < chains; ++i) {
-    Vec x;
-
-    /* PetscCall(KSPReset(ksp)); */
-    /* PetscCall(KSPSetOperators(ksp, A, A)); */
-    /* PetscCall(KSPSetUp(ksp)); */
-    PetscCall(KSPGetPC(ksp, &pc));
-    PetscCall(PCGetPetscRandom(pc, &pr));
-    PetscCall(PetscRandomSetSeed(pr, seed + i));
-    PetscCall(PetscRandomSeed(pr));
-
-    PetscCall(PCSetSampleCallback(pc, SampleCallback, ctx, NULL));
-
-    PetscCall(VecSet(b, 0));
     ctx->idx = i;
-    PetscCall(VecDuplicate(b, &x));
-    PetscCall(VecSet(x, 0));
+    PetscCall(VecZeroEntries(x));
     PetscCall(KSPSolve(ksp, b, x));
-    PetscCall(VecDestroy(&x));
   }
 
   {
@@ -173,12 +165,14 @@ int main(int argc, char *argv[])
     for (PetscInt i = 0; i < samples_per_chain; ++i) { PetscCall(PetscPrintf(MPI_COMM_WORLD, "%.8f\n", errs[i])); }
     PetscCall(PetscFree(errs));
   }
-  PetscCall(SampleCtxDestroy(ctx));
 
   for (PetscInt i = 0; i < samples_per_chain * chains; ++i) PetscCall(VecDestroy(&samples[i]));
   PetscCall(PetscFree(samples));
   PetscCall(KSPDestroy(&ksp));
   PetscCall(VecDestroy(&b));
+  PetscCall(VecDestroy(&x));
   PetscCall(MatDestroy(&A));
+  PetscCall(KSPDestroy(&ksp));
+  PetscCall(PetscRandomDestroy(&pr));
   PetscCall(PetscFinalize());
 }

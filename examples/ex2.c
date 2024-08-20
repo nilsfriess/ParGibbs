@@ -14,7 +14,7 @@
  */
 
 /**************************** Test specification ****************************/
-// RUN: %cc %s -o %t %flags && %mpirun -np %NP %t -dm_refine 2 %opts
+// RUN: %cc %s -o %t %flags && %mpirun -np %NP %t -dm_refine 3 %opts -skip_petscrc
 /****************************************************************************/
 
 #include "mpi.h"
@@ -39,8 +39,8 @@ static PetscErrorCode CreateMeshFromFilename(MPI_Comm comm, const char *filename
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
-#define N_BURNIN  10
-#define N_SAMPLES 1000
+#define N_BURNIN  100
+#define N_SAMPLES 10000
 #define N_SAVE    10
 
 static PetscErrorCode qoi(PetscInt it, Vec sample, PetscScalar *value, void *qctx)
@@ -106,9 +106,9 @@ int main(int argc, char *argv[])
   PetscCall(IACT(N_SAMPLES, qois, &tau, NULL));
   PetscCall(PetscPrintf(MPI_COMM_WORLD, "IACT = %.5f\n", tau));
   for (PetscInt i = 0; i < N_SAMPLES; ++i) qoimean += qois[i] / N_SAMPLES;
-  PetscCall(PetscPrintf(MPI_COMM_WORLD, "Relative mean error = %.5f\n", PetscAbs(qoimean / qois[0])));
+  PetscCall(PetscPrintf(MPI_COMM_WORLD, "Relative mean error = %.5f\n", PetscAbs(qoimean)));
 
-  /* PetscCheck(PetscAbs(qoimean / qois[0]) < 0.005, MPI_COMM_WORLD, PETSC_ERR_PLIB, "Mean of QOIs has not converged."); */
+  PetscCheck(PetscIsCloseAtTol(qoimean, 0, 0.01, 0.01), MPI_COMM_WORLD, PETSC_ERR_NOT_CONVERGED, "QOI mean has not converged: got %.4f, expected %.4f", qoimean, 0.f);
 
   if (flag) {
     PetscCall(PetscViewerVTKOpen(MPI_COMM_WORLD, "samples.vtu", FILE_MODE_WRITE, &viewer));

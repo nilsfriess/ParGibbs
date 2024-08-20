@@ -12,11 +12,16 @@
  */
 
 /**************************** Test specification ****************************/
+// MGMC sampler with low-rank update
+// RUN: %cc %s -o %t %flags && %mpirun -np %NP %t -ksp_type richardson -pc_type gamgmc -gamgmc_mg_coarse_ksp_type richardson -gamgmc_mg_coarse_pc_type gibbs -gamgmc_mg_coarse_ksp_max_it 2 -dm_refine_hierarchy 3  %opts -ksp_norm_type none -with_lr
+
+// Gibbs sampler with low-rank update
+// RUN: %cc %s -o %t %flags && %mpirun -np %NP %t -ksp_type richardson -pc_type gibbs -dm_refine_hierarchy 3  %opts
+
 // Cholesky sampler with low-rank update
-// RUN: %cc %s -o %t %flags && %mpirun -np %NP %t -ksp_type richardson -pc_type cholsampler -dm_refine 4 %opts -with_lr
+// RUN: %cc %s -o %t %flags && %mpirun -np %NP %t -ksp_type richardson -pc_type cholsampler -dm_refine 2 -with_lr  %opts
 /****************************************************************************/
 
-#include "mpi.h"
 #include <parmgmc/mc_sor.h>
 #include <parmgmc/ms.h>
 #include <parmgmc/obs.h>
@@ -74,20 +79,15 @@ static PetscErrorCode SampleCtxDestroy(void *sctx)
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
-static PetscErrorCode SampleCallback(PetscInt it, Vec y, void *ctx)
+static PetscErrorCode SampleCallbackKSP(PetscInt it, Vec y, void *ctx)
 {
-  SampleCtx  *sctx = ctx;
-  Vec         mean = (*sctx)->mean;
-  PetscScalar n;
+  SampleCtx *sctx = ctx;
+  Vec        mean = (*sctx)->mean;
 
   PetscFunctionBeginUser;
   PetscCall(VecScale(mean, it));
   PetscCall(VecAXPY(mean, 1., y));
   PetscCall(VecScale(mean, 1. / (it + 1)));
-
-  PetscCall(VecCopy(mean, (*sctx)->tmp));
-  PetscCall(VecAXPY((*sctx)->tmp, -1, (*sctx)->mean_exact));
-  PetscCall(VecNorm((*sctx)->tmp, NORM_2, &n));
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
@@ -102,13 +102,14 @@ int main(int argc, char *argv[])
   MS             ms;
   PetscBool      with_lr = PETSC_FALSE;
   const PetscInt nobs    = 3;
-  PetscScalar    obs[3 * nobs], radii[nobs], obsvals[nobs];
+  PetscScalar    obs[3 * nobs], radii[nobs], obsvals[nobs], err, exact_mean_norm;
 
   PetscCall(PetscInitialize(&argc, &argv, NULL, NULL));
   PetscCall(ParMGMCInitialize());
 
   PetscCall(MSCreate(MPI_COMM_WORLD, &ms));
   PetscCall(MSSetFromOptions(ms));
+  PetscCall(MSSetAssemblyOnly(ms, PETSC_TRUE));
   PetscCall(MSSetUp(ms));
   PetscCall(MSGetPrecisionMatrix(ms, &A));
   PetscCall(MSGetDM(ms, &dm));
@@ -126,13 +127,13 @@ int main(int argc, char *argv[])
 
     PetscCall(PetscOptionsGetReal(NULL, NULL, "-obsval", &obsval, NULL));
     obsvals[0] = obsval;
-    radii[0]   = 0.05;
-    obsvals[1] = obsval;
-    radii[1]   = 0.05;
+    radii[0]   = 0.1;
+    obsvals[1] = -1;
+    radii[1]   = 0.15;
     obsvals[2] = obsval;
     radii[2]   = 0.1;
 
-    PetscCall(MakeObservationMats(dm, nobs, 1e-6, obs, radii, obsvals, &B, &S, &f));
+    PetscCall(MakeObservationMats(dm, nobs, 1e-4, obs, radii, obsvals, &B, &S, &f));
     PetscCall(MatCreateLRC(A, B, S, B, &Aop));
   } else Aop = A;
 
@@ -149,6 +150,7 @@ int main(int argc, char *argv[])
     PetscCall(VecDuplicate(x, &b));
     PetscCall(VecDuplicate(x, &f));
     PetscCall(VecSetRandom(f, NULL));
+    PetscCall(VecSet(f, 1));
     PetscCall(MatMult(Aop, f, b));
   }
 
@@ -164,7 +166,7 @@ int main(int argc, char *argv[])
   }
 
   PetscCall(KSPGetPC(ksp, &pc));
-  PetscCall(PCSetSampleCallback(pc, SampleCallback, &samplectx, SampleCtxDestroy));
+  PetscCall(PCSetSampleCallback(pc, SampleCallbackKSP, &samplectx, SampleCtxDestroy));
   PetscCall(KSPSolve(ksp, b, x));
 
   {
@@ -185,9 +187,16 @@ int main(int argc, char *argv[])
 
     PetscCall(VecAXPY(samplectx->mean, -1, samplectx->mean_exact));
     PetscCall(PetscObjectSetName((PetscObject)(samplectx->mean), "error"));
-    PetscCall(VecView(samplectx->mean, viewer));    
+    PetscCall(VecView(samplectx->mean, viewer));
     PetscCall(PetscViewerDestroy(&viewer));
   }
+
+  // Mean is now error
+  PetscCall(VecNorm(samplectx->mean, NORM_2, &err));
+  PetscCall(VecNorm(samplectx->mean_exact, NORM_2, &exact_mean_norm));
+  err /= exact_mean_norm;
+  PetscCall(PetscPrintf(MPI_COMM_WORLD, "Relative mean norm: %.5f\n", err));
+  PetscCheck(PetscIsCloseAtTol(err, 0, 0.05, 0.05), MPI_COMM_WORLD, PETSC_ERR_NOT_CONVERGED, "Sample mean has not converged: got %.4f, expected %.4f", err, 0.f);
 
   PetscCall(VecDestroy(&x));
   PetscCall(VecDestroy(&b));

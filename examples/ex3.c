@@ -13,16 +13,19 @@
 
 /**************************** Test specification ****************************/
 // Omega = 1
-// RUN: %cc %s -o %t %flags && %mpirun -np %NP %t -ksp_type richardson -ksp_error_if_not_converged -dm_refine 2
+// RUN1: %cc %s -o %t %flags && %mpirun -np %NP %t -ksp_type richardson -ksp_error_if_not_converged -dm_refine 2
 
 // Omega = 1.2
-// RUN: %cc %s -o %t %flags && %mpirun -np %NP %t -mc_sor_omega 1.2 -ksp_type richardson -ksp_error_if_not_converged -dm_refine 2
+// RUN1: %cc %s -o %t %flags && %mpirun -np %NP %t -mc_sor_omega 1.2 -ksp_type richardson -ksp_error_if_not_converged -dm_refine 2
 
 // Standalone SOR with low-rank update
-// RUN: %cc %s -o %t %flags -g && %mpirun -np %NP %t -ksp_type richardson -dm_refine 3 -with_lr -ksp_error_if_not_converged
+// RUN1: %cc %s -o %t %flags -g && %mpirun -np %NP %t -ksp_type richardson -dm_refine 3 -with_lr -ksp_error_if_not_converged
 
 // FGMRES + SOR with low-rank update
-// RUN: %cc %s -o %t %flags -g && %mpirun -np %NP %t -ksp_type fgmres -dm_refine 4 -with_lr
+// RUN: %cc %s -o %t %flags -g && %mpirun -np %NP %t -ksp_type fgmres -dm_refine 4 -with_lr %opts
+
+// FGMRES + SSOR
+// RUN: %cc %s -o %t %flags -g && %mpirun -np %NP %t -ksp_type fgmres -dm_refine 4 -sor_symmetric %opts
 /****************************************************************************/
 
 #include <parmgmc/mc_sor.h>
@@ -72,8 +75,8 @@ int main(int argc, char *argv[])
   PC             pc;
   MS             ms;
   AppCtx         appctx;
-  PetscBool      with_lr = PETSC_FALSE;
-  const PetscInt nobs    = 3;
+  PetscBool      with_lr = PETSC_FALSE, sor_symmetric = PETSC_FALSE;
+  const PetscInt nobs = 3;
   PetscScalar    obs[3 * nobs], radii[nobs], obsvals[nobs];
 
   PetscCall(PetscInitialize(&argc, &argv, NULL, NULL));
@@ -110,6 +113,8 @@ int main(int argc, char *argv[])
 
   PetscCall(PetscNew(&appctx));
   PetscCall(MCSORCreate(Aop, &appctx->mc));
+  PetscCall(PetscOptionsGetBool(NULL, NULL, "-sor_symmetric", &sor_symmetric, NULL));
+  if (sor_symmetric) PetscCall(MCSORSetSweepType(appctx->mc, SOR_SYMMETRIC_SWEEP));
   PetscCall(MCSORSetUp(appctx->mc));
 
   PetscCall(KSPCreate(MPI_COMM_WORLD, &ksp));
