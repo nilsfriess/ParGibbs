@@ -312,9 +312,8 @@ static PetscErrorCode CreateMeshDefault(MPI_Comm comm, DM *dm)
 
 PetscErrorCode MSSetUp(MS ms)
 {
-  MSCtx    ctx = ms->ctx;
-  PC       pc, mgmc;
-  PetscInt levels;
+  MSCtx ctx = ms->ctx;
+  PC    pc;
 
   PetscFunctionBeginUser;
   if (!ctx->dm) PetscCall(CreateMeshDefault(ctx->comm, &ctx->dm));
@@ -327,8 +326,7 @@ PetscErrorCode MSSetUp(MS ms)
     PetscCall(KSPSetDM(ctx->ksp, ctx->dm));
     PetscCall(KSPSetDMActive(ctx->ksp, PETSC_FALSE));
     PetscCall(KSPGetPC(ctx->ksp, &pc));
-    PetscCall(PCSetType(pc, "gamgmc"));
-    PetscCall(PCGAMGMCGetInternalPC(pc, &mgmc));
+    PetscCall(PCSetType(pc, PCGAMGMC));
     PetscCall(KSPSetOptionsPrefix(ctx->ksp, "ms_"));
     PetscCall(KSPSetFromOptions(ctx->ksp));
     PetscCall(KSPSetUp(ctx->ksp));
@@ -336,25 +334,6 @@ PetscErrorCode MSSetUp(MS ms)
     PetscCall(KSPSetTolerances(ctx->ksp, PETSC_DEFAULT, PETSC_DEFAULT, PETSC_DEFAULT, 1));
     PetscCall(PCSetSampleCallback(pc, MS_SampleCallback, ctx, NULL));
     PetscCall(KSPSetInitialGuessNonzero(ctx->ksp, PETSC_TRUE));
-
-    PetscCall(PCMGGetLevels(mgmc, &levels));
-    for (PetscInt i = 0; i < levels; ++i) {
-      KSP ksps;
-      PC  pcs;
-
-      if (i != 0) {
-        PetscCall(PCMGGetSmoother(mgmc, i, &ksps));
-        PetscCall(KSPSetType(ksps, KSPRICHARDSON));
-        PetscCall(KSPGetPC(ksps, &pcs));
-        PetscCall(PCSetType(pcs, PCGIBBS));
-        PetscCall(KSPSetTolerances(ksps, PETSC_DEFAULT, PETSC_DEFAULT, PETSC_DEFAULT, 1));
-      } else {
-        PetscCall(PCMGGetSmoother(mgmc, i, &ksps));
-        PetscCall(KSPSetType(ksps, KSPPREONLY));
-        PetscCall(KSPGetPC(ksps, &pcs));
-        PetscCall(PCSetType(pcs, PCCHOLSAMPLER));
-      }
-    }
   }
 
   PetscFunctionReturn(PETSC_SUCCESS);
