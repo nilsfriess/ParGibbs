@@ -16,12 +16,9 @@
 
 inline PetscErrorCode CreateMatrixPetsc(Parameters params, Mat *A, DM *dm)
 {
-  double starttime, endtime;
-  MS     ms;
+  MS ms;
 
   PetscFunctionBeginUser;
-  PetscCall(PetscPrintf(MPI_COMM_WORLD, "Starting setup..."));
-  starttime = MPI_Wtime();
   PetscCall(MSCreate(MPI_COMM_WORLD, &ms));
   PetscCall(MSSetAssemblyOnly(ms, PETSC_TRUE));
   PetscCall(MSSetFromOptions(ms));
@@ -57,9 +54,6 @@ inline PetscErrorCode CreateMatrixPetsc(Parameters params, Mat *A, DM *dm)
 
     *A = A2;
   }
-
-  endtime = MPI_Wtime();
-  PetscCall(PetscPrintf(MPI_COMM_WORLD, " done. Took %.4fs.\n\n", endtime - starttime));
   if (!params->with_lr) PetscCall(PetscObjectReference((PetscObject)(*A)));
   PetscCall(PetscObjectReference((PetscObject)(*dm))); // Make sure MSDestroy doesn't destroy the DM because we're returning it
   PetscCall(MSDestroy(&ms));
