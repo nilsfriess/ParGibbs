@@ -96,7 +96,6 @@ static PetscErrorCode Sample(KSP ksp, Vec b, Parameters params)
 static PetscErrorCode SaveSample(PetscInt it, Vec y, void *ctx)
 {
   PetscScalar norm, *qois = (PetscScalar *)ctx;
-
   PetscFunctionBeginUser;
   PetscCall(VecNorm(y, NORM_2, &norm));
   qois[it] = norm;
@@ -119,6 +118,8 @@ int main(int argc, char *argv[])
   Parameters  params;
   Mat         A;
   DM          dm = nullptr; // Only set when building Mat with PETSc
+  KSP         ksp;
+  PC          pc;
   Vec         b;
   PetscRandom pr;
   double      time;
@@ -130,8 +131,14 @@ int main(int argc, char *argv[])
   PetscCall(PetscInitialize(&argc, &argv, nullptr, nullptr));
   PetscCall(ParMGMCInitialize());
 
+  PetscCall(PetscPrintf(MPI_COMM_WORLD, "################################################################################\n"));
+  PetscCall(PetscPrintf(MPI_COMM_WORLD, "#############                Benchmark Test Program                #############\n"));
+  PetscCall(PetscPrintf(MPI_COMM_WORLD, "################################################################################\n"));
+
   PetscCall(ParametersCreate(&params));
   PetscCall(ParametersRead(params));
+
+  PetscCheck(params->measure_iact || params->measure_sampling_time, MPI_COMM_WORLD, PETSC_ERR_ARG_WRONG, "Pass at least one of -measure_sampling_time or -measure_iact");
 
   PetscCall(PetscRandomCreate(MPI_COMM_WORLD, &pr));
   PetscCall(PetscRandomSetType(pr, PARMGMC_ZIGGURAT));
@@ -141,25 +148,24 @@ int main(int argc, char *argv[])
 
 #ifdef PARMGMC_HAVE_MFEM
   PetscCall(PetscOptionsGetBool(nullptr, nullptr, "-mfem", &mfem, nullptr));
-  if (mfem) PetscCall(CreateMatrixMFEM(params, &A));
+  if (mfem) TIME(CreateMatrixMFEM(params, &A), "Assembling matrix", &time);
   else
 #endif
-    PetscCall(CreateMatrixPetsc(params, &A, &dm));
-  PetscCall(InfoView(A, params, PETSC_VIEWER_STDOUT_WORLD));
+    TIME(CreateMatrixPetsc(params, &A, &dm), "Assembling matrix", &time);
   PetscCall(MatCreateVecs(A, nullptr, &b));
+
+  TIME(SamplerCreate(A, dm, pr, params, &ksp), "Setup sampler", &time);
+  PetscCall(KSPGetPC(ksp, &pc));
 
   if (params->measure_sampling_time) {
     PetscCall(PetscPrintf(MPI_COMM_WORLD, "################################################################################\n"));
     PetscCall(PetscPrintf(MPI_COMM_WORLD, "                              Measure sampling time\n"));
     PetscCall(PetscPrintf(MPI_COMM_WORLD, "################################################################################\n"));
 
-    KSP ksp;
-
-    TIME(SamplerCreate(A, dm, pr, params, &ksp), "Setup", &time);
     TIME(Burnin(ksp, b, params), "Burn-in", &time);
     TIME(Sample(ksp, b, params), "Sampling", &time);
 
-    PetscCall(KSPDestroy(&ksp));
+    PetscCall(PetscPrintf(MPI_COMM_WORLD, "Time per sample [ms]: %.6f\n\n", time / params->n_samples * 1000));
   }
 
   if (params->measure_iact) {
@@ -167,17 +173,15 @@ int main(int argc, char *argv[])
     PetscCall(PetscPrintf(MPI_COMM_WORLD, "                                  Measure IACT\n"));
     PetscCall(PetscPrintf(MPI_COMM_WORLD, "################################################################################\n"));
 
-    KSP          ksp;
-    PC           pc;
     PetscScalar *qois, tau = 0;
     PetscBool    valid;
 
-    TIME(SamplerCreate(A, dm, pr, params, &ksp), "Setup", &time);
     PetscCall(PetscCalloc1(params->n_samples + 1, &qois));
 
     TIME(Burnin(ksp, b, params), "Burn-in", &time);
-    PetscCall(KSPGetPC(ksp, &pc));
+
     PetscCall(PCSetSampleCallback(pc, SaveSample, qois, nullptr));
+    // PetscCall(KSPSetConvergenceTest(ksp, SaveSample, qois, NULL));
     TIME(Sample(ksp, b, params), "Sampling", &time);
 
     PetscCall(IACT(params->n_samples, qois, &tau, &valid));
@@ -186,13 +190,16 @@ int main(int argc, char *argv[])
     PetscCall(PetscPrintf(MPI_COMM_WORLD, "Time per independent sample [ms]: %.6f\n\n", PetscMax(tau, 1) * time / params->n_samples * 1000));
 
     PetscCall(PetscFree(qois));
-    PetscCall(KSPDestroy(&ksp));
   }
+
+  PetscCall(InfoView(A, params, PETSC_VIEWER_STDOUT_WORLD));
+  PetscCall(PCView(pc, PETSC_VIEWER_STDOUT_WORLD));
 
   PetscCall(VecDestroy(&b));
   PetscCall(PetscRandomDestroy(&pr));
   PetscCall(MatDestroy(&A));
   if (dm) PetscCall(DMDestroy(&dm));
   PetscCall(ParametersDestroy(&params));
+  PetscCall(KSPDestroy(&ksp));
   PetscCall(PetscFinalize());
 }
