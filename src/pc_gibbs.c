@@ -250,6 +250,17 @@ static PetscErrorCode PCSetUp_Gibbs(PC pc)
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
+static PetscErrorCode PCView_Gibbs(PC pc, PetscViewer viewer)
+{
+  PC_Gibbs *pg = pc->data;
+  PetscInt  ncolors;
+
+  PetscFunctionBeginUser;
+  PetscCall(MCSORGetNumColors(pg->mc, &ncolors));
+  PetscCall(PetscViewerASCIIPrintf(viewer, "Number of colours: %d\n", ncolors));
+  PetscFunctionReturn(PETSC_SUCCESS);
+}
+
 /**
    @brief Get the PetscRandom context used to generate random numbers
 
@@ -335,6 +346,7 @@ PetscErrorCode PCCreate_Gibbs(PC pc)
   pc->ops->applyrichardson = PCApplyRichardson_Gibbs;
   pc->ops->setfromoptions  = PCSetFromOptions_Gibbs;
   pc->ops->reset           = PCReset_Gibbs;
+  pc->ops->view            = PCView_Gibbs;
   PetscCall(RegisterPCSetGetPetscRandom(pc, PCGibbsSetPetscRandom, PCGibbsGetPetscRandom));
   PetscCall(PCRegisterSetSampleCallback(pc, PCSetSampleCallback_Gibbs));
   PetscFunctionReturn(PETSC_SUCCESS);
