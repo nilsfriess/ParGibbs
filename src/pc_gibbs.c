@@ -5,7 +5,6 @@
     PUBLIC LICENSE (LGPL). See file LICENSE in the project root folder for full
     license details.
 */
-
 /** @file pc_gibbs.c
     @brief A Gibbs sampler wrapped as a PETSc PC
     
@@ -34,7 +33,7 @@
     
     This PC supports setting a callback which is called for each sample by calling
 
-        PCSetSampleCallback(pc, SampleCallback, &ctx);
+        PCSetSampleCallback(pc, SampleCallback, &ctx, NULL);
     
     where `ctx` is a user defined context (can also be NULL) that is passed to the
     callback along with the sample.
@@ -52,6 +51,7 @@
 #include <petscsys.h>
 #include <petscsystypes.h>
 #include <petscvec.h>
+#include <petscviewer.h>
 #include <stdbool.h>
 #include <string.h>
 #include <mpi.h>
@@ -65,6 +65,8 @@ typedef struct {
   MCSOR       mc;
   MatSORType  type;
   Vec         z;
+
+  PetscBool first_call;
 
   Mat B;
   Vec w;
@@ -88,7 +90,10 @@ static PetscErrorCode PCDestroy_Gibbs(PC pc)
   PetscCall(VecDestroy(&pg->w));
   PetscCall(VecDestroy(&pg->sqrtS));
   PetscCall(VecDestroy(&pg->z));
-  if (pg->del_scb) PetscCall(pg->del_scb(pg->cbctx));
+  if (pg->del_scb) {
+    PetscCall(pg->del_scb(pg->cbctx));
+    pg->del_scb = NULL;
+  }
   PetscCall(PetscFree(pg));
   PetscFunctionReturn(PETSC_SUCCESS);
 }
@@ -103,7 +108,10 @@ static PetscErrorCode PCReset_Gibbs(PC pc)
   PetscCall(VecDestroy(&pg->w));
   PetscCall(VecDestroy(&pg->sqrtS));
   PetscCall(VecDestroy(&pg->z));
-  if (pg->del_scb) PetscCall(pg->del_scb(pg->cbctx));
+  if (pg->del_scb) {
+    PetscCall(pg->del_scb(pg->cbctx));
+    pg->del_scb = NULL;
+  }
   if (pg->prand_is_initial_prand) PetscCall(PetscRandomDestroy(&pg->prand));
   PetscFunctionReturn(PETSC_SUCCESS);
 }
@@ -115,7 +123,7 @@ static PetscErrorCode PrepareRHS_Default(PC pc, Vec rhsin, Vec rhsout)
   PetscFunctionBeginUser;
   PetscCall(VecSetRandom(rhsout, pg->prand));
   PetscCall(VecPointwiseMult(rhsout, rhsout, pg->sqrtdiag));
-  PetscCall(VecAXPY(rhsout, 1., rhsin));
+  if (rhsin) PetscCall(VecAXPY(rhsout, 1., rhsin));
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
@@ -144,21 +152,6 @@ static PetscErrorCode PCGibbsUpdateSqrtDiag(PC pc)
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
-/* static PetscErrorCode PCApply_Gibbs(PC pc, Vec x, Vec y) */
-/* { */
-/*   PC_Gibbs *pg = pc->data; */
-
-/*   PetscFunctionBeginUser; */
-/*   if (pg->omega_changed) PetscCall(PCGibbsUpdateSqrtDiag(pc)); */
-
-/*   PetscCall(pg->prepare_rhs(pc, pg->rhs, pg->z)); */
-/*   PetscCall(VecAXPY(pg->z, -1., pg->rhs)); */
-/*   PetscCall(VecAXPY(pg->z, 1., x)); */
-/*   /\* PetscCall(MCSORApply(pg->mc, pg->z, y)); *\/ */
-/*   PetscCall(MatSOR(pc->pmat, pg->z, 1., SOR_LOCAL_SYMMETRIC_SWEEP, 0., 1., 1., y)); */
-/*   PetscFunctionReturn(PETSC_SUCCESS); */
-/* } */
-
 static PetscErrorCode PCApplyRichardson_Gibbs(PC pc, Vec b, Vec y, Vec w, PetscReal rtol, PetscReal abstol, PetscReal dtol, PetscInt its, PetscBool guesszero, PetscInt *outits, PCRichardsonConvergedReason *reason)
 {
   (void)rtol;
@@ -167,17 +160,17 @@ static PetscErrorCode PCApplyRichardson_Gibbs(PC pc, Vec b, Vec y, Vec w, PetscR
   (void)guesszero;
 
   PC_Gibbs *pg = pc->data;
-  PetscInt  it;
+  PetscInt  it = 0;
 
   PetscFunctionBeginUser;
   if (pg->omega_changed) PetscCall(PCGibbsUpdateSqrtDiag(pc));
 
-  for (it = 0; it < its; ++it) {
-    if (pg->scb) PetscCall(pg->scb(it, y, pg->cbctx));
+  if (pg->scb) PetscCall(pg->scb(it, y, pg->cbctx));
+  for (it = 1; it < its; ++it) {
     PetscCall(pg->prepare_rhs(pc, b, w));
     PetscCall(MCSORApply(pg->mc, w, y));
+    if (pg->scb) PetscCall(pg->scb(it, y, pg->cbctx));
   }
-  if (pg->scb) PetscCall(pg->scb(it, y, pg->cbctx));
   *outits = its;
   *reason = PCRICHARDSON_CONVERGED_ITS;
   PetscFunctionReturn(PETSC_SUCCESS);
@@ -320,7 +313,10 @@ static PetscErrorCode PCSetSampleCallback_Gibbs(PC pc, PetscErrorCode (*cb)(Pets
   PC_Gibbs *pg = pc->data;
 
   PetscFunctionBeginUser;
-  if (pg->del_scb) PetscCall(pg->del_scb(pg->cbctx));
+  if (pg->del_scb) {
+    PetscCall(pg->del_scb(pg->cbctx));
+    pg->del_scb = NULL;
+  }
   pg->scb     = cb;
   pg->cbctx   = ctx;
   pg->del_scb = deleter;

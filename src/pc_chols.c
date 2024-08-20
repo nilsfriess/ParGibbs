@@ -18,7 +18,7 @@ typedef struct {
   Mat           F;
   PetscRandom   prand;
   MatSolverType st;
-  PetscBool     prand_is_initial_prand;
+  PetscBool     prand_is_initial_prand, richardson;
 
   void *cbctx;
   PetscErrorCode (*scb)(PetscInt, Vec, void *);
@@ -128,6 +128,7 @@ static PetscErrorCode PCApply_CholSampler(PC pc, Vec x, Vec y)
   PC_CholSampler chol = pc->data;
 
   PetscFunctionBeginUser;
+  PetscCheck(chol->richardson || !chol->scb, PetscObjectComm((PetscObject)pc), PETSC_ERR_SUP, "Setting a sample callback is not supported for Cholesky sampler in PREONLY mode. Use KSPRICHARDSON instead");
   PetscCall(MatForwardSolve(chol->F, x, chol->v));
   PetscCall(VecSetRandom(chol->r, chol->prand));
   PetscCall(VecAXPY(chol->v, 1., chol->r));
@@ -144,16 +145,18 @@ static PetscErrorCode PCApplyRichardson_CholSampler(PC pc, Vec b, Vec y, Vec w, 
   (void)w;
 
   PC_CholSampler chol = pc->data;
-  PetscInt       it;
+  PetscInt       it   = 0;
 
   PetscFunctionBeginUser;
-  for (it = 0; it < its; ++it) {
-    if (chol->scb) PetscCall(chol->scb(it, y, chol->cbctx));
-    PetscCall(PCApply_CholSampler(pc, b, y));
-  }
+  chol->richardson = PETSC_TRUE;
   if (chol->scb) PetscCall(chol->scb(it, y, chol->cbctx));
-  *outits = its;
-  *reason = PCRICHARDSON_CONVERGED_ITS;
+  for (it = 1; it < its; ++it) {
+    PetscCall(PCApply_CholSampler(pc, b, y));
+    if (chol->scb) PetscCall(chol->scb(it, y, chol->cbctx));
+  }
+  *outits          = its;
+  *reason          = PCRICHARDSON_CONVERGED_ITS;
+  chol->richardson = PETSC_FALSE;
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 

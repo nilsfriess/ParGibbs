@@ -22,6 +22,7 @@
 #include <petscviewertypes.h>
 #include <string.h>
 #include <mpi.h>
+#include <time.h>
 
 /** @file pc_gamgmc.c
     @brief A geometric algebraic Multigrid Monte Carlo sampler wrapped as a PETSc PC.
@@ -68,6 +69,8 @@ typedef struct _PC_GAMGMC {
   PC        mg;
   Mat      *As; // The actual matrices used (in case of A+LR this differs from the matrices used to setup the multigrid hierarchy).
   PetscBool setup_called;
+
+  KSP ksp;
 
   void *cbctx;
   PetscErrorCode (*scb)(PetscInt, Vec, void *);
@@ -172,9 +175,41 @@ static PetscErrorCode PCGAMGMC_SetUpHierarchy(PC pc)
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
-/* static PetscErrorCode PCApply_GAMGMC(PC pc, Vec x, Vec y) */
+static PetscErrorCode PCApply_GAMGMC(PC pc, Vec x, Vec y)
+{
+  PC_GAMGMC pg = pc->data;
+
+  PetscFunctionBeginUser;
+  if (!pg->setup_called) {
+    PetscCall(PCGAMGMC_SetUpHierarchy(pc));
+    pg->setup_called = PETSC_TRUE;
+  }
+  PetscCall(PCApply(pg->mg, x, y));
+
+  if (pg->scb) {
+    /* For some weird and annoying reason, using the PCApplyRichardson function below (which would be faster (because it avoids
+     the computation of the residual r = b - Ax) does not work. I don't understand why but just grabbing the solution vector
+     from the KSP directly seems to work. */
+    PetscInt it;
+    Vec      z;
+
+    PetscCall(KSPGetIterationNumber(pg->ksp, &it));
+    PetscCall(KSPGetSolution(pg->ksp, &z));
+    PetscCall(pg->scb(it, z, pg->cbctx));
+  }
+  PetscFunctionReturn(PETSC_SUCCESS);
+}
+
+/* static PetscErrorCode PCApplyRichardson_GAMGMC(PC pc, Vec b, Vec y, Vec w, PetscReal rtol, PetscReal abstol, PetscReal dtol, PetscInt its, PetscBool guesszero, PetscInt *outits, PCRichardsonConvergedReason *reason) */
 /* { */
+/*   (void)rtol; */
+/*   (void)abstol; */
+/*   (void)dtol; */
+/*   (void)guesszero; */
+/*   (void)w; */
+
 /*   PC_GAMGMC pg = pc->data; */
+/*   PetscInt  it = 0; */
 
 /*   PetscFunctionBeginUser; */
 /*   if (!pg->setup_called) { */
@@ -182,37 +217,16 @@ static PetscErrorCode PCGAMGMC_SetUpHierarchy(PC pc)
 /*     pg->setup_called = PETSC_TRUE; */
 /*   } */
 
-/*   PetscCall(PCApply(pg->mg, x, y)); */
+/*   if (pg->scb) PetscCall(pg->scb(it, y, pg->cbctx)); */
+/*   for (it = 1; it < its; ++it) { */
+/*     PetscCall(PCApply(pg->mg, b, y)); */
+/*     if (pg->scb) PetscCall(pg->scb(it, y, pg->cbctx)); */
+/*   } */
 
+/*   *outits = its; */
+/*   *reason = PCRICHARDSON_CONVERGED_ITS; */
 /*   PetscFunctionReturn(PETSC_SUCCESS); */
 /* } */
-
-static PetscErrorCode PCApplyRichardson_GAMGMC(PC pc, Vec b, Vec y, Vec w, PetscReal rtol, PetscReal abstol, PetscReal dtol, PetscInt its, PetscBool guesszero, PetscInt *outits, PCRichardsonConvergedReason *reason)
-{
-  (void)rtol;
-  (void)abstol;
-  (void)dtol;
-  (void)guesszero;
-  (void)w;
-
-  PC_GAMGMC pg = pc->data;
-  PetscInt  it;
-
-  PetscFunctionBeginUser;
-  if (!pg->setup_called) {
-    PetscCall(PCGAMGMC_SetUpHierarchy(pc));
-    pg->setup_called = PETSC_TRUE;
-  }
-
-  for (it = 0; it < its; ++it) {
-    if (pg->scb) PetscCall(pg->scb(it, y, pg->cbctx));
-    PetscCall(PCApply(pg->mg, b, y));
-  }
-  if (pg->scb) PetscCall(pg->scb(it, y, pg->cbctx));
-  *outits = its;
-  *reason = PCRICHARDSON_CONVERGED_ITS;
-  PetscFunctionReturn(PETSC_SUCCESS);
-}
 
 static PetscErrorCode PCView_GAMGMC(PC pc, PetscViewer v)
 {
@@ -245,9 +259,22 @@ static PetscErrorCode PCSetUp_GAMGMC(PC pc)
   }
 
   // Ugly way to set the default "smoother" (=sampler) to be Gibbs
-  PetscCall(PetscOptionsSetValue(NULL, "-gamgmc_mg_levels_ksp_type", "richardson"));
-  PetscCall(PetscOptionsSetValue(NULL, "-gamgmc_mg_levels_pc_type", "gibbs"));
-  PetscCall(PetscOptionsSetValue(NULL, "-gamgmc_mg_levels_ksp_max_it", "1"));
+  {
+    PetscBool flag;
+    char      opt[256];
+
+    PetscCall(PetscOptionsGetString(NULL, NULL, "-gamgmc_mg_levels_ksp_type", opt, 256, &flag));
+    if (!flag) PetscCall(PetscOptionsSetValue(NULL, "-gamgmc_mg_levels_ksp_type", KSPRICHARDSON));
+
+    PetscCall(PetscOptionsGetString(NULL, NULL, "-gamgmc_mg_levels_pc_type", opt, 256, &flag));
+    if (!flag) PetscCall(PetscOptionsSetValue(NULL, "-gamgmc_mg_levels_pc_type", PCGIBBS));
+
+    PetscCall(PetscOptionsGetString(NULL, NULL, "-gamgmc_mg_coarse_ksp_type", opt, 256, &flag));
+    if (!flag) PetscCall(PetscOptionsSetValue(NULL, "-gamgmc_mg_coarse_ksp_type", KSPPREONLY));
+
+    PetscCall(PetscOptionsGetString(NULL, NULL, "-gamgmc_mg_coarse_pc_type", opt, 256, &flag));
+    if (!flag) PetscCall(PetscOptionsSetValue(NULL, "-gamgmc_mg_coarse_pc_type", PCCHOLSAMPLER));
+  }
 
   PetscCall(PCSetFromOptions(pg->mg));
   PetscCall(PCSetUp(pg->mg));
@@ -309,6 +336,18 @@ static PetscErrorCode PCGAMGMCGetPetscRandom(PC pc, PetscRandom *pr)
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
+static PetscErrorCode PCPreSolve_GAMGMC(PC pc, KSP ksp, Vec b, Vec x)
+{
+  (void)b;
+  (void)x;
+
+  PC_GAMGMC pg = pc->data;
+
+  PetscFunctionBeginUser;
+  pg->ksp = ksp;
+  PetscFunctionReturn(PETSC_SUCCESS);
+}
+
 PetscErrorCode PCCreate_GAMGMC(PC pc)
 {
   PC_GAMGMC pg;
@@ -322,13 +361,14 @@ PetscErrorCode PCCreate_GAMGMC(PC pc)
   pg->scb     = NULL;
   pg->del_scb = NULL;
 
-  pc->data                 = pg;
-  pc->ops->setup           = PCSetUp_GAMGMC;
-  pc->ops->applyrichardson = PCApplyRichardson_GAMGMC;
-  /* pc->ops->apply          = PCApply_GAMGMC; */
+  pc->data       = pg;
+  pc->ops->setup = PCSetUp_GAMGMC;
+  /* pc->ops->applyrichardson = PCApplyRichardson_GAMGMC; */
+  pc->ops->apply          = PCApply_GAMGMC;
   pc->ops->view           = PCView_GAMGMC;
   pc->ops->destroy        = PCDestroy_GAMGMC;
   pc->ops->setfromoptions = PCSetFromOptions_GAMGMC;
+  pc->ops->presolve       = PCPreSolve_GAMGMC;
   PetscCall(RegisterPCSetGetPetscRandom(pc, PCGAMGMCSetPetscRandom, PCGAMGMCGetPetscRandom));
   PetscCall(PCRegisterSetSampleCallback(pc, PCSetSampleCallback_GAMGMC));
   PetscFunctionReturn(PETSC_SUCCESS);
