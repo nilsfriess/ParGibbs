@@ -166,8 +166,22 @@ static PetscErrorCode PCApplyRichardson_Gibbs(PC pc, Vec b, Vec y, Vec w, PetscR
 
   for (PetscInt it = 0; it < its; ++it) {
     if (pg->scb) PetscCall(pg->scb(it, y, pg->cbctx));
-    PetscCall(pg->prepare_rhs(pc, b, w));
-    PetscCall(MCSORApply(pg->mc, w, y));
+
+    if (pg->type == SOR_FORWARD_SWEEP || pg->type == SOR_BACKWARD_SWEEP) {
+      PetscCall(pg->prepare_rhs(pc, b, w));
+      PetscCall(MCSORApply(pg->mc, w, y));
+      /* PetscCall(MatSOR(pg->A, w, 1, SOR_FORWARD_SWEEP, 0, 1, 1, y)); */
+    } else {
+      PetscCall(MCSORSetSweepType(pg->mc, SOR_FORWARD_SWEEP));
+      PetscCall(pg->prepare_rhs(pc, b, w));
+      PetscCall(MCSORApply(pg->mc, w, y));
+      /* PetscCall(MatSOR(pg->A, w, 1, SOR_FORWARD_SWEEP, 0, 1, 1, y)); /\*  *\/ */
+
+      PetscCall(MCSORSetSweepType(pg->mc, SOR_BACKWARD_SWEEP));
+      PetscCall(pg->prepare_rhs(pc, b, w));
+      PetscCall(MCSORApply(pg->mc, w, y));
+      /* PetscCall(MatSOR(pg->A, w, 1, SOR_BACKWARD_SWEEP, 0, 1, 1, y)); */
+    }
   }
   if (pg->scb) PetscCall(pg->scb(its, y, pg->cbctx));
   *outits = its;
