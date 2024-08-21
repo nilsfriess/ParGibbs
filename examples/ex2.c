@@ -103,7 +103,7 @@ int main(int argc, char *argv[])
   PetscCall(PetscPrintf(MPI_COMM_WORLD, "Done\n"));
 
   PetscCall(MSGetQOIValues(ms, &qois));
-  PetscCall(IACT(N_SAMPLES, qois, &tau, NULL));
+  PetscCall(IACT(N_SAMPLES, qois, &tau, NULL, NULL));
   PetscCall(PetscPrintf(MPI_COMM_WORLD, "IACT = %.5f\n", tau));
   for (PetscInt i = 0; i < N_SAMPLES; ++i) qoimean += qois[i] / N_SAMPLES;
   PetscCall(PetscPrintf(MPI_COMM_WORLD, "Relative mean error = %.5f\n", PetscAbs(qoimean)));
