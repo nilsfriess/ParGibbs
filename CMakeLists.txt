@@ -116,3 +116,11 @@ if(${PARMGMC_BUILD_DOCS})
   add_subdirectory(docs)
 endif()
 
+if(NOT DEFINED PARMGMC_BUILD_EXAMPLES)
+  set(PARMGMC_BUILD_DOCS False)
+endif()
+
+if(${PARMGMC_BUILD_EXAMPLES})
+  add_subdirectory(examples)
+endif()
+
