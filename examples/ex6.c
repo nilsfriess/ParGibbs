@@ -174,6 +174,7 @@ int main(int argc, char *argv[])
   for (PetscInt i = 0; i < samples_per_chain * chains; ++i) PetscCall(VecDuplicate(b, &samples[i]));
 
   PetscCall(KSPGetPC(ksp, &pc));
+  PetscCall(PCViewFromOptions(pc, NULL, "-pc_view"));
   PetscCall(PCSetPetscRandom(pc, pr));
   PetscCall(PetscRandomSetSeed(pr, seed));
   PetscCall(PetscRandomSeed(pr));
