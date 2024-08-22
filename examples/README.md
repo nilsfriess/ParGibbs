@@ -1,4 +1,4 @@
-#Examples
+# Examples
 
 This directory contains some examples (that also function as the test suite for the ParMGMC library, see below). Currently, there are the following examples:
 
@@ -12,7 +12,7 @@ This directory contains some examples (that also function as the test suite for 
 | ex6.c   | Checks convergence to the target distribution by computing the relative error of the sample covariance compared to the exact covariance matrix.  |
 | ex7.c   | Measures convergence speed using the Gelman-Rubin diagnostic.  |
 
-#Test suite
+# Test suite
 
 The examples in this directory also function as the test suite. It uses the [LLVM Integration Tester](https://llvm.org/docs/CommandGuide/lit.html) (`lit`) to detect and run the tests and simple `PetscCheck`s to test actual assertions. The samplers are always tested as a whole; there are no unit tests. To build the examples/ tests, first install the library to some directory as described in the [README](/README.md). The `lit` executable can be installed via `pip`/`pipx` by running
 
