@@ -9,6 +9,8 @@ This directory contains some examples (that also function as the test suite for 
 | ex3.c   | Tests the multicolour SOR solver. |
 | ex4.c   | Tests the samplers with low-rank updated precision matrices (i.e., linear Bayesian inverse problems). |
 | ex5.c   | Verifies for the multicolour Gauss-Seidel solver that a symmetric sweep is the same as a forward followed by a backward sweep.  |
+| ex6.c   | Checks convergence to the target distribution by computing the relative error of the sample covariance compared to the exact covariance matrix.  |
+| ex7.c   | Measures convergence speed using the Gelman-Rubin diagnostic.  |
 
 #Test suite
 
