@@ -92,6 +92,7 @@ int main(int argc, char *argv[])
   PetscMPIInt    rank;
   unsigned long  seed = 0xCAFECAFE;
   PetscScalar    gr   = -1;
+  DM             dm;
 
   PetscCall(PetscInitialize(&argc, &argv, NULL, NULL));
   PetscCall(ParMGMCInitialize());
@@ -100,6 +101,7 @@ int main(int argc, char *argv[])
   PetscCall(MSSetFromOptions(ms));
   PetscCall(MSSetAssemblyOnly(ms, PETSC_TRUE));
   PetscCall(MSSetUp(ms));
+  PetscCall(MSGetDM(ms, &dm));
   PetscCall(MSGetPrecisionMatrix(ms, &A));
   PetscCall(MatGetSize(A, &n, NULL));
   PetscCall(MatGetInfo(A, MAT_GLOBAL_SUM, &info));
@@ -118,6 +120,8 @@ int main(int argc, char *argv[])
     PetscCall(KSPCreate(MPI_COMM_WORLD, &samplers[i]));
     PetscCall(KSPSetFromOptions(samplers[i]));
     PetscCall(KSPSetOperators(samplers[i], A, A));
+    PetscCall(KSPSetDM(samplers[i], dm));
+    PetscCall(KSPSetDMActive(samplers[i], PETSC_FALSE));
     PetscCall(KSPSetUp(samplers[i]));
     PetscCall(KSPSetNormType(samplers[i], KSP_NORM_NONE));
     PetscCall(KSPSetConvergenceTest(samplers[i], KSPConvergedSkip, NULL, NULL));
