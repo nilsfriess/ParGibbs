@@ -58,6 +58,7 @@ static PetscErrorCode SamplerCreate(Mat A, DM dm, PetscRandom pr, Parameters par
   PetscCall(KSPSetType(*ksp, KSPRICHARDSON));
   PetscCall(KSPSetFromOptions(*ksp));
   PetscCall(KSPSetNormType(*ksp, KSP_NORM_NONE));
+  PetscCall(KSPSetConvergenceTest(*ksp, KSPSkipConverged, nullptr, nullptr));
   PetscCall(KSPSetOperators(*ksp, A, A));
   if (dm) {
     PetscCall(KSPSetDM(*ksp, dm));

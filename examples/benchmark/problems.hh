@@ -5,7 +5,9 @@
 #include "parmgmc/obs.h"
 
 #include <petscdm.h>
+#include <petscdmplex.h>
 #include <petscmat.h>
+#include <petscoptions.h>
 #include <petscsys.h>
 #include <petscsystypes.h>
 
@@ -44,14 +46,33 @@ inline PetscErrorCode VolumeOfSphere(DM dm, PetscScalar r, PetscScalar *v)
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
+inline PetscErrorCode CreateMeshFromFilename(MPI_Comm comm, const char *filename, DM *dm)
+{
+  PetscFunctionBeginUser;
+  PetscCall(DMPlexCreateGmshFromFile(comm, filename, PETSC_TRUE, dm));
+  PetscCall(DMSetFromOptions(*dm));
+  PetscCall(DMViewFromOptions(*dm, nullptr, "-dm_view"));
+  PetscFunctionReturn(PETSC_SUCCESS);
+}
+
 inline PetscErrorCode CreateMatrixPetsc(Parameters params, Mat *A, Vec *meas_vec, DM *dm)
 {
-  MS ms;
+  MS        ms;
+  char      filename[512];
+  PetscBool flag;
 
   PetscFunctionBeginUser;
   PetscCall(MSCreate(MPI_COMM_WORLD, &ms));
   PetscCall(MSSetAssemblyOnly(ms, PETSC_TRUE));
   PetscCall(MSSetFromOptions(ms));
+
+  PetscCall(PetscOptionsGetString(nullptr, nullptr, "-mesh_file", filename, 512, &flag));
+  if (flag) {
+    DM mdm;
+
+    PetscCall(CreateMeshFromFilename(MPI_COMM_WORLD, filename, &mdm));
+    PetscCall(MSSetDM(ms, mdm));
+  }
   PetscCall(MSSetUp(ms));
   PetscCall(MSGetPrecisionMatrix(ms, A));
   PetscCall(MSGetDM(ms, dm));
