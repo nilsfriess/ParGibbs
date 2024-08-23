@@ -12,15 +12,20 @@
  *
  */
 
+// MGMC sampler
+// RUN: %cc %s -o %t %flags && %mpirun -np %NP %t -ksp_type richardson -pc_type gamgmc
+
 #include "mpi.h"
 #include "mpi_proto.h"
 #include "parmgmc/ms.h"
 #include "parmgmc/parmgmc.h"
 
+#include <petscdmplex.h>
 #include <petscksp.h>
 #include <petscmat.h>
 #include <petscmath.h>
 #include <petscoptions.h>
+#include <petscpc.h>
 #include <petscsys.h>
 #include <petscsystypes.h>
 #include <petscvec.h>
@@ -38,9 +43,19 @@ PetscErrorCode SampleCallback(PetscInt it, Vec y, void *ctx)
 
   PetscFunctionBeginUser;
   if (it != sctx->check_every) {
-    PetscCall(VecDot(y, sctx->meas_vec, &sctx->qois[sctx->curr_chain][sctx->curr_first_it + it]));
+    /* PetscCall(VecDot(y, sctx->meas_vec, &sctx->qois[sctx->curr_chain][sctx->curr_first_it + it])); */
+    PetscCall(VecSum(y, &sctx->qois[sctx->curr_chain][sctx->curr_first_it + it]));
     /* PetscCall(PetscPrintf(MPI_COMM_WORLD, "[%d : %d] %.5f\n", sctx->curr_chain, sctx->curr_first_it + it, sctx->qois[sctx->curr_chain][sctx->curr_first_it + it])); */
   }
+  PetscFunctionReturn(PETSC_SUCCESS);
+}
+
+static PetscErrorCode CreateMeshFromFilename(MPI_Comm comm, const char *filename, DM *dm)
+{
+  PetscFunctionBeginUser;
+  PetscCall(DMPlexCreateGmshFromFile(comm, filename, PETSC_TRUE, dm));
+  PetscCall(DMSetFromOptions(*dm));
+  PetscCall(DMViewFromOptions(*dm, NULL, "-dm_view"));
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
@@ -88,18 +103,23 @@ int main(int argc, char *argv[])
   Vec           *x, b;
   SampleCtx      ctx;
   PetscRandom    pr;
-  PetscBool      write_to_file;
+  PetscBool      write_to_file, flag;
   PetscMPIInt    rank;
   unsigned long  seed = 0xCAFECAFE;
   PetscScalar    gr   = -1;
   DM             dm;
+  char           filename[256];
 
   PetscCall(PetscInitialize(&argc, &argv, NULL, NULL));
   PetscCall(ParMGMCInitialize());
 
+  PetscCall(PetscOptionsGetString(NULL, NULL, "-mesh_file", filename, 512, &flag));
+  if (flag) { PetscCall(CreateMeshFromFilename(MPI_COMM_WORLD, filename, &dm)); }
+
   PetscCall(MSCreate(MPI_COMM_WORLD, &ms));
   PetscCall(MSSetFromOptions(ms));
   PetscCall(MSSetAssemblyOnly(ms, PETSC_TRUE));
+  if (flag) PetscCall(MSSetDM(ms, dm));
   PetscCall(MSSetUp(ms));
   PetscCall(MSGetDM(ms, &dm));
   PetscCall(MSGetPrecisionMatrix(ms, &A));
@@ -128,6 +148,8 @@ int main(int argc, char *argv[])
     PetscCall(KSPSetInitialGuessNonzero(samplers[i], PETSC_TRUE));
     PetscCall(KSPGetPC(samplers[i], &pc));
     PetscCall(PCSetPetscRandom(pc, pr));
+
+    if (i == 0) PetscCall(PCViewFromOptions(pc, NULL, "-view_sampler"));
   }
 
   // Set up sample context
@@ -153,6 +175,7 @@ int main(int argc, char *argv[])
   }
 
   // Burn-in
+  PetscCall(PetscOptionsGetInt(NULL, NULL, "-burn_in", &burn_in, NULL));
   for (PetscInt i = 0; i < chains; ++i) {
     PetscCall(KSPSetTolerances(samplers[i], PETSC_DEFAULT, PETSC_DEFAULT, PETSC_DEFAULT, burn_in));
     PetscCall(KSPSolve(samplers[i], b, x[i]));
