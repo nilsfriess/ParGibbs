@@ -14,6 +14,8 @@
 #include <petscviewer.h>
 #include <petscviewertypes.h>
 #include <mpi.h>
+#include <fcntl.h>
+#include <unistd.h>
 
 #include "parmgmc/iact.h"
 #include "parmgmc/parmgmc.h"
@@ -136,6 +138,7 @@ int main(int argc, char *argv[])
 #ifdef PARMGMC_HAVE_MFEM
   PetscBool mfem = PETSC_FALSE;
 #endif
+  PetscBool seed_from_dev_random;
 
   PetscCall(PetscInitialize(&argc, &argv, nullptr, nullptr));
   PetscCall(ParMGMCInitialize());
@@ -151,8 +154,17 @@ int main(int argc, char *argv[])
 
   PetscCall(PetscRandomCreate(MPI_COMM_WORLD, &pr));
   PetscCall(PetscRandomSetType(pr, PARMGMC_ZIGGURAT));
-  PetscCallMPI(MPI_Comm_rank(MPI_COMM_WORLD, &rank));
-  PetscCall(PetscRandomSetSeed(pr, 1 + rank));
+  PetscCall(PetscOptionsGetBool(nullptr, nullptr, "-seed_from_dev_random", &seed_from_dev_random, nullptr));
+  if (seed_from_dev_random) {
+    int           dr = open("/dev/random", O_RDONLY);
+    unsigned long seed;
+    read(dr, &seed, sizeof(seed));
+    close(dr);
+    PetscCall(PetscRandomSetSeed(pr, seed));
+  } else {
+    PetscCallMPI(MPI_Comm_rank(MPI_COMM_WORLD, &rank));
+    PetscCall(PetscRandomSetSeed(pr, 1 + rank));
+  }
   PetscCall(PetscRandomSeed(pr));
 
 #ifdef PARMGMC_HAVE_MFEM
