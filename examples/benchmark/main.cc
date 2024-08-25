@@ -170,7 +170,7 @@ int main(int argc, char *argv[])
 #ifdef PARMGMC_HAVE_MFEM
   PetscCall(PetscOptionsGetBool(nullptr, nullptr, "-mfem", &mfem, nullptr));
   if (mfem) {
-    TIME(CreateMatrixMFEM(params, &A), "Assembling matrix", &time);
+    TIME(CreateMatrixMFEM(params, &meas_vec, &A), "Assembling matrix", &time);
   } else
 #endif
     TIME(CreateMatrixPetsc(params, &A, &meas_vec, &dm), "Assembling matrix", &time);
