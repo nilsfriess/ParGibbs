@@ -8,6 +8,7 @@
 #include <petscdmplex.h>
 #include <petscmat.h>
 #include <petscoptions.h>
+#include <petscstring.h>
 #include <petscsys.h>
 #include <petscsystypes.h>
 
@@ -17,10 +18,12 @@
 #endif
 
 struct MeasCtx {
-  PetscScalar *centre, radius, vol;
+  PetscScalar *centre, radius; // used when qoi is average over sphere
+  PetscScalar *start, *end;    // used when qoi is average over rect/cuboid
+  PetscScalar  vol;
 };
 
-inline PetscErrorCode f(PetscInt dim, PetscReal time, const PetscReal x[], PetscInt Nc, PetscScalar *u, void *ctx)
+inline PetscErrorCode f_sphere(PetscInt dim, PetscReal time, const PetscReal x[], PetscInt Nc, PetscScalar *u, void *ctx)
 {
   (void)time;
   (void)Nc;
@@ -34,6 +37,25 @@ inline PetscErrorCode f(PetscInt dim, PetscReal time, const PetscReal x[], Petsc
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
+inline PetscErrorCode f_rect(PetscInt dim, PetscReal time, const PetscReal x[], PetscInt Nc, PetscScalar *u, void *ctx)
+{
+  (void)time;
+  (void)Nc;
+  MeasCtx  *octx   = (MeasCtx *)ctx;
+  PetscBool inside = PETSC_TRUE;
+
+  PetscFunctionBeginUser;
+  for (PetscInt i = 0; i < dim; ++i) {
+    if (x[i] < octx->start[i] || x[i] > octx->end[i]) {
+      inside = PETSC_FALSE;
+      break;
+    }
+  }
+  if (inside) *u = 1 / octx->vol;
+  else *u = 0;
+  PetscFunctionReturn(PETSC_SUCCESS);
+}
+
 inline PetscErrorCode VolumeOfSphere(DM dm, PetscScalar r, PetscScalar *v)
 {
   PetscInt cdim;
@@ -43,6 +65,18 @@ inline PetscErrorCode VolumeOfSphere(DM dm, PetscScalar r, PetscScalar *v)
   PetscCheck(cdim == 2 || cdim == 3, MPI_COMM_WORLD, PETSC_ERR_SUP, "Only dim=2 and dim=3 supported");
   if (cdim == 2) *v = PETSC_PI * r * r;
   else *v = 4 * PETSC_PI / 3. * r * r * r;
+  PetscFunctionReturn(PETSC_SUCCESS);
+}
+
+inline PetscErrorCode VolumeOfRect(DM dm, PetscScalar *start, PetscScalar *end, PetscScalar *v)
+{
+  PetscInt cdim;
+
+  PetscFunctionBeginUser;
+  PetscCall(DMGetCoordinateDim(dm, &cdim));
+  PetscCheck(cdim == 2 || cdim == 3, MPI_COMM_WORLD, PETSC_ERR_SUP, "Only dim=2 and dim=3 supported");
+  *v = 1;
+  for (PetscInt i = 0; i < cdim; ++i) *v *= end[i] - start[i];
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
@@ -110,27 +144,77 @@ inline PetscErrorCode CreateMatrixPetsc(Parameters params, Mat *A, Vec *meas_vec
   PetscCall(MSDestroy(&ms));
 
   // Create measurement vector
-  Mat      M;
-  Vec      u;
-  MeasCtx  ctx;
-  PetscInt dim;
-  void    *mctx = &ctx;
+  Mat       M;
+  Vec       u;
+  MeasCtx   ctx;
+  PetscInt  dim, got_dim;
+  void     *mctx         = &ctx;
+  char      qoi_type[64] = "sphere";
+  PetscBool valid_type;
 
-  PetscErrorCode (*funcs[1])(PetscInt, PetscReal, const PetscReal[], PetscInt, PetscScalar *, void *) = {f};
-
-  PetscCall(DMGetCoordinateDim(*dm, &dim));
-  PetscCall(PetscMalloc1(dim, &ctx.centre));
-  for (PetscInt i = 0; i < dim; ++i) ctx.centre[i] = 0.5;
-  PetscCall(VolumeOfSphere(*dm, 0.5, &ctx.vol));
-  ctx.radius = 0.5;
   PetscCall(DMCreateGlobalVector(*dm, meas_vec));
   PetscCall(DMCreateMassMatrix(*dm, *dm, &M));
   PetscCall(DMGetGlobalVector(*dm, &u));
-  PetscCall(DMProjectFunction(*dm, 0, funcs, &mctx, INSERT_VALUES, u));
-  PetscCall(MatMult(M, u, *meas_vec));
+
+  PetscCall(PetscOptionsGetString(nullptr, nullptr, "-qoi_type", qoi_type, 64, nullptr));
+  PetscCall(PetscStrcmpAny(qoi_type, &valid_type, "sphere", "rect", ""));
+  PetscCheck(valid_type, MPI_COMM_WORLD, PETSC_ERR_SUP, "-qoi_type must be sphere or rect");
+
+  PetscCall(PetscStrcmp(qoi_type, "sphere", &flag));
+  if (flag) {
+    PetscErrorCode (*funcs[1])(PetscInt, PetscReal, const PetscReal[], PetscInt, PetscScalar *, void *) = {f_sphere};
+
+    PetscCall(DMGetCoordinateDim(*dm, &dim));
+    PetscCall(PetscCalloc1(dim, &ctx.centre));
+    got_dim = dim;
+    PetscCall(PetscOptionsGetRealArray(nullptr, nullptr, "-qoi_centres", ctx.centre, &got_dim, nullptr));
+    PetscCheck(got_dim == 0 or got_dim == dim, MPI_COMM_WORLD, PETSC_ERR_SUP, "Incorrect number of points passed, expected %d", dim);
+    ctx.radius = 1;
+    PetscCall(PetscOptionsGetReal(nullptr, nullptr, "-qoi_radius", &ctx.radius, nullptr));
+    PetscCall(VolumeOfSphere(*dm, ctx.radius, &ctx.vol));
+    PetscCall(DMProjectFunction(*dm, 0, funcs, &mctx, INSERT_VALUES, u));
+    PetscCall(MatMult(M, u, *meas_vec));
+  } else {
+    PetscErrorCode (*funcs[1])(PetscInt, PetscReal, const PetscReal[], PetscInt, PetscScalar *, void *) = {f_rect};
+
+    PetscCall(DMGetCoordinateDim(*dm, &dim));
+    PetscCall(PetscCalloc1(dim, &ctx.start));
+    PetscCall(PetscCalloc1(dim, &ctx.end));
+    for (PetscInt i = 0; i < dim; ++i) ctx.end[i] = 1;
+    got_dim = dim;
+    PetscCall(PetscOptionsGetRealArray(nullptr, nullptr, "-qoi_start", ctx.start, &got_dim, nullptr));
+    PetscCheck(got_dim == 0 or got_dim == dim, MPI_COMM_WORLD, PETSC_ERR_SUP, "Incorrect number of points passed for start, expected %d", dim);
+    got_dim = dim;
+    PetscCall(PetscOptionsGetRealArray(nullptr, nullptr, "-qoi_end", ctx.end, &got_dim, nullptr));
+    PetscCheck(got_dim == 0 or got_dim == dim, MPI_COMM_WORLD, PETSC_ERR_SUP, "Incorrect number of points passed for end, expected %d", dim);
+
+    PetscCall(VolumeOfRect(*dm, ctx.start, ctx.end, &ctx.vol));
+    PetscCall(DMProjectFunction(*dm, 0, funcs, &mctx, INSERT_VALUES, u));
+    PetscCall(MatMult(M, u, *meas_vec));
+  }
+  {
+    PetscViewer viewer;
+    char        filename[512] = "measurement_vec.vtu";
+
+    PetscCall(PetscOptionsGetString(NULL, NULL, "-filename", filename, 512, NULL));
+    PetscCall(PetscViewerVTKOpen(MPI_COMM_WORLD, filename, FILE_MODE_WRITE, &viewer));
+
+    PetscCall(PetscObjectSetName((PetscObject)(u), "u"));
+    PetscCall(VecView(u, viewer));
+
+    PetscCall(PetscObjectSetName((PetscObject)(*meas_vec), "meas_vec"));
+    PetscCall(VecView(*meas_vec, viewer));
+
+    PetscCall(PetscViewerDestroy(&viewer));
+  }
   PetscCall(DMRestoreGlobalVector(*dm, &u));
   PetscCall(MatDestroy(&M));
-  PetscCall(PetscFree(ctx.centre));
+  if (flag) {
+    PetscCall(PetscFree(ctx.centre));
+  } else {
+    PetscCall(PetscFree(ctx.start));
+    PetscCall(PetscFree(ctx.end));
+  }
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
@@ -204,7 +288,8 @@ public:
     meas_vec = std::make_unique<mfem::PetscParVector>(A);
     mfem::ParGridFunction     proj(fespace.get());
     mfem::FunctionCoefficient obs([&](const mfem::Vector &coord) {
-      if (coord.Norml2() < 0.3) return 1 / VolumeOfSphere(0.3);
+      double radius = 0.7;
+      if (coord.Norml2() < radius) return 1 / VolumeOfSphere(radius);
       else return 0.;
     });
 
@@ -312,15 +397,17 @@ private:
   mfem::H1_FECollection *fec;
 };
 
-inline PetscErrorCode CreateMatrixMFEM(Parameters params, Mat *A)
+inline PetscErrorCode CreateMatrixMFEM(Parameters params, Vec *meas_vec, Mat *A)
 {
   std::unique_ptr<Problem> problem;
   (void)params;
 
   PetscFunctionBeginUser;
   mfem::Hypre::Init();
-  problem = std::make_unique<Problem>();
-  *A      = problem->GetPrecisionMatrix().ReleaseMat(false);
+  problem   = std::make_unique<Problem>();
+  *A        = problem->GetPrecisionMatrix().ReleaseMat(false);
+  *meas_vec = problem->GetMeasurementVector();
+  PetscCall(PetscObjectReference((PetscObject)(*meas_vec)));
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 #endif
