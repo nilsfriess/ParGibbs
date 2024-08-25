@@ -135,17 +135,20 @@ static PetscErrorCode MS_AssembleMat(MS ms)
   PetscCall(PetscDSSetResidual(ds, 0, f0, f1));
   PetscCall(PetscDSSetJacobian(ds, 0, 0, g0, NULL, NULL, g3));
 
-  PetscCall(DMGetLabel(ctx->dm, "marker", &label));
+  PetscCall(DMGetLabel(ctx->dm, "Face Sets", &label));
   if (!label) {
     PetscCall(DMCreateLabel(ctx->dm, "boundary"));
     PetscCall(DMGetLabel(ctx->dm, "boundary", &label));
     PetscCall(DMPlexMarkBoundaryFaces(ctx->dm, PETSC_DETERMINE, label));
   }
   PetscCall(DMPlexLabelComplete(ctx->dm, label));
-  PetscCall(DMAddBoundary(ctx->dm, DM_BC_ESSENTIAL, "wall", label, 1, &id, 0, 0, NULL, NULL, NULL, NULL, NULL));
+  PetscCall(DMAddBoundary(ctx->dm, DM_BC_NATURAL, "wall", label, 1, &id, 0, 0, NULL, NULL, NULL, NULL, NULL));
 
   cdm = ctx->dm;
   while (cdm) {
+    PetscCall(DMCreateLabel(cdm, "boundary"));
+    PetscCall(DMGetLabel(cdm, "boundary", &label));
+    PetscCall(DMPlexMarkBoundaryFaces(cdm, PETSC_DETERMINE, label));
     PetscCall(DMCopyDisc(ctx->dm, cdm));
     PetscCall(DMGetCoarseDM(cdm, &cdm));
   }
