@@ -49,8 +49,8 @@ typedef struct _MCSOR_Ctx {
   ISColoring  isc;
   MatSORType  type;
 
-  Mat L, B, Sb, Bb;
-  Vec z, w, v, u;
+  Mat B, Bb, Bb_bk;
+  Vec z, w, u;
 
   PetscErrorCode (*sor)(struct _MCSOR_Ctx *, Vec, Vec);
   PetscErrorCode (*postsor)(MCSOR, Vec);
@@ -73,14 +73,12 @@ PetscErrorCode MCSORDestroy(MCSOR *mc)
     }
     PetscCall(VecDestroy(&ctx->idiag));
 
-    if (ctx->L) PetscCall(MatDestroy(&ctx->L));
-    if (ctx->Sb) PetscCall(MatDestroy(&ctx->Sb));
     if (ctx->z) PetscCall(VecDestroy(&ctx->z));
     if (ctx->w) PetscCall(VecDestroy(&ctx->w));
-    if (ctx->v) PetscCall(VecDestroy(&ctx->v));
     if (ctx->u) PetscCall(VecDestroy(&ctx->u));
 
     PetscCall(MatDestroy(&ctx->Bb));
+    PetscCall(MatDestroy(&ctx->Bb_bk));
 
     PetscCall(ISColoringDestroy(&ctx->isc));
     PetscCall(PetscFree(ctx));
@@ -105,7 +103,9 @@ static PetscErrorCode MCSORPostSOR_LRC(MCSOR mc, Vec y)
 
   PetscFunctionBeginUser;
   PetscCall(MatMultTranspose(ctx->B, y, ctx->w));
-  PetscCall(MatMult(ctx->Bb, ctx->w, ctx->z));
+  PetscAssert(ctx->type == SOR_FORWARD_SWEEP || ctx->type == SOR_BACKWARD_SWEEP, MPI_COMM_WORLD, PETSC_ERR_PLIB, "Symmetric sweep type should be handled outside this function");
+  if (ctx->type == SOR_FORWARD_SWEEP) PetscCall(MatMult(ctx->Bb, ctx->w, ctx->z));
+  else PetscCall(MatMult(ctx->Bb_bk, ctx->w, ctx->z));
   PetscCall(VecAXPY(y, -1, ctx->z));
   PetscFunctionReturn(PETSC_SUCCESS);
 }
@@ -212,8 +212,20 @@ PetscErrorCode MCSORApply(MCSOR mc, Vec b, Vec y)
   PetscFunctionBeginUser;
   PetscCall(PetscLogEventBegin(MULTICOL_SOR, ctx->A, b, y, NULL));
   if (ctx->omega_changed) PetscCall(MCSORUpdateIDiag(mc));
-  PetscCall(ctx->sor(ctx, b, y));
-  if (ctx->postsor) PetscCall(ctx->postsor(mc, y));
+  if (ctx->type == SOR_SYMMETRIC_SWEEP) {
+    ctx->type = SOR_FORWARD_SWEEP;
+    PetscCall(ctx->sor(ctx, b, y));
+    if (ctx->postsor) PetscCall(ctx->postsor(mc, y));
+
+    ctx->type = SOR_BACKWARD_SWEEP;
+    PetscCall(ctx->sor(ctx, b, y));
+    if (ctx->postsor) PetscCall(ctx->postsor(mc, y));
+
+    ctx->type = SOR_SYMMETRIC_SWEEP;
+  } else {
+    PetscCall(ctx->sor(ctx, b, y));
+    if (ctx->postsor) PetscCall(ctx->postsor(mc, y));
+  }
   PetscCall(PetscLogEventEnd(MULTICOL_SOR, ctx->A, b, y, NULL));
   PetscFunctionReturn(PETSC_SUCCESS);
 }
@@ -233,7 +245,7 @@ static PetscErrorCode MCSORApply_SEQAIJ(MCSOR_Ctx ctx, Vec b, Vec y)
   PetscCall(VecGetArrayRead(b, &barr));
 
   PetscCall(VecGetArray(y, &yarr));
-  if (ctx->type == SOR_FORWARD_SWEEP || ctx->type == SOR_SYMMETRIC_SWEEP) {
+  if (ctx->type == SOR_FORWARD_SWEEP) {
     for (PetscInt color = 0; color < ncolors; ++color) {
       PetscCall(ISGetLocalSize(iss[color], &nind));
       PetscCall(ISGetIndices(iss[color], &rowind));
@@ -250,7 +262,7 @@ static PetscErrorCode MCSORApply_SEQAIJ(MCSOR_Ctx ctx, Vec b, Vec y)
       PetscCall(ISRestoreIndices(iss[color], &rowind));
     }
   }
-  if (ctx->type == SOR_BACKWARD_SWEEP || ctx->type == SOR_SYMMETRIC_SWEEP) {
+  if (ctx->type == SOR_BACKWARD_SWEEP) {
     for (PetscInt color = ncolors - 1; color >= 0; --color) {
       PetscCall(ISGetLocalSize(iss[color], &nind));
       PetscCall(ISGetIndices(iss[color], &rowind));
@@ -293,7 +305,7 @@ static PetscErrorCode MCSORApply_MPIAIJ(MCSOR_Ctx ctx, Vec b, Vec y)
   PetscCall(VecGetArrayRead(ctx->idiag, &idiagarr));
   PetscCall(VecGetArrayRead(b, &barr));
 
-  if (ctx->type == SOR_FORWARD_SWEEP || ctx->type == SOR_SYMMETRIC_SWEEP) {
+  if (ctx->type == SOR_FORWARD_SWEEP) {
     for (PetscInt color = 0; color < ncolors; ++color) {
       PetscCall(VecScatterBegin(ctx->scatters[color], y, ctx->ghostvecs[color], INSERT_VALUES, SCATTER_FORWARD));
       PetscCall(VecScatterEnd(ctx->scatters[color], y, ctx->ghostvecs[color], INSERT_VALUES, SCATTER_FORWARD));
@@ -320,7 +332,7 @@ static PetscErrorCode MCSORApply_MPIAIJ(MCSOR_Ctx ctx, Vec b, Vec y)
     }
   }
 
-  if (ctx->type == SOR_BACKWARD_SWEEP || ctx->type == SOR_SYMMETRIC_SWEEP) {
+  if (ctx->type == SOR_BACKWARD_SWEEP) {
     for (PetscInt color = ncolors - 1; color >= 0; --color) {
       PetscCall(VecScatterBegin(ctx->scatters[color], y, ctx->ghostvecs[color], INSERT_VALUES, SCATTER_FORWARD));
       PetscCall(VecScatterEnd(ctx->scatters[color], y, ctx->ghostvecs[color], INSERT_VALUES, SCATTER_FORWARD));
@@ -425,6 +437,83 @@ static PetscErrorCode MCSORSetupSOR(MCSOR mc)
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
+static PetscErrorCode MCSORCreateUpdateMat(MCSOR mc, MatSORType direction, Mat A, Mat *C)
+{
+  MCSOR_Ctx ctx = mc->ctx;
+
+  PetscFunctionBeginUser;
+  PetscAssert(direction == SOR_FORWARD_SWEEP || direction == SOR_BACKWARD_SWEEP, MPI_COMM_WORLD, PETSC_ERR_PLIB, "Symmetric sweep type should be handled outside this function");
+  PetscCall(MatDuplicate(ctx->B, MAT_DO_NOT_COPY_VALUES, C));
+  {
+    MCSOR    mca;
+    PetscInt cols;
+    Vec      x;
+
+    PetscCall(MatGetSize(ctx->B, NULL, &cols));
+    PetscCall(MCSORCreate(ctx->Asor, &mca));
+    PetscCall(MCSORSetSweepType(mca, direction));
+    PetscCall(MCSORSetUp(mca));
+    PetscCall(MatCreateVecs(A, &x, NULL));
+    for (PetscInt i = 0; i < cols; ++i) {
+      Vec b, c;
+
+      PetscCall(VecZeroEntries(x));
+      PetscCall(MatDenseGetColumnVecRead(ctx->B, i, &b));
+      PetscCall(MCSORApply(mca, b, x));
+      PetscCall(MatDenseRestoreColumnVecRead(ctx->B, i, &b));
+
+      PetscCall(MatDenseGetColumnVecWrite(*C, i, &c));
+      PetscCall(VecCopy(x, c));
+      PetscCall(MatDenseRestoreColumnVecWrite(*C, i, &c));
+    }
+    PetscCall(VecDestroy(&x));
+    PetscCall(MCSORDestroy(&mca));
+  }
+  PetscFunctionReturn(PETSC_SUCCESS);
+}
+
+static PetscErrorCode MCSORCreateBbarMat(MCSOR mc, Mat C, Vec S, Mat *Bb)
+{
+  MCSOR_Ctx  ctx = mc->ctx;
+  Mat        tmp, Id, Sb;
+  KSP        ksp;
+  Vec        Si;
+  IS         sctis;
+  VecScatter sct;
+  PetscInt   sctsize;
+
+  PetscFunctionBeginUser;
+  PetscCall(MatTransposeMatMult(ctx->B, C, MAT_INITIAL_MATRIX, 1, &tmp)); // tmp = B^T P^T M_P^-1 B
+
+  PetscCall(VecGetSize(S, &sctsize));
+  PetscCall(ISCreateStride(MPI_COMM_WORLD, sctsize, 0, 1, &sctis));
+  PetscCall(MatCreateVecs(C, &Si, NULL));
+  PetscCall(VecScatterCreate(S, sctis, Si, NULL, &sct));
+  PetscCall(VecScatterBegin(sct, S, Si, INSERT_VALUES, SCATTER_FORWARD));
+  PetscCall(VecScatterEnd(sct, S, Si, INSERT_VALUES, SCATTER_FORWARD));
+  PetscCall(VecScatterDestroy(&sct));
+  PetscCall(ISDestroy(&sctis));
+  PetscCall(VecReciprocal(Si));
+
+  PetscCall(MatDiagonalSet(tmp, Si, ADD_VALUES)); // tmp = S^-1 +  B^T M_P^-1 B
+  PetscCall(KSPCreate(MPI_COMM_WORLD, &ksp));
+  PetscCall(KSPSetOperators(ksp, tmp, tmp));
+  PetscCall(MatDuplicate(tmp, MAT_DO_NOT_COPY_VALUES, &Id));
+  PetscCall(MatShift(Id, 1));
+  PetscCall(MatDuplicate(tmp, MAT_DO_NOT_COPY_VALUES, &Sb));
+  PetscCall(KSPMatSolve(ksp, Id, Sb)); // ctx->Sb = ( S^-1 +  B^T M_P^-1 B )^-1
+
+  PetscCall(MatMatMult(C, Sb, MAT_INITIAL_MATRIX, 1, Bb));
+
+  PetscCall(KSPDestroy(&ksp));
+  PetscCall(VecDestroy(&Si));
+  PetscCall(MatDestroy(&Id));
+  PetscCall(MatDestroy(&Sb));
+  PetscCall(MatDestroy(&tmp));
+  PetscCall(MatDestroy(&tmp));
+  PetscFunctionReturn(PETSC_SUCCESS);
+}
+
 PetscErrorCode MCSORSetUp(MCSOR mc)
 {
   MCSOR_Ctx ctx = mc->ctx;
@@ -445,79 +534,23 @@ PetscErrorCode MCSORSetUp(MCSOR mc)
   PetscCall(MCSORSetupSOR(mc));
 
   if (strcmp(type, MATLRC) == 0) {
-    Mat        tmp, Id;
-    KSP        ksp;
-    Vec        S, Si;
-    IS         sctis;
-    VecScatter sct;
-    PetscInt   sctsize;
-    Mat        C;
+    Mat C;
+    Vec S;
 
     PetscCall(MatLRCGetMats(A, &ctx->Asor, &ctx->B, &S, NULL));
 
     // Compute C = M_P^-1 B, where M_P is the lower triangular part of PAP^T.
     // We compute this column-by-column using multicolour Gauss-Seidel.
     // This way, we don't need to explicitly permute A and get M_P.
-    PetscCall(MatDuplicate(ctx->B, MAT_DO_NOT_COPY_VALUES, &C));
-    {
-      MCSOR    mca;
-      PetscInt cols;
-      Vec      x;
-
-      PetscCall(MatGetSize(ctx->B, NULL, &cols));
-      PetscCall(MCSORCreate(ctx->Asor, &mca));
-      PetscCall(MCSORSetSweepType(mca, ctx->type));
-      PetscCall(MCSORSetUp(mca));
-      PetscCall(MatCreateVecs(A, &x, NULL));
-      for (PetscInt i = 0; i < cols; ++i) {
-        Vec b, c;
-
-        PetscCall(VecZeroEntries(x));
-        PetscCall(MatDenseGetColumnVecRead(ctx->B, i, &b));
-        PetscCall(MCSORApply(mca, b, x));
-        PetscCall(MatDenseRestoreColumnVecRead(ctx->B, i, &b));
-
-        PetscCall(MatDenseGetColumnVecWrite(C, i, &c));
-        PetscCall(VecCopy(x, c));
-        PetscCall(MatDenseRestoreColumnVecWrite(C, i, &c));
-      }
-      PetscCall(VecDestroy(&x));
-      PetscCall(MCSORDestroy(&mca));
-    }
-
-    PetscCall(MatTransposeMatMult(ctx->B, C, MAT_INITIAL_MATRIX, 1, &tmp)); // tmp = B^T P^T M_P^-1 B
-
-    PetscCall(VecGetSize(S, &sctsize));
-    PetscCall(ISCreateStride(MPI_COMM_WORLD, sctsize, 0, 1, &sctis));
-    PetscCall(MatCreateVecs(C, &Si, NULL));
-    PetscCall(VecScatterCreate(S, sctis, Si, NULL, &sct));
-    PetscCall(VecScatterBegin(sct, S, Si, INSERT_VALUES, SCATTER_FORWARD));
-    PetscCall(VecScatterEnd(sct, S, Si, INSERT_VALUES, SCATTER_FORWARD));
-    PetscCall(VecScatterDestroy(&sct));
-    PetscCall(ISDestroy(&sctis));
-    PetscCall(VecReciprocal(Si));
-
-    PetscCall(MatDiagonalSet(tmp, Si, ADD_VALUES)); // tmp = S^-1 +  B^T M_P^-1 B
-    PetscCall(KSPCreate(MPI_COMM_WORLD, &ksp));
-    PetscCall(KSPSetOperators(ksp, tmp, tmp));
-    PetscCall(MatDuplicate(tmp, MAT_DO_NOT_COPY_VALUES, &Id));
-    PetscCall(MatShift(Id, 1));
-    PetscCall(MatDuplicate(tmp, MAT_DO_NOT_COPY_VALUES, &ctx->Sb));
-    PetscCall(KSPMatSolve(ksp, Id, ctx->Sb)); // ctx->Sb = ( S^-1 +  B^T M_P^-1 B )^-1
-
-    PetscCall(MatMatMult(C, ctx->Sb, MAT_INITIAL_MATRIX, 1, &ctx->Bb));
-
-    PetscCall(MatCreateVecs(ctx->Sb, &ctx->w, NULL));
-    PetscCall(MatCreateVecs(ctx->Sb, &ctx->v, NULL));
-    PetscCall(MatCreateVecs(ctx->B, NULL, &ctx->u));
-    PetscCall(MatCreateVecs(A, &ctx->z, NULL));
-
-    PetscCall(KSPDestroy(&ksp));
-    PetscCall(VecDestroy(&Si));
-    PetscCall(MatDestroy(&Id));
-    PetscCall(MatDestroy(&tmp));
-    PetscCall(MatDestroy(&tmp));
+    PetscCall(MCSORCreateUpdateMat(mc, SOR_FORWARD_SWEEP, A, &C));
+    PetscCall(MCSORCreateBbarMat(mc, C, S, &ctx->Bb));
     PetscCall(MatDestroy(&C));
+
+    PetscCall(MCSORCreateUpdateMat(mc, SOR_BACKWARD_SWEEP, A, &C));
+    PetscCall(MCSORCreateBbarMat(mc, C, S, &ctx->Bb_bk));
+    PetscCall(MatDestroy(&C));
+
+    PetscCall(MatCreateVecs(ctx->Bb, &ctx->w, &ctx->z));
 
     ctx->postsor = MCSORPostSOR_LRC;
   }
@@ -557,12 +590,9 @@ PetscErrorCode MCSORCreate(Mat A, MCSOR *m)
   ctx->omega_changed = PETSC_TRUE;
   ctx->A             = A;
   mc->ctx            = ctx;
-  ctx->L             = NULL;
   ctx->B             = NULL;
-  ctx->Sb            = NULL;
   ctx->z             = NULL;
   ctx->w             = NULL;
-  ctx->v             = NULL;
   ctx->postsor       = NULL;
   ctx->type          = SOR_FORWARD_SWEEP;
   ctx->omega         = 1;
