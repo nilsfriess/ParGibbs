@@ -14,7 +14,7 @@
  */
 
 /**************************** Test specification ****************************/
-// RUN: %cc %s -o %t %flags && %mpirun -np %NP %t -dm_refine 2 %opts
+// RUN: %cc %s -o %t %flags && %mpirun -np %NP %t -dm_refine 2 -matern_kappa 10 %opts
 /****************************************************************************/
 
 #include "mpi.h"
@@ -85,7 +85,7 @@ int main(int argc, char *argv[])
   PetscCall(MSGetDM(ms, &dm));
 
   PetscCall(DMCreateGlobalVector(dm, &meas_vec));
-  PetscCall(VecSetRandom(meas_vec, NULL));
+  PetscCall(VecSet(meas_vec, 1));
   PetscCall(VecNormalize(meas_vec, NULL));
 
   PetscCall(MSSetQOI(ms, qoi, meas_vec));
