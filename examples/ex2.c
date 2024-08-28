@@ -14,13 +14,14 @@
  */
 
 /**************************** Test specification ****************************/
-// RUN: %cc %s -o %t %flags && %mpirun -np %NP %t -dm_refine 3 %opts -skip_petscrc
+// RUN: %cc %s -o %t %flags && %mpirun -np %NP %t -dm_refine 2 %opts
 /****************************************************************************/
 
 #include "mpi.h"
 #include "parmgmc/iact.h"
 #include <petscdm.h>
 #include <petscdmplex.h>
+#include <petscmath.h>
 #include <petscpartitioner.h>
 #include <petscvec.h>
 #include <petscviewer.h>
@@ -40,7 +41,7 @@ static PetscErrorCode CreateMeshFromFilename(MPI_Comm comm, const char *filename
 }
 
 #define N_BURNIN  100
-#define N_SAMPLES 10000
+#define N_SAMPLES 50000
 #define N_SAVE    10
 
 static PetscErrorCode qoi(PetscInt it, Vec sample, PetscScalar *value, void *qctx)
@@ -127,10 +128,12 @@ int main(int argc, char *argv[])
 
     PetscCall(VecView(mean, viewer));
     PetscCall(VecView(var, viewer));
+    PetscCall(VecView(meas_vec, viewer));
 
     PetscCall(PetscViewerDestroy(&viewer));
   }
 
+  PetscCall(VecDestroy(&meas_vec));
   PetscCall(VecDestroy(&x));
   PetscCall(MSDestroy(&ms));
   PetscCall(PetscFinalize());
