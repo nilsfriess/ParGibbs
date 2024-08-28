@@ -1,0 +1,13 @@
+-mesh_file ../data/piece.msh
+
+## Observations for piece example
+-nobs 5
+-obs_coords -0.3,0.0,0.1,0.7,1.4,0.1,0.6,-1.4,0.1,1.6,0.2,0.1,1.6,-0.2,0.1
+-obs_radii 0.4,0.1,0.2,0.2,0.1,0.1
+-obs_values -1,1,1,1,1
+-obs_sigma2 1e-6
+
+## QOI for piece example
+-qoi_type rect
+-qoi_start -2,-2,-2
+-qoi_end 0.0,2,2

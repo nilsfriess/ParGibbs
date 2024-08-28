@@ -1,60 +1,24 @@
--dm_refine_hierarchy 4
+-dm_refine_hierarchy 2
+
+-matern_kappa 5
 
 -measure_iact
 #-measure_sampling_time
 
--n_burnin 100
--n_samples 1000
+-n_burnin 1000
+-n_samples 10000
 
 -ksp_type richardson
 -pc_type gamgmc
--pc_gamgmc_mg_type gamg
+-pc_gamgmc_mg_type mg
 
 -gamgmc_pc_gamg_aggressive_coarsening 1
 -gamgmc_pc_gamg_agg_nsmooths 2
 -gamgmc_pc_gamg_threshold 0.02
 -gamgmc_pc_gamg_threshold_scale 0
--gamgmc_pc_mg_type full
-
+#-gamgmc_pc_mg_type full
 
 -with_lr
-
-## Observations for L-Shape domain example
-#-nobs 17
-#-obs_coords 0.2,1.8,0.4,1.8,0.6,1.8,0.8,1.8,0.2,1.6,0.4,1.6,0.6,1.6,0.8,1.6,0.2,0.6,0.4,0.6,0.6,0.5,0.8,0.5,1.0,0.4,1.2,0.4,1.4,0.3,1.6,0.3,1.8,0.2
-#-obs_radii 0.04,0.04,0.04,0.04,0.04,0.04,0.04,0.04,0.08,0.08,0.08,0.08,0.08,0.08,0.08,0.08,0.08
-#-obs_values 0.5,-0.5,0.5,-0.5,-0.5,0.5,-0.5,0.5,-0.5,-0.5,0.5,0.5,-0.5,-0.5,0.5,0.5,-0.5
-#-obs_sigma2 1e-5
-
-## QOI for L-Shape domain example
-#-qoi_type sphere
-#-qoi_centres 1,1
-#-qoi_radius 0.8
-
-## Observations for wrench example
-#-nobs 3
-#-obs_coords 0,240,0,0,130,0,15,-8,0
-#-obs_radii 20,8,15
-#-obs_values 1,-1,1
-#-obs_sigma2 1e-6
-
-## QOI for wrench example
-#-qoi_type rect
-#-qoi_start -5,0,-10
-#-qoi_end 5,350,10
-
-## Observations for piece example
--nobs 5
--obs_coords -0.3,0.0,0.1,0.7,1.4,0.1,0.6,-1.4,0.1,1.6,0.2,0.1,1.6,-0.2,0.1
--obs_radii 0.4,0.1,0.2,0.2,0.1,0.1
--obs_values -1,1,1,1,1
--obs_sigma2 1e-6
-
-## QOI for piece example
--qoi_type rect
--qoi_start -2,-2,-2
--qoi_end 0.0,2,2
-
 -est_mean_and_var
 
 #-print_acf
