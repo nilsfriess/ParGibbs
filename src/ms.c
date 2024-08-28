@@ -334,6 +334,7 @@ PetscErrorCode MSSetUp(MS ms)
     PetscCall(KSPSetFromOptions(ctx->ksp));
     PetscCall(KSPSetUp(ctx->ksp));
     PetscCall(KSPSetNormType(ctx->ksp, KSP_NORM_NONE));
+    PetscCall(KSPSetConvergenceTest(ctx->ksp, KSPSkipConverged, NULL, NULL));
     PetscCall(KSPSetTolerances(ctx->ksp, PETSC_DEFAULT, PETSC_DEFAULT, PETSC_DEFAULT, 1));
     PetscCall(PCSetSampleCallback(pc, MS_SampleCallback, ctx, NULL));
     PetscCall(KSPSetInitialGuessNonzero(ctx->ksp, PETSC_TRUE));
