@@ -221,6 +221,8 @@ int main(int argc, char *argv[])
       PetscCall(VecDuplicate(b, &ctx->delta));
       PetscCall(VecDuplicate(b, &ctx->delta2));
       ctx->measure_mean_var = PETSC_TRUE;
+    } else {
+      ctx->measure_mean_var = PETSC_FALSE;
     }
 
     TIME(Burnin(ksp, b, params), "Burn-in", &time);
@@ -244,7 +246,7 @@ int main(int argc, char *argv[])
       fclose(fptr);
     }
 
-    {
+    if (params->est_mean_and_var) {
       PetscViewer viewer;
 
       PetscCall(PetscViewerVTKOpen(MPI_COMM_WORLD, "benchmark.vtu", FILE_MODE_WRITE, &viewer));
