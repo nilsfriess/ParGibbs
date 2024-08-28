@@ -7,7 +7,7 @@
 
 typedef struct {
   PetscBool measure_sampling_time, measure_iact;
-  PetscBool with_lr;
+  PetscBool with_lr, est_mean_and_var;
   PetscInt  n_burnin, n_samples;
 } *Parameters;
 
@@ -36,6 +36,7 @@ inline PetscErrorCode ParametersRead(Parameters params)
   PetscCall(PetscOptionsGetBool(nullptr, nullptr, "-measure_iact", &params->measure_iact, nullptr));
 
   PetscCall(PetscOptionsGetBool(nullptr, nullptr, "-with_lr", &params->with_lr, nullptr));
+  PetscCall(PetscOptionsGetBool(nullptr, nullptr, "-est_mean_and_var", &params->est_mean_and_var, nullptr));
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 

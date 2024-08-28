@@ -89,7 +89,7 @@ inline PetscErrorCode CreateMeshFromFilename(MPI_Comm comm, const char *filename
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
-inline PetscErrorCode CreateMatrixPetsc(Parameters params, Mat *A, Vec *meas_vec, DM *dm)
+inline PetscErrorCode CreateMatrixPetsc(Parameters params, Mat *A, Vec *meas_vec, DM *dm, Vec *rhs)
 {
   MS        ms;
   char      filename[512];
@@ -112,34 +112,48 @@ inline PetscErrorCode CreateMatrixPetsc(Parameters params, Mat *A, Vec *meas_vec
   PetscCall(MSGetDM(ms, dm));
 
   if (params->with_lr) {
-    const PetscInt nobs = 3;
-    PetscScalar    obs[3 * nobs], radii[nobs], obsvals[nobs], obsval = 1;
-    Mat            A2, B;
-    Vec            S;
+    PetscInt   nobs, cdim, nobs_given;
+    PetscReal *obs_coords, *obs_radii, *obs_values, obs_sigma2 = 1e-4;
 
-    obs[0] = 0.25;
-    obs[1] = 0.25;
-    obs[2] = 0.75;
-    obs[3] = 0.75;
-    obs[4] = 0.25;
-    obs[5] = 0.75;
+    PetscCall(PetscOptionsGetInt(nullptr, nullptr, "-nobs", &nobs, nullptr));
+    PetscCall(DMGetCoordinateDim(*dm, &cdim));
 
-    PetscCall(PetscOptionsGetReal(nullptr, nullptr, "-obsval", &obsval, nullptr));
-    obsvals[0] = obsval;
-    radii[0]   = 0.1;
-    obsvals[1] = obsval;
-    radii[1]   = 0.1;
-    obsvals[2] = obsval;
-    radii[2]   = 0.1;
+    nobs_given = nobs * cdim;
+    PetscCall(PetscMalloc1(nobs_given, &obs_coords));
+    PetscCall(PetscOptionsGetRealArray(nullptr, nullptr, "-obs_coords", obs_coords, &nobs_given, nullptr));
+    PetscCheck(nobs_given == nobs * cdim, MPI_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE, "Wrong number of observation coordinates provided, expected %d got %d", nobs * cdim, nobs_given);
 
-    PetscCall(MakeObservationMats(*dm, nobs, 1e-6, obs, radii, obsvals, &B, &S, nullptr));
+    PetscCall(PetscMalloc1(nobs, &obs_radii));
+    nobs_given = nobs;
+    PetscCall(PetscOptionsGetRealArray(nullptr, nullptr, "-obs_radii", obs_radii, &nobs_given, nullptr));
+    PetscCheck(nobs_given == 1 || nobs_given == nobs, MPI_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE, "Wrong number of observation radii provided, expected either 1 or %d got %d", nobs, nobs_given);
+    if (nobs_given == 1)
+      for (PetscInt i = 1; i < nobs; ++i) obs_radii[i] = obs_radii[0]; // If only one radius provided, use that for all observations
+
+    PetscCall(PetscMalloc1(nobs, &obs_values));
+    nobs_given = nobs;
+    PetscCall(PetscOptionsGetRealArray(nullptr, nullptr, "-obs_values", obs_values, &nobs_given, nullptr));
+    PetscCheck(nobs_given == 1 || nobs_given == nobs, MPI_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE, "Wrong number of observation values provided, expected either 1 or %d got %d", nobs, nobs_given);
+    if (nobs_given == 1)
+      for (PetscInt i = 1; i < nobs; ++i) obs_values[i] = obs_values[0]; // If only one value provided, use that for all observations
+
+    PetscCall(PetscOptionsGetReal(nullptr, nullptr, "-obs_sigma2", &obs_sigma2, nullptr));
+
+    Mat A2, B;
+    Vec S;
+    PetscCall(MakeObservationMats(*dm, nobs, obs_sigma2, obs_coords, obs_radii, obs_values, &B, &S, rhs));
     PetscCall(MatCreateLRC(*A, B, S, nullptr, &A2));
     PetscCall(MatDestroy(&B));
     PetscCall(VecDestroy(&S));
+    PetscCall(PetscFree(obs_coords));
+    PetscCall(PetscFree(obs_radii));
+    PetscCall(PetscFree(obs_values));
 
     *A = A2;
+  } else {
+    PetscCall(PetscObjectReference((PetscObject)(*A)));
+    PetscCall(DMCreateGlobalVector(*dm, rhs));
   }
-  if (!params->with_lr) PetscCall(PetscObjectReference((PetscObject)(*A)));
   PetscCall(PetscObjectReference((PetscObject)(*dm))); // Make sure MSDestroy doesn't destroy the DM because we're returning it
   PetscCall(MSDestroy(&ms));
 
