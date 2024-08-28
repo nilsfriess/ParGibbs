@@ -146,7 +146,7 @@ PetscErrorCode MakeObservationMats(DM dm, PetscInt nobs, PetscScalar sigma2, con
   PetscCall(VecDestroy(&g));
   PetscCall(MatCreateDense(PetscObjectComm((PetscObject)dm), lsize, PETSC_DECIDE, gsize, nobs, NULL, B));
   PetscCall(MatCreateVecs(*B, S, NULL));
-  if (f) PetscCall(MatCreateVecs(*B, NULL, f));
+  if (f) PetscCall(DMCreateGlobalVector(dm, f));
   PetscCall(VecSet(*S, 1. / sigma2));
   PetscCall(VecDuplicate(*S, &y));
 
