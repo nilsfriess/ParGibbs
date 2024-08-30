@@ -9,5 +9,5 @@
 
 ## QOI for L-Shape domain example
 -qoi_type sphere
--qoi_centres 1,1
+-qoi_centre 1,1
 -qoi_radius 0.8

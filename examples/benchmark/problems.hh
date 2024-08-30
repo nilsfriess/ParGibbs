@@ -181,7 +181,7 @@ inline PetscErrorCode CreateMatrixPetsc(Parameters params, Mat *A, Vec *meas_vec
     PetscCall(DMGetCoordinateDim(*dm, &dim));
     PetscCall(PetscCalloc1(dim, &ctx.centre));
     got_dim = dim;
-    PetscCall(PetscOptionsGetRealArray(nullptr, nullptr, "-qoi_centres", ctx.centre, &got_dim, nullptr));
+    PetscCall(PetscOptionsGetRealArray(nullptr, nullptr, "-qoi_centre", ctx.centre, &got_dim, nullptr));
     PetscCheck(got_dim == 0 or got_dim == dim, MPI_COMM_WORLD, PETSC_ERR_SUP, "Incorrect number of points passed, expected %d", dim);
     ctx.radius = 1;
     PetscCall(PetscOptionsGetReal(nullptr, nullptr, "-qoi_radius", &ctx.radius, nullptr));
