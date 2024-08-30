@@ -26,7 +26,7 @@ PetscErrorCode Autocorrelation(PetscInt n, const PetscScalar *x, PetscScalar **a
 
   for (PetscInt i = 0; i < n; ++i) mean += 1. / n * x[i];
   for (PetscInt i = 0; i < n; ++i) in[i] = x[i] - mean;
-  for (PetscInt i = n + 1; i < 2 * n; ++i) in[i] = 0;
+  for (PetscInt i = n; i < 2 * n; ++i) in[i] = 0;
 
   p = fftw_plan_dft_1d(2 * n, in, out, FFTW_FORWARD, FFTW_ESTIMATE);
   fftw_execute(p);
