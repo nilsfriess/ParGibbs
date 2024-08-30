@@ -206,21 +206,21 @@ inline PetscErrorCode CreateMatrixPetsc(Parameters params, Mat *A, Vec *meas_vec
     PetscCall(DMProjectFunction(*dm, 0, funcs, &mctx, INSERT_VALUES, u));
     PetscCall(MatMult(M, u, *meas_vec));
   }
-  {
-    PetscViewer viewer;
-    char        filename[512] = "measurement_vec.vtu";
+  // {
+  //   PetscViewer viewer;
+  //   char        filename[512] = "measurement_vec.vtu";
 
-    PetscCall(PetscOptionsGetString(NULL, NULL, "-filename", filename, 512, NULL));
-    PetscCall(PetscViewerVTKOpen(MPI_COMM_WORLD, filename, FILE_MODE_WRITE, &viewer));
+  //   PetscCall(PetscOptionsGetString(NULL, NULL, "-filename", filename, 512, NULL));
+  //   PetscCall(PetscViewerVTKOpen(MPI_COMM_WORLD, filename, FILE_MODE_WRITE, &viewer));
 
-    PetscCall(PetscObjectSetName((PetscObject)(u), "u"));
-    PetscCall(VecView(u, viewer));
+  //   PetscCall(PetscObjectSetName((PetscObject)(u), "u"));
+  //   PetscCall(VecView(u, viewer));
 
-    PetscCall(PetscObjectSetName((PetscObject)(*meas_vec), "meas_vec"));
-    PetscCall(VecView(*meas_vec, viewer));
+  //   PetscCall(PetscObjectSetName((PetscObject)(*meas_vec), "meas_vec"));
+  //   PetscCall(VecView(*meas_vec, viewer));
 
-    PetscCall(PetscViewerDestroy(&viewer));
-  }
+  //   PetscCall(PetscViewerDestroy(&viewer));
+  // }
   PetscCall(DMRestoreGlobalVector(*dm, &u));
   PetscCall(MatDestroy(&M));
   if (flag) {
