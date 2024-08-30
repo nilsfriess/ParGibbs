@@ -86,7 +86,7 @@ PetscErrorCode IACT(PetscInt n, const PetscScalar *x, PetscScalar *tau, PetscSca
   for (PetscInt i = 0; i < n; ++i) out[i] = 2 * out[i] - 1;
   PetscCall(AutoWindow(n, out, 5, &w));
   *tau = out[w];
-  if (valid) *valid = 50 * (*tau) <= n;
+  if (valid) *valid = 500 * (*tau) <= n;
   PetscCall(PetscFree(out));
   PetscFunctionReturn(PETSC_SUCCESS);
 }
