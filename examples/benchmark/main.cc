@@ -132,8 +132,10 @@ static PetscErrorCode SaveSample(PetscInt it, Vec y, void *ctx)
   do { \
     double _starttime, _endtime; \
     PetscCall(PetscPrintf(MPI_COMM_WORLD, "Starting %s... ", name)); \
+    MPI_Barrier(MPI_COMM_WORLD); \
     _starttime = MPI_Wtime(); \
     PetscCall(functioncall); \
+    MPI_Barrier(MPI_COMM_WORLD); \
     _endtime = MPI_Wtime(); \
     PetscCall(PetscPrintf(MPI_COMM_WORLD, " done. Took %.4fs.\n", _endtime - _starttime)); \
     *time = _endtime - _starttime; \
