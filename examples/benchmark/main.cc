@@ -179,8 +179,11 @@ int main(int argc, char *argv[])
     close(dr);
     PetscCall(PetscRandomSetSeed(pr, seed));
   } else {
+    PetscInt seed = 1;
+
+    PetscCall(PetscOptionsGetInt(nullptr, nullptr, "-seed", &seed, nullptr));
     PetscCallMPI(MPI_Comm_rank(MPI_COMM_WORLD, &rank));
-    PetscCall(PetscRandomSetSeed(pr, 1 + rank));
+    PetscCall(PetscRandomSetSeed(pr, seed + rank));
   }
   PetscCall(PetscRandomSeed(pr));
 
