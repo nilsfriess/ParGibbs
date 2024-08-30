@@ -76,6 +76,7 @@ PetscErrorCode IACT(PetscInt n, const PetscScalar *x, PetscScalar *tau, PetscSca
   PetscInt     w;
 
   PetscFunctionBeginUser;
+  PetscCheck(n > 1, MPI_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE, "Too few data points");
   PetscCall(Autocorrelation(n, x, &out));
   if (acf) {
     PetscCall(PetscMalloc1(n, acf));
