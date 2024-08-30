@@ -336,7 +336,8 @@ int main(int argc, char *argv[])
   }
 
   PetscCall(InfoView(A, params, PETSC_VIEWER_STDOUT_WORLD));
-  // PetscCall(PCView(pc, PETSC_VIEWER_STDOUT_WORLD));
+
+  PetscCall(PCViewFromOptions(pc, nullptr, "-view_sampler"));
 
   PetscCall(VecDestroy(&b));
   PetscCall(PetscRandomDestroy(&pr));
