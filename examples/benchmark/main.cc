@@ -241,7 +241,6 @@ int main(int argc, char *argv[])
 
     PetscCall(PetscOptionsGetBool(nullptr, nullptr, "-print_acf", &print_acf, nullptr));
     PetscCall(IACT(params->n_samples, ctx->qois, &tau, print_acf ? &acf : nullptr, &valid));
-    PetscCall(PetscPrintf(MPI_COMM_SELF, "%.5f\n", tau));
     if (!valid) PetscCall(PetscPrintf(MPI_COMM_WORLD, "WARNING: Chain is too short to give reliable IACT estimate (need at least %d)\n", (int)ceil(50 * tau)));
     PetscCall(PetscPrintf(MPI_COMM_WORLD, "IACT: %.5f\n", tau));
     PetscCall(PetscPrintf(MPI_COMM_WORLD, "Time per independent sample [ms]: %.6f\n\n", PetscMax(tau, 1) * time / params->n_samples * 1000));
