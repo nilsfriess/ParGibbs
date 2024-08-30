@@ -155,7 +155,7 @@ int main(int argc, char *argv[])
 #ifdef PARMGMC_HAVE_MFEM
   PetscBool mfem = PETSC_FALSE;
 #endif
-  PetscBool seed_from_dev_random;
+  PetscBool seed_from_dev_random = PETSC_FALSE;
 
   PetscCall(PetscInitialize(&argc, &argv, nullptr, nullptr));
   PetscCall(ParMGMCInitialize());
