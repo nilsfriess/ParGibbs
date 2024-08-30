@@ -185,7 +185,7 @@ int main(int argc, char *argv[])
 #ifdef PARMGMC_HAVE_MFEM
   PetscCall(PetscOptionsGetBool(nullptr, nullptr, "-mfem", &mfem, nullptr));
   if (mfem) {
-    TIME(CreateMatrixMFEM(params, &meas_vec, &A), "Assembling matrix", &time);
+    TIME(CreateMatrixMFEM(params, &meas_vec, &A, &b), "Assembling matrix", &time);
   } else
 #endif
     TIME(CreateMatrixPetsc(params, &A, &meas_vec, &dm, &b), "Assembling matrix", &time);
@@ -236,6 +236,7 @@ int main(int argc, char *argv[])
 
     PetscCall(PetscOptionsGetBool(nullptr, nullptr, "-print_acf", &print_acf, nullptr));
     PetscCall(IACT(params->n_samples, ctx->qois, &tau, print_acf ? &acf : nullptr, &valid));
+    PetscCall(PetscPrintf(MPI_COMM_SELF, "%.5f\n", tau));
     if (!valid) PetscCall(PetscPrintf(MPI_COMM_WORLD, "WARNING: Chain is too short to give reliable IACT estimate (need at least %d)\n", (int)ceil(50 * tau)));
     PetscCall(PetscPrintf(MPI_COMM_WORLD, "IACT: %.5f\n", tau));
     PetscCall(PetscPrintf(MPI_COMM_WORLD, "Time per independent sample [ms]: %.6f\n\n", PetscMax(tau, 1) * time / params->n_samples * 1000));
@@ -325,7 +326,6 @@ int main(int argc, char *argv[])
     }
 
     PetscCall(PetscFree(ctx->qois));
-    PetscCall(VecDestroy(&meas_vec));
     if (params->est_mean_and_var) {
       PetscCall(VecDestroy(&ctx->mean));
       PetscCall(VecDestroy(&ctx->M));
@@ -339,6 +339,7 @@ int main(int argc, char *argv[])
 
   PetscCall(PCViewFromOptions(pc, nullptr, "-view_sampler"));
 
+  PetscCall(VecDestroy(&meas_vec));
   PetscCall(VecDestroy(&b));
   PetscCall(PetscRandomDestroy(&pr));
   PetscCall(MatDestroy(&A));

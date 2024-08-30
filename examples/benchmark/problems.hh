@@ -243,20 +243,25 @@ public:
 
     mfem::Mesh serial_mesh;
     if (!flag) {
-      serial_mesh = mfem::Mesh::MakeCartesian2D(32, 32, mfem::Element::Type::TRIANGLE);
+      PetscInt faces[2];
+
+      faces[0] = 4;
+      PetscOptionsGetInt(nullptr, nullptr, "-box_faces", &faces[0], nullptr);
+      faces[1]    = faces[0];
+      serial_mesh = mfem::Mesh::MakeCartesian2D(faces[0], faces[1], mfem::Element::Type::TRIANGLE);
     } else {
       serial_mesh = mfem::Mesh::LoadFromFile(mesh_file);
     }
-    PetscInt refine = 1;
-    PetscOptionsGetInt(nullptr, nullptr, "-refine", &refine, nullptr);
+    PetscInt refine = 0;
+    PetscOptionsGetInt(nullptr, nullptr, "-dm_refine", &refine, nullptr);
     for (PetscInt i = 0; i < refine; ++i) serial_mesh.UniformRefinement();
 
     mesh = new mfem::ParMesh(MPI_COMM_WORLD, serial_mesh);
     serial_mesh.Clear();
 
-    PetscInt maxGlobalElements = 10000;
-    PetscOptionsGetInt(nullptr, nullptr, "-max_global_elements", &maxGlobalElements, nullptr);
-    while (mesh->GetGlobalNE() < maxGlobalElements) mesh->UniformRefinement();
+    PetscInt parRefine = 0;
+    PetscOptionsGetInt(nullptr, nullptr, "-dm_par_refine", &parRefine, nullptr);
+    for (PetscInt i = 0; i < parRefine; ++i) mesh->UniformRefinement();
 
     PetscInt order = 1;
     PetscOptionsGetInt(nullptr, nullptr, "-order", &order, nullptr);
@@ -271,7 +276,7 @@ public:
     fespace->GetEssentialTrueDofs(ess_bdr, ess_tdof_list);
 
     PetscScalar kappa = 1;
-    PetscOptionsGetReal(nullptr, nullptr, "-kappa", &kappa, nullptr);
+    PetscOptionsGetReal(nullptr, nullptr, "-matern_kappa", &kappa, nullptr);
     mfem::ConstantCoefficient kappa2(kappa * kappa);
 
     mfem::ParBilinearForm a(fespace.get());
@@ -282,8 +287,8 @@ public:
     a.Assemble(0);
 
     mfem::ParLinearForm       b(fespace.get());
-    mfem::ConstantCoefficient one;
-    b.AddDomainIntegrator(new mfem::DomainLFIntegrator(one));
+    mfem::ConstantCoefficient zero(0);
+    b.AddDomainIntegrator(new mfem::DomainLFIntegrator(zero));
     b.Assemble();
 
     mfem::ParGridFunction u(fespace.get());
@@ -411,7 +416,7 @@ private:
   mfem::H1_FECollection *fec;
 };
 
-inline PetscErrorCode CreateMatrixMFEM(Parameters params, Vec *meas_vec, Mat *A)
+inline PetscErrorCode CreateMatrixMFEM(Parameters params, Vec *meas_vec, Mat *A, Vec *rhs)
 {
   std::unique_ptr<Problem> problem;
   (void)params;
@@ -421,7 +426,9 @@ inline PetscErrorCode CreateMatrixMFEM(Parameters params, Vec *meas_vec, Mat *A)
   problem   = std::make_unique<Problem>();
   *A        = problem->GetPrecisionMatrix().ReleaseMat(false);
   *meas_vec = problem->GetMeasurementVector();
+  *rhs      = problem->GetRHSVector();
   PetscCall(PetscObjectReference((PetscObject)(*meas_vec)));
+  PetscCall(PetscObjectReference((PetscObject)(*rhs)));
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 #endif
