@@ -21,11 +21,57 @@
 #include "parmgmc/parmgmc.h"
 
 #include "params.hh"
-#include "problems.hh"
+#include "problem_petsc.hh"
 
 #if __has_include(<mfem.hpp>)
   #define PARMGMC_HAVE_MFEM
+  #include "problem_mfem.hh"
 #endif
+
+struct SampleCtx {
+  SampleCtx(Vec b, PetscInt nqois, Vec meas_vec, PetscBool est_mean_and_var) : nqois{nqois}, meas_vec{meas_vec}, est_mean_and_var{est_mean_and_var}
+  {
+    PetscFunctionBeginUser;
+    PetscCallVoid(VecDuplicate(b, &mean));
+    PetscCallVoid(VecDuplicate(mean, &M));
+    PetscCallVoid(VecDuplicate(mean, &delta));
+    PetscCallVoid(VecDuplicate(mean, &delta2));
+    PetscCallVoid(PetscCalloc1(nqois, &qois));
+    PetscFunctionReturnVoid();
+  }
+
+  PetscErrorCode GetMean(Vec *mean)
+  {
+    PetscFunctionBeginUser;
+    *mean = this->mean;
+    PetscFunctionReturn(PETSC_SUCCESS);
+  }
+
+  PetscErrorCode GetVar(Vec *var)
+  {
+    PetscFunctionBeginUser;
+    PetscCall(VecScale(M, 1. / nqois));
+    *var = M;
+    PetscFunctionReturn(PETSC_SUCCESS);
+  }
+
+  ~SampleCtx()
+  {
+    PetscFunctionBeginUser;
+    PetscCallVoid(VecDestroy(&M));
+    PetscCallVoid(VecDestroy(&mean));
+    PetscCallVoid(VecDestroy(&delta));
+    PetscCallVoid(VecDestroy(&delta2));
+    PetscCallVoid(PetscFree(qois));
+    PetscFunctionReturnVoid();
+  }
+
+  PetscInt     nqois;
+  PetscScalar *qois;
+  Vec          meas_vec = nullptr;
+  Vec          M = nullptr, mean = nullptr, delta = nullptr, delta2 = nullptr;
+  PetscBool    est_mean_and_var;
+};
 
 static PetscErrorCode InfoView(Mat A, Parameters params, PetscViewer viewer)
 {
@@ -96,21 +142,14 @@ static PetscErrorCode Sample(KSP ksp, Vec b, Parameters params)
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
-struct SampleCtx {
-  PetscScalar *qois;
-  Vec          meas_vec;
-  Vec          M, mean, delta, delta2;
-  PetscBool    measure_mean_var;
-};
-
 static PetscErrorCode SaveSample(PetscInt it, Vec y, void *ctx)
 {
-  SampleCtx  *sctx = (SampleCtx *)ctx;
+  auto       *sctx = (SampleCtx *)ctx;
   PetscScalar qoi, *qois = sctx->qois;
   Vec         meas_vec = sctx->meas_vec;
 
   PetscFunctionBeginUser;
-  if (sctx->measure_mean_var) {
+  if (sctx->est_mean_and_var) {
     // https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance#Welford's_online_algorithm
     PetscInt i = it + 1;
 
@@ -152,10 +191,9 @@ int main(int argc, char *argv[])
   PetscRandom pr;
   double      time;
   PetscMPIInt rank;
-#ifdef PARMGMC_HAVE_MFEM
-  PetscBool mfem = PETSC_FALSE;
-#endif
-  PetscBool seed_from_dev_random = PETSC_FALSE;
+  PetscBool   mfem                 = PETSC_FALSE;
+  PetscBool   seed_from_dev_random = PETSC_FALSE;
+  Problem    *problem;
 
   PetscCall(PetscInitialize(&argc, &argv, nullptr, nullptr));
   PetscCall(ParMGMCInitialize());
@@ -187,13 +225,22 @@ int main(int argc, char *argv[])
   }
   PetscCall(PetscRandomSeed(pr));
 
-#ifdef PARMGMC_HAVE_MFEM
   PetscCall(PetscOptionsGetBool(nullptr, nullptr, "-mfem", &mfem, nullptr));
+
+  PetscCall(PetscPrintf(MPI_COMM_WORLD, "Starting assembly of operator... "));
+  time = MPI_Wtime();
+#ifdef PARMGMC_HAVE_MFEM
   if (mfem) {
-    TIME(CreateMatrixMFEM(params, &meas_vec, &A, &b), "Assembling matrix", &time);
+    problem = new MFEMProblem(params);
   } else
 #endif
-    TIME(CreateMatrixPetsc(params, &A, &meas_vec, &dm, &b), "Assembling matrix", &time);
+    problem = new PetscProblem(params);
+  time = MPI_Wtime() - time;
+  PetscCall(PetscPrintf(MPI_COMM_WORLD, "done. Took %.4fs.\n", time));
+
+  PetscCall(problem->GetPrecisionMat(&A));
+  PetscCall(problem->GetRHSVec(&b));
+  PetscCall(problem->GetMeasurementVec(&meas_vec));
 
   TIME(SamplerCreate(A, dm, pr, params, &ksp), "Setup sampler", &time);
   PetscCall(KSPGetPC(ksp, &pc));
@@ -214,30 +261,16 @@ int main(int argc, char *argv[])
     PetscCall(PetscPrintf(MPI_COMM_WORLD, "                                  Measure IACT\n"));
     PetscCall(PetscPrintf(MPI_COMM_WORLD, "################################################################################\n"));
 
-    PetscScalar tau = 0;
-    PetscBool   valid;
-
-    SampleCtx *ctx = new SampleCtx;
-    PetscCall(PetscCalloc1(params->n_samples + 1, &ctx->qois));
-    ctx->meas_vec = meas_vec;
-    if (params->est_mean_and_var) {
-      PetscCall(VecDuplicate(b, &ctx->mean));
-      PetscCall(VecDuplicate(b, &ctx->M));
-      PetscCall(VecDuplicate(b, &ctx->delta));
-      PetscCall(VecDuplicate(b, &ctx->delta2));
-      ctx->measure_mean_var = PETSC_TRUE;
-    } else {
-      ctx->measure_mean_var = PETSC_FALSE;
-    }
+    auto *ctx = new SampleCtx(b, params->n_samples + 1, meas_vec, params->est_mean_and_var);
 
     TIME(Burnin(ksp, b, params), "Burn-in", &time);
-
     PetscCall(PCSetSampleCallback(pc, SaveSample, ctx, nullptr));
-    // PetscCall(KSPSetConvergenceTest(ksp, SaveSample, qois, NULL));
     TIME(Sample(ksp, b, params), "Sampling", &time);
 
-    PetscBool    print_acf;
+    PetscBool    print_acf = PETSC_FALSE;
     PetscScalar *acf;
+    PetscScalar  tau = 0;
+    PetscBool    valid;
 
     PetscCall(PetscOptionsGetBool(nullptr, nullptr, "-print_acf", &print_acf, nullptr));
     PetscCall(IACT(params->n_samples, ctx->qois, &tau, print_acf ? &acf : nullptr, &valid));
@@ -251,103 +284,101 @@ int main(int argc, char *argv[])
       fclose(fptr);
     }
 
-    if (params->est_mean_and_var) {
-      PetscViewer viewer;
+    // if (params->est_mean_and_var) {
+    //   PetscViewer viewer;
 
-      PetscCall(PetscViewerVTKOpen(MPI_COMM_WORLD, "benchmark.vtu", FILE_MODE_WRITE, &viewer));
+    //   PetscCall(PetscViewerVTKOpen(MPI_COMM_WORLD, "benchmark.vtu", FILE_MODE_WRITE, &viewer));
 
-      // Compute exact mean
-      KSP       ksp;
-      Mat       Afull;
-      MatType   type;
-      PetscBool flag, assemble_full;
+    //   // Compute exact mean
+    //   KSP       ksp;
+    //   Mat       Afull;
+    //   MatType   type;
+    //   PetscBool flag, assemble_full;
 
-      PetscCall(KSPCreate(MPI_COMM_WORLD, &ksp));
-      PetscCall(MatGetType(A, &type));
-      PetscCall(PetscStrcmp(type, MATLRC, &flag));
-      PetscCall(PetscOptionsGetBool(nullptr, nullptr, "-exact_mean_assemble_full", &assemble_full, nullptr));
-      if (flag && assemble_full) {
-        Mat Alrc, B, Bs, Bs_S, BSBt;
-        Vec D;
+    //   PetscCall(KSPCreate(MPI_COMM_WORLD, &ksp));
+    //   PetscCall(MatGetType(A, &type));
+    //   PetscCall(PetscStrcmp(type, MATLRC, &flag));
+    //   PetscCall(PetscOptionsGetBool(nullptr, nullptr, "-exact_mean_assemble_full", &assemble_full, nullptr));
+    //   if (flag && assemble_full) {
+    //     Mat Alrc, B, Bs, Bs_S, BSBt;
+    //     Vec D;
 
-        PetscCall(MatLRCGetMats(A, &Alrc, &B, &D, nullptr));
-        PetscCall(MatConvert(B, MATAIJ, MAT_INITIAL_MATRIX, &Bs));
-        PetscCall(MatDuplicate(Bs, MAT_COPY_VALUES, &Bs_S));
+    //     PetscCall(MatLRCGetMats(A, &Alrc, &B, &D, nullptr));
+    //     PetscCall(MatConvert(B, MATAIJ, MAT_INITIAL_MATRIX, &Bs));
+    //     PetscCall(MatDuplicate(Bs, MAT_COPY_VALUES, &Bs_S));
 
-        { // Scatter D into a distributed vector
-          PetscInt   sctsize;
-          IS         sctis;
-          Vec        Sd;
-          VecScatter sct;
+    //     { // Scatter D into a distributed vector
+    //       PetscInt   sctsize;
+    //       IS         sctis;
+    //       Vec        Sd;
+    //       VecScatter sct;
 
-          PetscCall(VecGetSize(D, &sctsize));
-          PetscCall(ISCreateStride(MPI_COMM_WORLD, sctsize, 0, 1, &sctis));
-          PetscCall(MatCreateVecs(Bs_S, &Sd, nullptr));
-          PetscCall(VecScatterCreate(D, sctis, Sd, nullptr, &sct));
-          PetscCall(VecScatterBegin(sct, D, Sd, INSERT_VALUES, SCATTER_FORWARD));
-          PetscCall(VecScatterEnd(sct, D, Sd, INSERT_VALUES, SCATTER_FORWARD));
-          PetscCall(VecScatterDestroy(&sct));
-          PetscCall(ISDestroy(&sctis));
-          D = Sd;
-        }
+    //       PetscCall(VecGetSize(D, &sctsize));
+    //       PetscCall(ISCreateStride(MPI_COMM_WORLD, sctsize, 0, 1, &sctis));
+    //       PetscCall(MatCreateVecs(Bs_S, &Sd, nullptr));
+    //       PetscCall(VecScatterCreate(D, sctis, Sd, nullptr, &sct));
+    //       PetscCall(VecScatterBegin(sct, D, Sd, INSERT_VALUES, SCATTER_FORWARD));
+    //       PetscCall(VecScatterEnd(sct, D, Sd, INSERT_VALUES, SCATTER_FORWARD));
+    //       PetscCall(VecScatterDestroy(&sct));
+    //       PetscCall(ISDestroy(&sctis));
+    //       D = Sd;
+    //     }
 
-        PetscCall(MatDiagonalScale(Bs_S, nullptr, D));
-        PetscCall(MatMatTransposeMult(Bs_S, Bs, MAT_INITIAL_MATRIX, PETSC_DECIDE, &BSBt));
-        PetscCall(MatDuplicate(Alrc, MAT_COPY_VALUES, &Afull));
-        PetscCall(MatAXPY(Afull, 1., BSBt, DIFFERENT_NONZERO_PATTERN));
-        PetscCall(MatDestroy(&Bs));
-        PetscCall(MatDestroy(&Bs_S));
-        PetscCall(MatDestroy(&BSBt));
-        PetscCall(VecDestroy(&D));
-      } else Afull = A;
-      PetscCall(KSPSetOperators(ksp, Afull, Afull));
-      PetscCall(KSPSetOptionsPrefix(ksp, "exact_mean_"));
-      PetscCall(KSPSetFromOptions(ksp));
-      PetscCall(KSPSetUp(ksp));
-      Vec exact_mean;
-      PetscCall(VecDuplicate(b, &exact_mean));
-      PetscCall(KSPSolve(ksp, b, exact_mean));
-      PetscCall(KSPDestroy(&ksp));
+    //     PetscCall(MatDiagonalScale(Bs_S, nullptr, D));
+    //     PetscCall(MatMatTransposeMult(Bs_S, Bs, MAT_INITIAL_MATRIX, PETSC_DECIDE, &BSBt));
+    //     PetscCall(MatDuplicate(Alrc, MAT_COPY_VALUES, &Afull));
+    //     PetscCall(MatAXPY(Afull, 1., BSBt, DIFFERENT_NONZERO_PATTERN));
+    //     PetscCall(MatDestroy(&Bs));
+    //     PetscCall(MatDestroy(&Bs_S));
+    //     PetscCall(MatDestroy(&BSBt));
+    //     PetscCall(VecDestroy(&D));
+    //   } else Afull = A;
+    //   PetscCall(KSPSetOperators(ksp, Afull, Afull));
+    //   PetscCall(KSPSetOptionsPrefix(ksp, "exact_mean_"));
+    //   PetscCall(KSPSetFromOptions(ksp));
+    //   PetscCall(KSPSetUp(ksp));
+    //   Vec exact_mean;
+    //   PetscCall(VecDuplicate(b, &exact_mean));
+    //   PetscCall(KSPSolve(ksp, b, exact_mean));
+    //   PetscCall(KSPDestroy(&ksp));
 
-      PetscCall(PetscObjectSetName((PetscObject)b, "Potential"));
-      PetscCall(PetscObjectSetName((PetscObject)exact_mean, "Exact mean"));
-      PetscCall(PetscObjectSetName((PetscObject)meas_vec, "Measurement vector"));
-      PetscCall(PetscObjectSetName((PetscObject)(ctx->mean), "Estimated mean"));
-      PetscCall(PetscObjectSetName((PetscObject)(ctx->M), "Estimated var"));
-      PetscCall(VecScale(ctx->M, 1. / params->n_samples));
+    //   PetscCall(PetscObjectSetName((PetscObject)b, "Potential"));
+    //   PetscCall(PetscObjectSetName((PetscObject)exact_mean, "Exact mean"));
+    //   PetscCall(PetscObjectSetName((PetscObject)meas_vec, "Measurement vector"));
+    //   PetscCall(PetscObjectSetName((PetscObject)(ctx->mean), "Estimated mean"));
+    //   PetscCall(PetscObjectSetName((PetscObject)(ctx->M), "Estimated var"));
+    //   PetscCall(VecScale(ctx->M, 1. / params->n_samples));
 
-      PetscCall(VecView(b, viewer));
-      PetscCall(VecView(exact_mean, viewer));
-      PetscCall(VecView(ctx->mean, viewer));
-      PetscCall(VecView(ctx->M, viewer));
-      PetscCall(VecView(meas_vec, viewer));
+    //   PetscCall(VecView(b, viewer));
+    //   PetscCall(VecView(exact_mean, viewer));
+    //   PetscCall(VecView(ctx->mean, viewer));
+    //   PetscCall(VecView(ctx->M, viewer));
+    //   PetscCall(VecView(meas_vec, viewer));
 
-      PetscCall(VecAXPY(exact_mean, -1, ctx->mean));
-      PetscCall(PetscObjectSetName((PetscObject)exact_mean, "Error"));
-      PetscCall(VecView(exact_mean, viewer));
+    //   PetscCall(VecAXPY(exact_mean, -1, ctx->mean));
+    //   PetscCall(PetscObjectSetName((PetscObject)exact_mean, "Error"));
+    //   PetscCall(VecView(exact_mean, viewer));
 
-      PetscCall(PetscViewerDestroy(&viewer));
+    //   PetscCall(PetscViewerDestroy(&viewer));
+    // }
+
+    {
+      Vec mean = nullptr, var = nullptr;
+
+      PetscCall(ctx->GetMean(&mean));
+      PetscCall(ctx->GetVar(&var));
+
+      PetscCall(problem->VisualiseResults(mean, var));
     }
 
-    PetscCall(PetscFree(ctx->qois));
-    if (params->est_mean_and_var) {
-      PetscCall(VecDestroy(&ctx->mean));
-      PetscCall(VecDestroy(&ctx->M));
-      PetscCall(VecDestroy(&ctx->delta));
-      PetscCall(VecDestroy(&ctx->delta2));
-    }
     delete ctx;
   }
+  delete problem;
 
   PetscCall(InfoView(A, params, PETSC_VIEWER_STDOUT_WORLD));
-
   PetscCall(PCViewFromOptions(pc, nullptr, "-view_sampler"));
 
-  PetscCall(VecDestroy(&meas_vec));
-  PetscCall(VecDestroy(&b));
   PetscCall(PetscRandomDestroy(&pr));
-  PetscCall(MatDestroy(&A));
-  if (dm) PetscCall(DMDestroy(&dm));
   PetscCall(ParametersDestroy(&params));
   PetscCall(KSPDestroy(&ksp));
   PetscCall(PetscFinalize());
