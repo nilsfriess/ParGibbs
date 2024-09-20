@@ -14,6 +14,18 @@
 #include <time.h>
 #include <mpi.h>
 
+#if defined(PETSC_HAVE_MKL_PARDISO)
+#define PARMGMC_DEFAULT_SEQ_CHOLESKY MATSOLVERMKL_PARDISO
+#else
+#define PARMGMC_DEFAULT_SEQ_CHOLESKY MATSOLVERPETSC
+#endif
+
+#if defined(PETSC_HAVE_MKL_CPARDISO)
+#define PARMGMC_DEFAULT_PAR_CHOLESKY MATSOLVERMKL_CPARDISO
+#else
+#define PARMGMC_DEFAULT_PAR_CHOLESKY MATSOLVERPETSC
+#endif
+
 typedef struct {
   Vec           r, v, xl, yl;
   Mat           F;
@@ -254,7 +266,7 @@ PetscErrorCode PCCholSamplerSetIsCoarseGAMG(PC pc, PetscBool flag)
 
   PetscFunctionBeginUser;
   chol->is_gamg_coarse = flag;
-  if (flag) chol->st = MATSOLVERMKL_PARDISO;
+  if (flag) chol->st = PARMGMC_DEFAULT_SEQ_CHOLESKY;
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
@@ -267,8 +279,8 @@ PetscErrorCode PCCreate_CholSampler(PC pc)
   PetscCall(PetscNew(&chol));
 
   PetscCallMPI(MPI_Comm_size(PetscObjectComm((PetscObject)pc), &size));
-  if (size == 1) chol->st = MATSOLVERMKL_PARDISO;
-  else chol->st = MATSOLVERMKL_CPARDISO;
+  if (size == 1) chol->st = PARMGMC_DEFAULT_SEQ_CHOLESKY;
+  else chol->st = PARMGMC_DEFAULT_PAR_CHOLESKY;
 
   pc->data                     = chol;
   pc->ops->destroy             = PCDestroy_CholSampler;
