@@ -106,7 +106,7 @@ public:
     PetscCallVoid(MSGetPrecisionMatrix(ms, &A));
     PetscCallVoid(MSGetDM(ms, &dm));
     PetscCallVoid(PetscObjectReference((PetscObject)(A)));
-    if(!flag) PetscCallVoid(PetscObjectReference((PetscObject)(dm)));
+    if (!flag) PetscCallVoid(PetscObjectReference((PetscObject)(dm)));
     PetscCallVoid(MSDestroy(&ms));
 
     // Create RHS vector
@@ -177,6 +177,13 @@ public:
   {
     PetscFunctionBeginUser;
     *v = meas_vec;
+    PetscFunctionReturn(PETSC_SUCCESS);
+  }
+
+  PetscErrorCode GetDM(DM *dm) override
+  {
+    PetscFunctionBeginUser;
+    *dm = this->dm;
     PetscFunctionReturn(PETSC_SUCCESS);
   }
 

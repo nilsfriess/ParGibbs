@@ -241,6 +241,7 @@ int main(int argc, char *argv[])
   PetscCall(problem->GetPrecisionMat(&A));
   PetscCall(problem->GetRHSVec(&b));
   PetscCall(problem->GetMeasurementVec(&meas_vec));
+  if (!mfem) PetscCall(problem->GetDM(&dm));
 
   TIME(SamplerCreate(A, dm, pr, params, &ksp), "Setup sampler", &time);
   PetscCall(KSPGetPC(ksp, &pc));
