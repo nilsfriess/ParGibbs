@@ -125,7 +125,7 @@ int main(int argc, char *argv[])
   PetscCall(MSGetPrecisionMatrix(ms, &A));
   PetscCall(MatGetSize(A, &n, NULL));
   PetscCall(MatGetInfo(A, MAT_GLOBAL_SUM, &info));
-  PetscCall(PetscPrintf(MPI_COMM_WORLD, "Degrees of freedom: %d (nnz %.0f)\n", n, info.nz_used));
+  PetscCall(PetscPrintf(MPI_COMM_WORLD, "Degrees of freedom: %" PetscInt_FMT " (nnz %.0f)\n", n, info.nz_used));
 
   PetscCallMPI(MPI_Comm_rank(MPI_COMM_WORLD, &rank));
   PetscCall(PetscRandomCreate(MPI_COMM_WORLD, &pr));
@@ -204,7 +204,7 @@ int main(int argc, char *argv[])
 
     elapsed += MPI_Wtime() - start;
     PetscCall(GelmanRubin(chains, i + check_every, ctx->qois, &gr));
-    PetscCall(PetscPrintf(MPI_COMM_WORLD, "Gelman-Rubin (%d samples, %.5fs): %.5f\n", i + check_every, elapsed, gr));
+    PetscCall(PetscPrintf(MPI_COMM_WORLD, "Gelman-Rubin (%" PetscInt_FMT " samples, %.5fs): %.5f\n", i + check_every, elapsed, gr));
     times[i / check_every] = elapsed;
     grs[i / check_every]   = gr;
 

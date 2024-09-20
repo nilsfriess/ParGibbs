@@ -87,7 +87,7 @@ static PetscErrorCode InfoView(Mat A, Parameters params, PetscViewer viewer)
 
   PetscCall(PetscViewerASCIIPrintf(viewer, "\n"));
   PetscCall(MatGetSize(A, &n, nullptr));
-  PetscCall(PetscViewerASCIIPrintf(viewer, "Problem size (degrees of freedom): %d\n\n", n));
+  PetscCall(PetscViewerASCIIPrintf(viewer, "Problem size (degrees of freedom): %" PetscInt_FMT "\n\n", n));
   PetscCall(MPI_Comm_size(MPI_COMM_WORLD, &size));
   PetscCall(PetscViewerASCIIPrintf(viewer, "Running on %d MPI ranks\n\n", size));
 

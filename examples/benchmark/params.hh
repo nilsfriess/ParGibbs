@@ -48,8 +48,8 @@ inline PetscErrorCode ParametersView(Parameters params, PetscViewer viewer)
   PetscCheck(viewer == PETSC_VIEWER_STDOUT_WORLD || viewer == PETSC_VIEWER_STDOUT_SELF, MPI_COMM_WORLD, PETSC_ERR_SUP, "Viewer not supported");
 
   PetscCall(PetscViewerASCIIPrintf(viewer, "Number of samples\n"));
-  PetscCall(PetscViewerASCIIPrintf(viewer, "\t Burn-in: %d\n", params->n_burnin));
-  PetscCall(PetscViewerASCIIPrintf(viewer, "\t Actual:  %d\n", params->n_samples));
+  PetscCall(PetscViewerASCIIPrintf(viewer, "\t Burn-in: %" PetscInt_FMT "\n", params->n_burnin));
+  PetscCall(PetscViewerASCIIPrintf(viewer, "\t Actual:  %" PetscInt_FMT "\n", params->n_samples));
 
   PetscFunctionReturn(PETSC_SUCCESS);
 }

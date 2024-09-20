@@ -16,7 +16,6 @@
           per chain, it requires about ~12 GB).
  */
 
-
 #include "parmgmc/parmgmc.h"
 #include "parmgmc/stats.h"
 
@@ -149,7 +148,7 @@ int main(int argc, char *argv[])
   PetscCall(AssembleMatrix(&A));
   PetscCall(MatCreateVecs(A, &b, NULL));
   PetscCall(MatGetSize(A, &n, NULL));
-  PetscCall(PetscPrintf(MPI_COMM_WORLD, "Degrees of freedom: %d\n", n));
+  PetscCall(PetscPrintf(MPI_COMM_WORLD, "Degrees of freedom: %" PetscInt_FMT "\n", n));
 
   PetscCall(PetscOptionsGetInt(NULL, NULL, "-seed", &seed, NULL));
   PetscCall(PetscOptionsGetInt(NULL, NULL, "-chains", &chains, NULL));

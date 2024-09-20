@@ -100,10 +100,10 @@ int main(int argc, char *argv[])
             snprintf(buffer, sizeof buffer, "%f", range_threshold_scale[j]);
             PetscCall(PetscOptionsSetValue(NULL, "-pc_gamg_threshold_scale", buffer));
 
-            snprintf(buffer, sizeof buffer, "%d", k);
+            snprintf(buffer, sizeof buffer, "%" PetscInt_FMT, k);
             PetscCall(PetscOptionsSetValue(NULL, "-pc_gamg_aggressive_coarsening", buffer));
 
-            snprintf(buffer, sizeof buffer, "%d", m);
+            snprintf(buffer, sizeof buffer, "%" PetscInt_FMT, m);
             PetscCall(PetscOptionsSetValue(NULL, "-pc_gamg_agg_nsmooths", buffer));
 
             PetscCall(KSPCreate(MPI_COMM_WORLD, &ksp));
@@ -113,7 +113,7 @@ int main(int argc, char *argv[])
             start = MPI_Wtime();
             PetscCall(KSPSolve(ksp, b, x));
             end = MPI_Wtime();
-            PetscCall(PetscPrintf(MPI_COMM_WORLD, "Agg. nsmooth %d, Agg. Coarsening %d, Threshold %.5f, Scale %.5f: %.6f\n", m, k, range_threshold[i], range_threshold_scale[j], (end - start) * 1000));
+            PetscCall(PetscPrintf(MPI_COMM_WORLD, "Agg. nsmooth %" PetscInt_FMT ", Agg. Coarsening %" PetscInt_FMT ", Threshold %.5f, Scale %.5f: %.6f\n", m, k, range_threshold[i], range_threshold_scale[j], (end - start) * 1000));
 
             if (end - start < min_time) {
               min_time            = end - start;

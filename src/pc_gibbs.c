@@ -263,7 +263,7 @@ static PetscErrorCode PCView_Gibbs(PC pc, PetscViewer viewer)
 
   PetscFunctionBeginUser;
   PetscCall(MCSORGetNumColors(pg->mc, &ncolors));
-  PetscCall(PetscViewerASCIIPrintf(viewer, "Number of colours: %d\n", ncolors));
+  PetscCall(PetscViewerASCIIPrintf(viewer, "Number of colours: %" PetscInt_FMT "\n", ncolors));
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 

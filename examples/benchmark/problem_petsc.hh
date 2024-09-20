@@ -122,19 +122,19 @@ public:
       nobs_given = nobs * cdim;
       PetscCallVoid(PetscMalloc1(nobs_given, &obs_coords));
       PetscCallVoid(PetscOptionsGetRealArray(nullptr, nullptr, "-obs_coords", obs_coords, &nobs_given, nullptr));
-      PetscCheckAbort(nobs_given == nobs * cdim, MPI_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE, "Wrong number of observation coordinates provided, expected %d got %d", nobs * cdim, nobs_given);
+      PetscCheckAbort(nobs_given == nobs * cdim, MPI_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE, "Wrong number of observation coordinates provided, expected %" PetscInt_FMT " got %" PetscInt_FMT, nobs * cdim, nobs_given);
 
       PetscCallVoid(PetscMalloc1(nobs, &obs_radii));
       nobs_given = nobs;
       PetscCallVoid(PetscOptionsGetRealArray(nullptr, nullptr, "-obs_radii", obs_radii, &nobs_given, nullptr));
-      PetscCheckAbort(nobs_given == 1 || nobs_given == nobs, MPI_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE, "Wrong number of observation radii provided, expected either 1 or `nobs` got %d", nobs_given);
+      PetscCheckAbort(nobs_given == 1 || nobs_given == nobs, MPI_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE, "Wrong number of observation radii provided, expected either 1 or `nobs` got %" PetscInt_FMT, nobs_given);
       if (nobs_given == 1)
         for (PetscInt i = 1; i < nobs; ++i) obs_radii[i] = obs_radii[0]; // If only one radius provided, use that for all observations
 
       PetscCallVoid(PetscMalloc1(nobs, &obs_values));
       nobs_given = nobs;
       PetscCallVoid(PetscOptionsGetRealArray(nullptr, nullptr, "-obs_values", obs_values, &nobs_given, nullptr));
-      PetscCheckAbort(nobs_given == 1 || nobs_given == nobs, MPI_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE, "Wrong number of observation values provided, expected either 1 or `nobs` got %d", nobs_given);
+      PetscCheckAbort(nobs_given == 1 || nobs_given == nobs, MPI_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE, "Wrong number of observation values provided, expected either 1 or `nobs` got %" PetscInt_FMT, nobs_given);
       if (nobs_given == 1)
         for (PetscInt i = 1; i < nobs; ++i) obs_values[i] = obs_values[0]; // If only one value provided, use that for all observations
 
@@ -246,7 +246,7 @@ private:
       PetscCall(PetscCalloc1(dim, &ctx.centre));
       got_dim = dim;
       PetscCall(PetscOptionsGetRealArray(nullptr, nullptr, "-qoi_centre", ctx.centre, &got_dim, nullptr));
-      PetscCheck(got_dim == 0 or got_dim == dim, MPI_COMM_WORLD, PETSC_ERR_SUP, "Incorrect number of points passed, expected %d", dim);
+      PetscCheck(got_dim == 0 or got_dim == dim, MPI_COMM_WORLD, PETSC_ERR_SUP, "Incorrect number of points passed, expected %" PetscInt_FMT, dim);
       ctx.radius = 1;
       PetscCall(PetscOptionsGetReal(nullptr, nullptr, "-qoi_radius", &ctx.radius, nullptr));
       PetscCall(VolumeOfSphere(dm, ctx.radius, &ctx.vol));
@@ -258,10 +258,10 @@ private:
       for (PetscInt i = 0; i < dim; ++i) ctx.end[i] = 1;
       got_dim = dim;
       PetscCall(PetscOptionsGetRealArray(nullptr, nullptr, "-qoi_start", ctx.start, &got_dim, nullptr));
-      PetscCheck(got_dim == 0 or got_dim == dim, MPI_COMM_WORLD, PETSC_ERR_SUP, "Incorrect number of points passed for start, expected %d", dim);
+      PetscCheck(got_dim == 0 or got_dim == dim, MPI_COMM_WORLD, PETSC_ERR_SUP, "Incorrect number of points passed for start, expected %" PetscInt_FMT, dim);
       got_dim = dim;
       PetscCall(PetscOptionsGetRealArray(nullptr, nullptr, "-qoi_end", ctx.end, &got_dim, nullptr));
-      PetscCheck(got_dim == 0 or got_dim == dim, MPI_COMM_WORLD, PETSC_ERR_SUP, "Incorrect number of points passed for end, expected %d", dim);
+      PetscCheck(got_dim == 0 or got_dim == dim, MPI_COMM_WORLD, PETSC_ERR_SUP, "Incorrect number of points passed for end, expected %" PetscInt_FMT, dim);
       PetscCall(VolumeOfRect(dm, ctx.start, ctx.end, &ctx.vol));
 
       funcs[0] = f_rect;
