@@ -179,12 +179,12 @@ static PetscErrorCode PCGAMGMC_SetUpHierarchy(PC pc)
       PetscCall(PetscObjectReference((PetscObject)A));
       PetscCall(PetscObjectReference((PetscObject)pr)); // Make sure the PetscRandom object is not freed in the next step
       PetscCall(PCReset(pcs));
-      PetscCall(PetscObjectDereference((PetscObject)pr));
       PetscCall(PCCholSamplerSetIsCoarseGAMG(pcs, PETSC_TRUE));
       PetscCall(KSPSetOperators(ksps, A, A));
       PetscCall(PCSetUp(pcs));
       PetscCall(PetscObjectDereference((PetscObject)A));
       PetscCall(PCSetPetscRandom(pcs, pr));
+      PetscCall(PetscObjectDereference((PetscObject)pr));
     }
 
     PetscCall(PCGetPetscRandom(pcs, &pr));
