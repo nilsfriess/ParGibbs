@@ -16,7 +16,6 @@
 // RUN: %cc %s -o %t %flags && %mpirun -np %NP %t -ksp_type richardson -pc_type gamgmc
 
 #include "mpi.h"
-#include "mpi_proto.h"
 #include "parmgmc/ms.h"
 #include "parmgmc/parmgmc.h"
 
