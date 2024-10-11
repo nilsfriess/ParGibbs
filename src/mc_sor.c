@@ -70,6 +70,8 @@ PetscErrorCode MCSORDestroy(MCSOR *mc)
         PetscCall(VecScatterDestroy(&ctx->scatters[i]));
         PetscCall(VecDestroy(&ctx->ghostvecs[i]));
       }
+      PetscCall(PetscFree(ctx->ghostvecs));
+      PetscCall(PetscFree(ctx->scatters));
     }
     PetscCall(VecDestroy(&ctx->idiag));
 
