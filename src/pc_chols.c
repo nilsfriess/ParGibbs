@@ -267,6 +267,18 @@ PetscErrorCode PCCholSamplerSetIsCoarseGAMG(PC pc, PetscBool flag)
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
+static PetscErrorCode PCSetFromOptions_CholSampler(PC pc, PetscOptionItems *PetscOptionsObject)
+{
+  PetscBool flag = PETSC_FALSE;
+
+  PetscFunctionBeginUser;
+  PetscOptionsHeadBegin(PetscOptionsObject, "Cholesky options");
+  PetscCall(PetscOptionsBool("-pc_cholsampler_coarse_gamg", "Sampler is coarse GAMGMC sampler", NULL, flag, &flag, NULL));
+  if (flag) PetscCall(PCCholSamplerSetIsCoarseGAMG(pc, PETSC_TRUE));
+  PetscOptionsHeadEnd();
+  PetscFunctionReturn(PETSC_SUCCESS);
+}
+
 PetscErrorCode PCCreate_CholSampler(PC pc)
 {
   PC_CholSampler chol;
@@ -279,15 +291,15 @@ PetscErrorCode PCCreate_CholSampler(PC pc)
   if (size == 1) chol->st = PARMGMC_DEFAULT_SEQ_CHOLESKY;
   else chol->st = PARMGMC_DEFAULT_PAR_CHOLESKY;
 
-  pc->data                     = chol;
-  pc->ops->destroy             = PCDestroy_CholSampler;
-  pc->ops->reset               = PCReset_CholSampler;
-  pc->ops->setup               = PCSetUp_CholSampler;
-  pc->ops->apply               = PCApply_CholSampler;
-  pc->ops->applyrichardson     = PCApplyRichardson_CholSampler;
-  pc->ops->view                = PCView_CholSampler;
-  chol->prand_is_initial_prand = PETSC_TRUE;
-  chol->is_gamg_coarse         = PETSC_FALSE;
+  pc->data                 = chol;
+  pc->ops->destroy         = PCDestroy_CholSampler;
+  pc->ops->reset           = PCReset_CholSampler;
+  pc->ops->setup           = PCSetUp_CholSampler;
+  pc->ops->apply           = PCApply_CholSampler;
+  pc->ops->applyrichardson = PCApplyRichardson_CholSampler;
+  pc->ops->view            = PCView_CholSampler;
+  pc->ops->setfromoptions  = PCSetFromOptions_CholSampler;
+  chol->is_gamg_coarse     = PETSC_FALSE;
   PetscCall(RegisterPCSetGetPetscRandom(pc, PCCholSamplerSetPetscRandom, PCCholSamplerGetPetscRandom));
   PetscCall(PCRegisterSetSampleCallback(pc, PCSetSampleCallback_Cholsampler));
   PetscFunctionReturn(PETSC_SUCCESS);

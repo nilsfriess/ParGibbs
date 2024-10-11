@@ -292,7 +292,10 @@ static PetscErrorCode PCSetUp_GAMGMC(PC pc)
     if (!flag) PetscCall(PetscOptionsSetValue(NULL, "-gamgmc_mg_levels_pc_type", PCGIBBS));
 
     PetscCall(PetscOptionsGetString(NULL, NULL, "-gamgmc_mg_coarse_ksp_type", opt, 256, &flag));
-    if (!flag) PetscCall(PetscOptionsSetValue(NULL, "-gamgmc_mg_coarse_ksp_type", KSPPREONLY));
+    if (!flag) {
+      PetscCall(PetscOptionsSetValue(NULL, "-gamgmc_mg_coarse_pc_type", PCCHOLSAMPLER));
+      PetscCall(PetscOptionsSetValue(NULL, "-gamgmc_mg_coarse_pc_cholsampler_coarse_gamg", ""));
+    }
 
     PetscCall(PetscOptionsGetString(NULL, NULL, "-gamgmc_mg_coarse_pc_type", opt, 256, &flag));
     if (!flag) PetscCall(PetscOptionsSetValue(NULL, "-gamgmc_mg_coarse_pc_type", PCCHOLSAMPLER));
