@@ -365,9 +365,6 @@ int main(int argc, char *argv[])
 
       PetscCall(ctx->GetMean(&mean));
       PetscCall(ctx->GetVar(&var));
-
-      PetscCall(VecView(mean, PETSC_VIEWER_STDOUT_WORLD));
-
       PetscCall(problem->VisualiseResults(x, mean, var));
     }
 
