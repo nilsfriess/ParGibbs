@@ -11,6 +11,7 @@
 #include "parmgmc/pc/pc_chols.h"
 #include "parmgmc/pc/pc_gamgmc.h"
 #include "parmgmc/pc/pc_gibbs.h"
+#include "parmgmc/pc/pc_block_gibbs.h"
 #include "parmgmc/pc/pc_hogwild.h"
 #include "parmgmc/random/ziggurat.h"
 
@@ -37,6 +38,7 @@ static PetscErrorCode ParMGMCRegisterPCAll(void)
   PetscCall(PCRegister(PCGIBBS, PCCreate_Gibbs));
   PetscCall(PCRegister(PCGAMGMC, PCCreate_GAMGMC));
   PetscCall(PCRegister(PCCHOLSAMPLER, PCCreate_CholSampler));
+  PetscCall(PCRegister(PCBLOCKGIBBS, PCCreate_BlockGibbs));
 
   PetscCall(KSPRegister(KSPCGSAMPLER, KSPCreate_CGSampler));
   PetscFunctionReturn(PETSC_SUCCESS);

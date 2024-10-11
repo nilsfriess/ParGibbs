@@ -30,6 +30,7 @@ target_sources(parmgmc
 	PRIVATE
 	    src/pc_hogwild.c
 	    src/pc_gibbs.c
+      src/pc_block_gibbs.c
 	    src/pc_gamgmc.c
 	    src/pc_chols.c
 	    src/ziggurat.c
@@ -37,7 +38,7 @@ target_sources(parmgmc
 	    src/parmgmc.c
 	    src/problems.c
 	    src/ms.c
-    	    src/cgs.c
+    	src/cgs.c
 	    src/obs.c
 	    src/iact.c
 	    src/stats.c

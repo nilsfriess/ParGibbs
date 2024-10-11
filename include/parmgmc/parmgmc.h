@@ -21,6 +21,7 @@
 #define PCHOGWILD     "hogwild"
 #define PCCHOLSAMPLER "cholsampler"
 #define KSPCGSAMPLER  "cgsampler"
+#define PCBLOCKGIBBS  "blockgibbs"
 
 PETSC_EXTERN PetscClassId  PARMGMC_CLASSID;
 PETSC_EXTERN PetscLogEvent MULTICOL_SOR;
