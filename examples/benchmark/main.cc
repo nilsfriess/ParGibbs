@@ -130,15 +130,11 @@ static PetscErrorCode Burnin(KSP ksp, Vec b, Parameters params)
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
-static PetscErrorCode Sample(KSP ksp, Vec b, Parameters params)
+static PetscErrorCode Sample(KSP ksp, Vec b, Parameters params, Vec x)
 {
-  Vec x;
-
   PetscFunctionBeginUser;
   PetscCall(KSPSetTolerances(ksp, PETSC_DEFAULT, PETSC_DEFAULT, PETSC_DEFAULT, params->n_samples));
-  PetscCall(VecDuplicate(b, &x));
   PetscCall(KSPSolve(ksp, b, x));
-  PetscCall(VecDestroy(&x));
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
@@ -187,7 +183,7 @@ int main(int argc, char *argv[])
   DM          dm = nullptr; // Only set when building Mat with PETSc
   KSP         ksp;
   PC          pc;
-  Vec         b, meas_vec;
+  Vec         x, b, meas_vec;
   PetscRandom pr;
   double      time;
   PetscMPIInt rank;
@@ -242,6 +238,7 @@ int main(int argc, char *argv[])
   PetscCall(problem->GetRHSVec(&b));
   PetscCall(problem->GetMeasurementVec(&meas_vec));
   if (!mfem) PetscCall(problem->GetDM(&dm));
+  PetscCall(VecDuplicate(b, &x));
 
   TIME(SamplerCreate(A, dm, pr, params, &ksp), "Setup sampler", &time);
   PetscCall(KSPGetPC(ksp, &pc));
@@ -252,7 +249,7 @@ int main(int argc, char *argv[])
     PetscCall(PetscPrintf(MPI_COMM_WORLD, "################################################################################\n"));
 
     TIME(Burnin(ksp, b, params), "Burn-in", &time);
-    TIME(Sample(ksp, b, params), "Sampling", &time);
+    TIME(Sample(ksp, b, params, x), "Sampling", &time);
 
     PetscCall(PetscPrintf(MPI_COMM_WORLD, "Time per sample [ms]: %.6f\n\n", time / params->n_samples * 1000));
   }
@@ -266,7 +263,7 @@ int main(int argc, char *argv[])
 
     TIME(Burnin(ksp, b, params), "Burn-in", &time);
     PetscCall(PCSetSampleCallback(pc, SaveSample, ctx, nullptr));
-    TIME(Sample(ksp, b, params), "Sampling", &time);
+    TIME(Sample(ksp, b, params, x), "Sampling", &time);
 
     PetscBool    print_acf = PETSC_FALSE;
     PetscScalar *acf;
@@ -369,7 +366,9 @@ int main(int argc, char *argv[])
       PetscCall(ctx->GetMean(&mean));
       PetscCall(ctx->GetVar(&var));
 
-      PetscCall(problem->VisualiseResults(mean, var));
+      PetscCall(VecView(mean, PETSC_VIEWER_STDOUT_WORLD));
+
+      PetscCall(problem->VisualiseResults(x, mean, var));
     }
 
     delete ctx;
@@ -382,5 +381,6 @@ int main(int argc, char *argv[])
   PetscCall(PetscRandomDestroy(&pr));
   PetscCall(ParametersDestroy(&params));
   PetscCall(KSPDestroy(&ksp));
+  PetscCall(VecDestroy(&x));
   PetscCall(PetscFinalize());
 }

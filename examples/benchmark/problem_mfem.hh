@@ -4,6 +4,7 @@
 #include "problems.hh"
 
 #include <memory>
+#include <mfem/fem/fe_coll.hpp>
 #include <mfem/linalg/petsc.hpp>
 #include <mfem/mfem.hpp>
 #include <petscsys.h>
@@ -111,21 +112,32 @@ public:
     PetscFunctionReturn(PETSC_SUCCESS);
   }
 
-  PetscErrorCode VisualiseResults(Vec mean, Vec var) override
+  PetscErrorCode VisualiseResults(Vec sample, Vec mean, Vec var) override
   {
     PetscFunctionBeginUser;
     mfem::ParGridFunction mean_gf(fespace.get());
     mean_gf.SetFromTrueDofs(mfem::PetscParVector{mean, true});
     mfem::ParGridFunction var_gf(fespace.get());
     var_gf.SetFromTrueDofs(mfem::PetscParVector{var, true});
+    mfem::ParGridFunction sample_gf(fespace.get());
+    sample_gf.SetFromTrueDofs(mfem::PetscParVector{sample, true});
     mfem::ParGridFunction meas_vec_gf(fespace.get());
     meas_vec_gf.SetFromTrueDofs(*meas_vec);
+
+    PetscMPIInt rank;
+    mfem::L2_FECollection pw_const_fec(0, mesh->Dimension());
+    mfem::ParFiniteElementSpace pw_const_fes(mesh, &pw_const_fec);
+    mfem::ParGridFunction mpi_rank_gf(&pw_const_fes);
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    mpi_rank_gf = rank;
 
     mfem::ParaViewDataCollection pd("Results", mesh);
     pd.SetPrefixPath("ParaView");
     pd.RegisterField("mean", &mean_gf);
     pd.RegisterField("var", &var_gf);
+    pd.RegisterField("sample", &sample_gf);
     pd.RegisterField("measurement vector", &meas_vec_gf);
+    pd.RegisterField("rank", &mpi_rank_gf);
 
     pd.SetLevelsOfDetail(1);
     pd.SetDataFormat(mfem::VTKFormat::BINARY);
