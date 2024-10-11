@@ -31,7 +31,7 @@ typedef struct {
   Mat           F;
   PetscRandom   prand;
   MatSolverType st;
-  PetscBool     prand_is_initial_prand, richardson, is_gamg_coarse; /* is_gamg_coarse should be set if the sampler is used as
+  PetscBool     richardson, is_gamg_coarse; /* is_gamg_coarse should be set if the sampler is used as
                                                                        coarse grid sampler in GAMGMC. GAMG reduces the number
                                                                        of MPI ranks that participate on the coarser levels, down
 								       to 1 on the coarsest. However, it doesn't use sub-communicators
@@ -54,7 +54,7 @@ static PetscErrorCode PCDestroy_CholSampler(PC pc)
   PetscCall(MatDestroy(&chol->F));
   PetscCall(VecDestroy(&chol->r));
   PetscCall(VecDestroy(&chol->v));
-  if (chol->prand_is_initial_prand) PetscCall(PetscRandomDestroy(&chol->prand));
+  PetscCall(PetscRandomDestroy(&chol->prand));
   if (chol->is_gamg_coarse) {
     PetscCall(VecDestroy(&chol->xl));
     PetscCall(VecDestroy(&chol->yl));
@@ -71,7 +71,7 @@ static PetscErrorCode PCReset_CholSampler(PC pc)
   PetscCall(MatDestroy(&chol->F));
   PetscCall(VecDestroy(&chol->r));
   PetscCall(VecDestroy(&chol->v));
-  if (chol->prand_is_initial_prand) PetscCall(PetscRandomDestroy(&chol->prand));
+  PetscCall(PetscRandomDestroy(&chol->prand));
   if (chol->is_gamg_coarse) {
     PetscCall(VecDestroy(&chol->xl));
     PetscCall(VecDestroy(&chol->yl));
@@ -94,7 +94,6 @@ static PetscErrorCode PCSetUp_CholSampler(PC pc)
 
   PetscCall(PetscRandomCreate(PetscObjectComm((PetscObject)pc), &chol->prand));
   PetscCall(PetscRandomSetType(chol->prand, PARMGMC_ZIGGURAT));
-  chol->prand_is_initial_prand = PETSC_TRUE;
 
   PetscCall(MatGetType(pc->pmat, &type));
   PetscCall(PetscStrcmp(type, MATLRC, &flag));
@@ -229,11 +228,9 @@ static PetscErrorCode PCCholSamplerSetPetscRandom(PC pc, PetscRandom pr)
   PC_CholSampler chol = pc->data;
 
   PetscFunctionBeginUser;
-  if (chol->prand_is_initial_prand) {
-    PetscCall(PetscRandomDestroy(&chol->prand));
-    chol->prand_is_initial_prand = PETSC_FALSE;
-  }
+  PetscCall(PetscRandomDestroy(&chol->prand));
   chol->prand = pr;
+  PetscCall(PetscObjectReference((PetscObject)pr));
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 

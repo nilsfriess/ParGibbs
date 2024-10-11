@@ -59,9 +59,9 @@
 typedef struct {
   Mat         A, Asor;
   PetscRandom prand;
-  Vec         sqrtdiag; // Both include omega
+  Vec         sqrtdiag;
   PetscReal   omega;
-  PetscBool   omega_changed, prand_is_initial_prand;
+  PetscBool   omega_changed;
   MCSOR       mc;
   MatSORType  type;
   Vec         z;
@@ -84,7 +84,7 @@ static PetscErrorCode PCDestroy_Gibbs(PC pc)
   PC_Gibbs *pg = pc->data;
 
   PetscFunctionBeginUser;
-  if (pg->prand_is_initial_prand) PetscCall(PetscRandomDestroy(&pg->prand));
+  PetscCall(PetscRandomDestroy(&pg->prand));
   PetscCall(VecDestroy(&pg->sqrtdiag));
   PetscCall(MCSORDestroy(&pg->mc));
   PetscCall(VecDestroy(&pg->w));
@@ -112,7 +112,7 @@ static PetscErrorCode PCReset_Gibbs(PC pc)
     PetscCall(pg->del_scb(pg->cbctx));
     pg->del_scb = NULL;
   }
-  if (pg->prand_is_initial_prand) PetscCall(PetscRandomDestroy(&pg->prand));
+  PetscCall(PetscRandomDestroy(&pg->prand));
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
@@ -221,7 +221,6 @@ static PetscErrorCode PCSetUp_Gibbs(PC pc)
   PetscFunctionBeginUser;
   PetscCall(PetscRandomCreate(PetscObjectComm((PetscObject)pc), &pg->prand));
   PetscCall(PetscRandomSetType(pg->prand, PARMGMC_ZIGGURAT));
-  pg->prand_is_initial_prand = PETSC_TRUE;
 
   if (pc->setupcalled) {
     PetscCall(VecDestroy(&pg->sqrtS));
@@ -313,11 +312,9 @@ static PetscErrorCode PCGibbsSetPetscRandom(PC pc, PetscRandom pr)
   PC_Gibbs *pg = pc->data;
 
   PetscFunctionBeginUser;
-  if (pg->prand_is_initial_prand) {
-    PetscCall(PetscRandomDestroy(&pg->prand));
-    pg->prand_is_initial_prand = PETSC_FALSE;
-  }
+  PetscCall(PetscRandomDestroy(&pg->prand));
   pg->prand = pr;
+  PetscCall(PetscObjectReference((PetscObject)pr));
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 

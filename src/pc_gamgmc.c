@@ -170,17 +170,21 @@ static PetscErrorCode PCGAMGMC_SetUpHierarchy(PC pc)
     PetscCall(KSPGetPC(ksps, &pcs));
 
     // TODO: We just assume here that the coarse grid sampler works only on a single MPI rank, but this can be changed at runtime in GAMG.
-    //       We need to find a way to query this here.
+    // We need to find a way to query this here.
     PetscCall(PCGetType(pcs, &ptype));
     PetscCall(PetscStrcmp(ptype, PCCHOLSAMPLER, &ischol));
+    PetscCall(PCGetPetscRandom(pcs, &pr));
     if (ischol) {
       PetscCall(KSPGetOperators(ksps, &A, NULL));
       PetscCall(PetscObjectReference((PetscObject)A));
+      PetscCall(PetscObjectReference((PetscObject)pr)); // Make sure the PetscRandom object is not freed in the next step
       PetscCall(PCReset(pcs));
+      PetscCall(PetscObjectDereference((PetscObject)pr));
       PetscCall(PCCholSamplerSetIsCoarseGAMG(pcs, PETSC_TRUE));
       PetscCall(KSPSetOperators(ksps, A, A));
       PetscCall(PCSetUp(pcs));
       PetscCall(PetscObjectDereference((PetscObject)A));
+      PetscCall(PCSetPetscRandom(pcs, pr));
     }
 
     PetscCall(PCGetPetscRandom(pcs, &pr));
