@@ -13,12 +13,14 @@
 #include <petscis.h>
 #include <petscksp.h>
 #include <petsclog.h>
+#include <petscmacros.h>
 #include <petscmat.h>
 #include <petscoptions.h>
 #include <petscsftypes.h>
 #include <petscsys.h>
 #include <petscsystypes.h>
 #include <petscvec.h>
+#include <petscviewer.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
@@ -377,7 +379,6 @@ static PetscErrorCode MCSORApply_MPIAIJ(MCSOR_Ctx ctx, Vec b, Vec y)
       // Now loop over the interior nodes of the current color while waiting for the data that we need for the boundary nodes
       PetscCall(ISGetIndices(ctx->interior[color], &idxs));
       PetscCall(ISGetLocalSize(ctx->interior[color], &n));
-      gcnt = 0;
       for (PetscInt i = 0; i < n; ++i) {
         PetscReal sum = 0;
 
@@ -393,6 +394,7 @@ static PetscErrorCode MCSORApply_MPIAIJ(MCSOR_Ctx ctx, Vec b, Vec y)
       PetscCall(ISGetIndices(ctx->boundary[color], &idxs));
       PetscCall(ISGetLocalSize(ctx->boundary[color], &n));
       PetscCall(VecGetArrayRead(ctx->ghostvecs[color], &ghostarr));
+
       gcnt = 0;
       for (PetscInt i = 0; i < n; ++i) {
         PetscReal sum = 0;
@@ -614,11 +616,11 @@ PetscErrorCode MCSORSetUp(MCSOR mc)
     ctx->sor = MCSORApply_MPIAIJ;
     // If we are in overlapping-communication-and-communication mode, then we have to compute the additional splitting into the two index sets
     if (ctx->overlapping) {
-      PetscInt n, rows, nbd = 0, nint = 0;
-      IS *iss;
-      Mat Ao;
+      PetscInt        n, rows;
+      IS             *iss;
+      Mat             Ao;
       const PetscInt *ii;
-      
+
       PetscCall(MatMPIAIJGetSeqAIJ(A, NULL, &Ao, NULL));
       PetscCall(MatSeqAIJGetCSRAndMemType(Ao, &ii, NULL, NULL, NULL));
       PetscCall(MatGetSize(Ao, &rows, NULL));
@@ -627,16 +629,16 @@ PetscErrorCode MCSORSetUp(MCSOR mc)
       PetscCall(PetscCalloc1(n, &ctx->boundary));
       PetscCall(PetscCalloc1(n, &ctx->interior));
 
-      for (PetscInt color=0; color<n; ++color) {
-        PetscInt nc, cnt1=0, cnt2=0;
+      for (PetscInt color = 0; color < n; ++color) {
+        PetscInt        nc, cnt1 = 0, cnt2 = 0, nbd = 0, nint = 0;
         const PetscInt *cidxs;
-        PetscInt *bdr_idxs, *int_idxs;
+        PetscInt       *bdr_idxs, *int_idxs;
 
         PetscCall(ISGetLocalSize(iss[color], &nc));
         PetscCall(ISGetIndices(iss[color], &cidxs));
 
         // First we count how many of the indices in the current color are on the processor boundary and how many are in the interior
-        for (PetscInt i=0; i<nc; ++i) {
+        for (PetscInt i = 0; i < nc; ++i) {
           if (ii[cidxs[i] + 1] > ii[cidxs[i]]) nbd++;
           else nint++;
         }
@@ -644,13 +646,28 @@ PetscErrorCode MCSORSetUp(MCSOR mc)
         // Now we actually put them in their respective index sets
         PetscCall(PetscCalloc1(nbd, &bdr_idxs));
         PetscCall(PetscCalloc1(nint, &int_idxs));
-        for (PetscInt i=0; i<nc; ++i) {
+        for (PetscInt i = 0; i < nc; ++i) {
           if (ii[cidxs[i] + 1] > ii[cidxs[i]]) bdr_idxs[cnt1++] = cidxs[i];
           else int_idxs[cnt2++] = cidxs[i];
         }
-        PetscCall(ISCreateGeneral(MPI_COMM_SELF, nbd, bdr_idxs, PETSC_OWN_POINTER, &ctx->boundary[color]));
-        PetscCall(ISCreateGeneral(MPI_COMM_SELF, nint, int_idxs, PETSC_OWN_POINTER, &ctx->interior[color]));
+        PetscCall(ISCreateGeneral(MPI_COMM_WORLD, nbd, bdr_idxs, PETSC_OWN_POINTER, &ctx->boundary[color]));
+        PetscCall(ISCreateGeneral(MPI_COMM_WORLD, nint, int_idxs, PETSC_OWN_POINTER, &ctx->interior[color]));
 
+        if (PetscDefined(USE_DEBUG)) {
+          IS        test_is;
+          IS        color_is_copy;
+          IS        is_list[] = {ctx->boundary[color], ctx->interior[color]};
+          PetscBool equal;
+
+          PetscCall(ISConcatenate(MPI_COMM_WORLD, 2, is_list, &test_is));
+          PetscCall(ISSort(test_is));
+          PetscCall(ISDuplicate(iss[color], &color_is_copy));
+          PetscCall(ISCopy(iss[color], color_is_copy));
+          PetscCall(ISSort(color_is_copy));
+
+          PetscCall(ISEqual(color_is_copy, test_is, &equal));
+          PetscAssert(equal, MPI_COMM_WORLD, PETSC_ERR_PLIB, "Union of interior and boundary nodes is not equal to whole set of nodes");
+        }
         PetscCall(ISRestoreIndices(iss[color], &cidxs));
       }
       PetscCall(ISColoringRestoreIS(ctx->isc, PETSC_USE_POINTER, &iss));
