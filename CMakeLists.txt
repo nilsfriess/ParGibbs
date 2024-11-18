@@ -15,6 +15,9 @@ if (${PETSC_FOUND})
   message(STATUS "Found PETSc version ${PETSC_VERSION}, include dirs: ${PETSC_INCLUDE_DIRS}")
 endif()
 
+find_package(MPI REQUIRED)
+message(STATUS "mpiexec executable located at ${MPIEXEC_EXECUTABLE}")
+
 find_package(FFTW REQUIRED)
 message(STATUS ${FFTW_INCLUDE_DIRS} ${FFTW_LIBRARIES})
 if (DEFINED FFTW_INCLUDE_DIRS AND NOT DEFINED FFTW_LIBRARIES)
@@ -50,12 +53,12 @@ target_sources(parmgmc
 target_include_directories(parmgmc SYSTEM PUBLIC ${PETSC_INCLUDE_DIRS} ${FFTW_INCLUDE_DIRS})
 target_compile_options(parmgmc PRIVATE -Wall -Wextra -Wpedantic -pedantic -Wshadow -Wpointer-arith -Wcast-qual -Wstrict-prototypes -Wmissing-prototypes)
 target_compile_options(parmgmc PUBLIC ${PETSC_CFLAGS})
-target_link_libraries(parmgmc PUBLIC PkgConfig::PETSC ${FFTW_DOUBLE_LIB})
+target_link_libraries(parmgmc PUBLIC PkgConfig::PETSC ${FFTW_DOUBLE_LIB} MPI::MPI_C)
 
 add_executable(benchmark examples/benchmark/main.cc)
 target_include_directories(benchmark PRIVATE include)
 target_compile_options(benchmark PRIVATE -Wall -Wextra -Wpedantic -pedantic)
-target_link_libraries(benchmark PRIVATE parmgmc m)
+target_link_libraries(benchmark PRIVATE parmgmc m MPI::MPI_CXX MPI::MPI_C)
 
 # add_executable(test test.c)
 # target_include_directories(test PRIVATE include)
@@ -80,6 +83,7 @@ if(${mfem_FOUND})
 
   target_include_directories(benchmark SYSTEM PRIVATE ${MFEM_INCLUDE_DIRS})
   target_link_libraries(benchmark PRIVATE ${MFEM_LIBRARIES})
+  target_compile_definitions(benchmark PUBLIC PARMGMC_HAVE_MFEM)
 else()
   message(STATUS "Could not find MFEM")
 endif()
@@ -116,7 +120,7 @@ if(${PARMGMC_BUILD_DOCS})
   add_subdirectory(docs)
 endif()
 
-if(NOT DEFINED PARMGMC_BUILD_EXAMPLES)
+if(NOT DEFINED PARMGMC_BUILD_DOCS)
   set(PARMGMC_BUILD_DOCS False)
 endif()
 
