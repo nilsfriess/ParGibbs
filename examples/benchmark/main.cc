@@ -23,9 +23,8 @@
 #include "params.hh"
 #include "problem_petsc.hh"
 
-#if __has_include(<mfem.hpp>)
-  #define PARMGMC_HAVE_MFEM
-  #include "problem_mfem.hh"
+#if defined(PARMGMC_HAVE_MFEM)
+#include "problem_mfem.hh"
 #endif
 
 struct SampleCtx {
