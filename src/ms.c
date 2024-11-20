@@ -8,7 +8,6 @@
 
 #include "parmgmc/ms.h"
 #include "parmgmc/parmgmc.h"
-#include "parmgmc/pc/pc_gamgmc.h"
 
 #include <petscdm.h>
 #include <petscdmlabel.h>
@@ -302,7 +301,11 @@ static PetscErrorCode CreateMeshDefault(MPI_Comm comm, DM *dm)
   faces[0] = 4;
   PetscCall(PetscOptionsGetInt(NULL, NULL, "-box_faces", &faces[0], NULL));
   faces[1] = faces[0];
+#if PETSC_VERSION_LT(3, 21, 1)
   PetscCall(DMPlexCreateBoxMesh(comm, 2, PETSC_TRUE, faces, NULL, NULL, NULL, PETSC_TRUE, dm));
+#else
+  PetscCall(DMPlexCreateBoxMesh(comm, 2, PETSC_TRUE, faces, NULL, NULL, NULL, PETSC_TRUE, 0, PETSC_FALSE, dm));
+#endif
   PetscCall(DMSetFromOptions(*dm));
   PetscCall(DMPlexDistribute(*dm, 0, NULL, &distdm));
   if (distdm) {
